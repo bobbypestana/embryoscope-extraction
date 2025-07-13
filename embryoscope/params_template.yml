@@ -1,0 +1,38 @@
+# Embryoscope Configuration Template
+# Copy this file to params.yml and fill in your actual credentials
+
+embryoscope_credentials:
+  'Clinic Name 1':     
+    ip: '192.168.1.100'
+    login: 'YOUR_LOGIN'
+    password: 'YOUR_PASSWORD'
+    port: 4000
+    enabled: false
+  'Clinic Name 2':    
+    ip: '192.168.1.101'
+    login: 'YOUR_LOGIN'
+    password: 'YOUR_PASSWORD'
+    port: 4000
+    enabled: true
+  'Clinic Name 3':      
+    ip: '192.168.1.102'
+    login: 'YOUR_LOGIN'
+    password: 'YOUR_PASSWORD'
+    port: 4000
+    enabled: false
+
+database:
+  path: '../database/embryoscope_vila_mariana.db'
+  schema: 'embryoscope'
+
+extraction:
+  rate_limit_delay: 0.1  # seconds between requests
+  max_retries: 3
+  timeout: 30
+  batch_size: 1000
+  parallel_processing: true
+  max_workers: 3
+  token_refresh_patients: 2000  # refresh token every N patients
+  token_refresh_treatments: 5000  # refresh token every N treatments
+  log_level: INFO  # DEBUG, INFO, WARNING, ERROR
+  log_empty_responses: false  # whether to log empty embryo data responses 
