@@ -260,6 +260,12 @@ class EmbryoscopeAPIClient:
         params = {'PatientIDx': patient_idx}
         return self._make_authenticated_request("GET/transfers", params)
     
+    def get_ongoing_patients(self) -> Optional[Dict]:
+        """
+        Get all patients with ongoing treatments from the embryoscope.
+        """
+        return self._make_authenticated_request("GET/ongoingpatients")
+    
     def test_connection(self) -> bool:
         """
         Test the connection to the embryoscope API.

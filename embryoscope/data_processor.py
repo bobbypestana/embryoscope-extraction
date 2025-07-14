@@ -11,6 +11,9 @@ from datetime import datetime
 import logging
 from schema_config import get_column_mapping, get_api_structure, validate_data_type
 
+# Metadata columns to exclude from hash
+METADATA_COLUMNS = {'_location', '_extraction_timestamp', '_run_id', '_row_hash'}
+
 
 class EmbryoscopeDataProcessor:
     """Processes and flattens embryoscope data for database storage."""
@@ -39,15 +42,14 @@ class EmbryoscopeDataProcessor:
         data_str = json.dumps(data, sort_keys=True, default=str)
         return hashlib.md5(data_str.encode()).hexdigest()
     
-    def _add_metadata_columns(self, df: pd.DataFrame, extraction_timestamp: datetime, run_id: str) -> pd.DataFrame:
+    def _add_metadata_columns(self, df: pd.DataFrame, extraction_timestamp: datetime, run_id: str, data_type: str = '') -> pd.DataFrame:
         """
-        Add metadata columns to the dataframe.
-        
+        Add metadata columns to the dataframe and generate _row_hash from business columns only.
         Args:
             df: Input dataframe
             extraction_timestamp: Timestamp of extraction
             run_id: Unique run identifier
-            
+            data_type: Type of data (patients, treatments, etc.)
         Returns:
             Dataframe with metadata columns added
         """
@@ -55,7 +57,18 @@ class EmbryoscopeDataProcessor:
         df['_location'] = self.location
         df['_extraction_timestamp'] = extraction_timestamp
         df['_run_id'] = run_id
-        df['_row_hash'] = df.apply(lambda row: self._generate_row_hash(row.to_dict()), axis=1)
+        # Determine business columns for hashing
+        dtype = data_type if isinstance(data_type, str) else ''
+        if dtype:
+            db_columns = get_column_mapping(dtype).get('db_columns', [])
+            business_columns = [col for col in db_columns if col not in METADATA_COLUMNS]
+        else:
+            business_columns = [col for col in df.columns if col not in METADATA_COLUMNS]
+        def business_row_hash(row):
+            # row is a Series
+            data = {col: row[col] if col in row else None for col in business_columns}
+            return self._generate_row_hash(data)
+        df['_row_hash'] = df.apply(business_row_hash, axis=1)
         return df
     
     def process_data_generic(self, data: Dict[str, Any], data_type: str, extraction_timestamp: datetime, 
@@ -153,8 +166,8 @@ class EmbryoscopeDataProcessor:
             available_columns = [col for col in db_columns if col in df.columns]
             df = df[available_columns]
         
-        # Add metadata columns
-        df = self._add_metadata_columns(df, extraction_timestamp, run_id)
+        # Add metadata columns (now passes data_type for correct hashing)
+        df = self._add_metadata_columns(df, extraction_timestamp, run_id, str(data_type) if data_type else '')
         
         self.logger.info(f"Processed {len(df)} {data_type} records for {self.location}")
         return df

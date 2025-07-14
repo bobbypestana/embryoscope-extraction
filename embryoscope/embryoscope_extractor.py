@@ -110,9 +110,21 @@ class EmbryoscopeExtractor:
             if patients_data is None:
                 self.logger.error(f"[{clinic_name}] Failed to fetch patients data")
                 return False
-                
             patients_df = data_processor.process_patients(patients_data, extraction_timestamp, run_id)
             self.logger.info(f"[{clinic_name}] Fetched {len(patients_df)} patients from API.")
+            print(f"[{clinic_name}] Fetched {len(patients_df)} patients from API.")
+
+            # 1b. Get ongoing patients
+            self.logger.info(f"[{clinic_name}] Fetching ongoing patients from API...")
+            ongoing_patients_data = api_client.get_ongoing_patients()
+            ongoing_patient_idxs = set()
+            if ongoing_patients_data and 'Patients' in ongoing_patients_data:
+                ongoing_patient_list = ongoing_patients_data['Patients']
+                for patient in ongoing_patient_list:
+                    idx = patient.get('PatientIDx') or patient.get('PatientIdx') or patient.get('PatientID')
+                    if idx:
+                        ongoing_patient_idxs.add(str(idx))
+            self.logger.info(f"[{clinic_name}] Found {len(ongoing_patient_idxs)} ongoing patients.")
             
             # 2. Get all treatments for each patient (sequential, progress bar)
             self.logger.info(f"[{clinic_name}] Fetching all treatments from API (sequential)...")
@@ -142,6 +154,7 @@ class EmbryoscopeExtractor:
                 treatments_df = pd.DataFrame(columns=pd.Index(['PatientIDx', 'TreatmentName']))
             
             self.logger.info(f"[{clinic_name}] Fetched {len(treatments_df)} treatments from API.")
+            print(f"[{clinic_name}] Fetched {len(treatments_df)} treatments from API.")
             
             # 3. Compare with local DB to find new patient-treatment pairs
             self.logger.info(f"[{clinic_name}] Comparing with local DuckDB to find new patient-treatment pairs...")
@@ -162,7 +175,15 @@ class EmbryoscopeExtractor:
                 patient_idx, treatment_name = pair
                 embryo_data = api_client.get_embryo_data(patient_idx, treatment_name)
                 if embryo_data is None:
-                    return pd.DataFrame()
+                    # Check if patient is ongoing; if so, skip logging as missing
+                    if str(patient_idx) in ongoing_patient_idxs:
+                        self.logger.info(f"[{clinic_name}] Pair (PatientIDx={patient_idx}, TreatmentName={treatment_name}) is ongoing, will retry in future runs.")
+                        print(f"[{clinic_name}] Pair (PatientIDx={patient_idx}, TreatmentName={treatment_name}) is ongoing, will retry in future runs.")
+                        return pd.DataFrame()  # Do not treat as missing
+                    else:
+                        self.logger.warning(f"[{clinic_name}] No embryo data for pair (PatientIDx={patient_idx}, TreatmentName={treatment_name}) and patient is NOT ongoing.")
+                        print(f"[{clinic_name}] No embryo data for pair (PatientIDx={patient_idx}, TreatmentName={treatment_name}) and patient is NOT ongoing.")
+                        return pd.DataFrame()
                 return data_processor.process_embryo_data(embryo_data, patient_idx, treatment_name, extraction_timestamp, run_id)
             
             new_pairs_list = list(new_pairs)
@@ -183,16 +204,29 @@ class EmbryoscopeExtractor:
                 embryo_data_df = pd.DataFrame()
             
             self.logger.info(f"[{clinic_name}] Fetched {len(embryo_data_df)} embryo data records from API.")
+            print(f"[{clinic_name}] Fetched {len(embryo_data_df)} embryo data records from API.")
+            
+            # 4b. Fetch IDA score data for the clinic
+            self.logger.info(f"[{clinic_name}] Fetching IDA score data from API...")
+            idascore_data = api_client.get_idascore()
+            if idascore_data is not None:
+                idascore_df = data_processor.process_idascore(idascore_data, extraction_timestamp, run_id)
+            else:
+                idascore_df = pd.DataFrame()
+            self.logger.info(f"[{clinic_name}] Fetched {len(idascore_df)} IDA score records from API.")
+            print(f"[{clinic_name}] Fetched {len(idascore_df)} IDA score records from API.")
             
             # 5. Save all data incrementally
             self.logger.info(f"[{clinic_name}] Saving data to DuckDB...")
             data_to_save = {
                 'patients': patients_df,
                 'treatments': treatments_df,
-                'embryo_data': embryo_data_df
+                'embryo_data': embryo_data_df,
+                'idascore': idascore_df
             }
             row_counts = db_manager.save_data(data_to_save, clinic_name, run_id, extraction_timestamp)
             self.logger.info(f"[{clinic_name}] Saved data to {db_path}: {row_counts}")
+            print(f"[{clinic_name}] Saved data to {db_path}: {row_counts}")
             self.logger.info(f"[{clinic_name}] Extraction complete.")
             
             return True

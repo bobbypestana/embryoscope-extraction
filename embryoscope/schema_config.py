@@ -77,7 +77,7 @@ COLUMN_MAPPINGS = {
         'db_columns': ['PatientIDx', 'Name', 'BirthDate'],
         'transformations': {
             'Name': lambda row: f"{row.get('FirstName', '')} {row.get('LastName', '')}".strip(),
-            'BirthDate': lambda row: row.get('DateOfBirth', '').replace('.', '-') if row.get('DateOfBirth') else None
+            'BirthDate': lambda row: row.get('DateOfBirth', '').replace('.', '-') if isinstance(row.get('DateOfBirth', ''), str) else None
         }
     },
     'treatments': {
@@ -99,26 +99,26 @@ COLUMN_MAPPINGS = {
         'transformations': {
             'PatientIDx': lambda row, patient_idx: patient_idx,
             'TreatmentName': lambda row, treatment_name: treatment_name,
-            'AnnotationList': lambda row: json.dumps(row.get('AnnotationList', [])) if row.get('AnnotationList') else None,
-            'InstrumentNumber': lambda row: row.get('EmbryoDetails', {}).get('InstrumentNumber'),
-            'Position': lambda row: row.get('EmbryoDetails', {}).get('Position'),
-            'WellNumber': lambda row: row.get('EmbryoDetails', {}).get('WellNumber'),
-            'FertilizationTime': lambda row: row.get('EmbryoDetails', {}).get('FertilizationTime'),
-            'EmbryoFate': lambda row: row.get('EmbryoDetails', {}).get('EmbryoFate'),
-            'Description': lambda row: row.get('EmbryoDetails', {}).get('Description'),
-            'EmbryoDescriptionID': lambda row: row.get('EmbryoDetails', {}).get('EmbryoDescriptionID'),
-            'EvaluationModel': lambda row: row.get('Evaluation', {}).get('Model'),
-            'EvaluationScore': lambda row: row.get('Evaluation', {}).get('Evaluation'),
-            'EvaluationUser': lambda row: row.get('Evaluation', {}).get('User'),
-            'EvaluationDate': lambda row: row.get('Evaluation', {}).get('EvaluationDate')
+            'AnnotationList': lambda row: json.dumps(row.get('AnnotationList', [])) if isinstance(row.get('AnnotationList', []), (list, dict)) else None,
+            'InstrumentNumber': lambda row: row.get('EmbryoDetails', {}).get('InstrumentNumber') if isinstance(row.get('EmbryoDetails', {}), dict) else None,
+            'Position': lambda row: row.get('EmbryoDetails', {}).get('Position') if isinstance(row.get('EmbryoDetails', {}), dict) else None,
+            'WellNumber': lambda row: row.get('EmbryoDetails', {}).get('WellNumber') if isinstance(row.get('EmbryoDetails', {}), dict) else None,
+            'FertilizationTime': lambda row: row.get('EmbryoDetails', {}).get('FertilizationTime') if isinstance(row.get('EmbryoDetails', {}), dict) else None,
+            'EmbryoFate': lambda row: row.get('EmbryoDetails', {}).get('EmbryoFate') if isinstance(row.get('EmbryoDetails', {}), dict) else None,
+            'Description': lambda row: row.get('EmbryoDetails', {}).get('Description') if isinstance(row.get('EmbryoDetails', {}), dict) else None,
+            'EmbryoDescriptionID': lambda row: row.get('EmbryoDetails', {}).get('EmbryoDescriptionID') if isinstance(row.get('EmbryoDetails', {}), dict) else None,
+            'EvaluationModel': lambda row: row.get('Evaluation', {}).get('Model') if isinstance(row.get('Evaluation', {}), dict) else None,
+            'EvaluationScore': lambda row: row.get('Evaluation', {}).get('Evaluation') if isinstance(row.get('Evaluation', {}), dict) else None,
+            'EvaluationUser': lambda row: row.get('Evaluation', {}).get('User') if isinstance(row.get('Evaluation', {}), dict) else None,
+            'EvaluationDate': lambda row: row.get('Evaluation', {}).get('EvaluationDate') if isinstance(row.get('Evaluation', {}), dict) else None
         }
     },
     'idascore': {
         'api_fields': ['EmbryoID', 'Score', 'Viability'],
         'db_columns': ['EmbryoID', 'Score', 'Viability'],
         'transformations': {
-            'Score': lambda row: float(row.get('Score', 0)) if row.get('Score') else None,
-            'Viability': lambda row: row.get('Viability')
+            'Score': lambda row: float(row.get('Score', 0)) if isinstance(row.get('Score', 0), (int, float, str)) and row.get('Score') not in [None, ''] else None,
+            'Viability': lambda row: row.get('Viability') if isinstance(row.get('Viability', None), str) else None
         }
     }
 }
