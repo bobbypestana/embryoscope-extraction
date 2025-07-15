@@ -14,6 +14,18 @@ import json
 from schema_config import get_table_schema, get_supported_data_types, validate_data_type
 
 
+def check_db_lock(db_path):
+    """Check if the DuckDB file can be opened (not locked by another process)."""
+    import duckdb
+    try:
+        conn = duckdb.connect(db_path)
+        conn.close()
+        return True
+    except Exception as e:
+        print(f"ERROR: Cannot open database file '{db_path}'. It may be locked by another process.\nDetails: {e}")
+        return False
+
+
 class EmbryoscopeDatabaseManager:
     """Manages DuckDB database operations for embryoscope data."""
     
@@ -32,6 +44,10 @@ class EmbryoscopeDatabaseManager:
         # Ensure database directory exists
         os.makedirs(os.path.dirname(db_path), exist_ok=True)
         
+        # Check for DB lock before proceeding
+        if not check_db_lock(db_path):
+            raise RuntimeError(f"Database file '{db_path}' is locked. Please close all other processes using this file and try again.")
+        
         # Initialize database
         self._init_database()
     
@@ -39,13 +55,11 @@ class EmbryoscopeDatabaseManager:
         """Initialize database schema and tables."""
         try:
             with duckdb.connect(self.db_path) as conn:
-                # Create schema if not exists
-                conn.execute(f"CREATE SCHEMA IF NOT EXISTS {self.schema}")
-                
-                # Create metadata tables
+                # Only create bronze schema
+                conn.execute(f"CREATE SCHEMA IF NOT EXISTS bronze")
+                # Create metadata tables (default schema)
                 self._create_metadata_tables(conn)
-                
-                # Create data tables
+                # Create data tables (default schema)
                 self._create_data_tables(conn)
         except Exception as e:
             if "being used by another process" in str(e):
@@ -54,22 +68,20 @@ class EmbryoscopeDatabaseManager:
                 import time
                 time.sleep(2)
                 with duckdb.connect(self.db_path) as conn:
-                    # Create schema if not exists
-                    conn.execute(f"CREATE SCHEMA IF NOT EXISTS {self.schema}")
-                    
-                    # Create metadata tables
+                    # Only create bronze schema
+                    conn.execute(f"CREATE SCHEMA IF NOT EXISTS bronze")
+                    # Create metadata tables (default schema)
                     self._create_metadata_tables(conn)
-                    
-                    # Create data tables
+                    # Create data tables (default schema)
                     self._create_data_tables(conn)
             else:
                 raise
     
     def _create_metadata_tables(self, conn):
         """Create metadata tables for tracking extractions."""
-        # View metadata table
+        # Remove schema from table names
         conn.execute(f"""
-            CREATE TABLE IF NOT EXISTS {self.schema}.view_metadata (
+            CREATE TABLE IF NOT EXISTS view_metadata (
                 view_name VARCHAR PRIMARY KEY,
                 location VARCHAR,
                 last_extraction_timestamp TIMESTAMP,
@@ -85,14 +97,13 @@ class EmbryoscopeDatabaseManager:
         
         # Incremental runs table
         conn.execute(f"""
-            CREATE TABLE IF NOT EXISTS {self.schema}.incremental_runs (
+            CREATE TABLE IF NOT EXISTS incremental_runs (
                 run_id VARCHAR PRIMARY KEY,
                 location VARCHAR,
                 extraction_timestamp TIMESTAMP,
                 total_views INTEGER,
                 full_extractions INTEGER,
                 incremental_extractions INTEGER,
-                skipped_views INTEGER,
                 total_rows_processed INTEGER,
                 processing_time_seconds REAL,
                 status VARCHAR,
@@ -102,7 +113,7 @@ class EmbryoscopeDatabaseManager:
         
         # Row changes table
         conn.execute(f"""
-            CREATE TABLE IF NOT EXISTS {self.schema}.row_changes (
+            CREATE TABLE IF NOT EXISTS row_changes (
                 view_name VARCHAR,
                 location VARCHAR,
                 row_hash VARCHAR,
@@ -129,23 +140,95 @@ class EmbryoscopeDatabaseManager:
             primary_key_sql = ', '.join(primary_key)
             
             create_sql = f"""
-                CREATE TABLE IF NOT EXISTS {self.schema}.data_{data_type} (
+                CREATE TABLE IF NOT EXISTS data_{data_type} (
                     {columns_sql},
                     PRIMARY KEY ({primary_key_sql})
                 )
             """
             
             conn.execute(create_sql)
-            self.logger.debug(f"Created/verified table: {self.schema}.data_{data_type}")
+            self.logger.debug(f"Created/verified table: data_{data_type}")
+    
+    def _create_bronze_tables(self, conn):
+        """Create bronze (raw) tables for each data type."""
+        bronze_schema = 'bronze'
+        conn.execute(f"CREATE SCHEMA IF NOT EXISTS {bronze_schema}")
+        # Table definitions for each data type
+        bronze_defs = {
+            'patients': ['PatientIDx VARCHAR', 'raw_json TEXT', '_extraction_timestamp TIMESTAMP', '_run_id VARCHAR', '_location VARCHAR', '_row_hash VARCHAR'],
+            'treatments': ['PatientIDx VARCHAR', 'TreatmentName VARCHAR', 'raw_json TEXT', '_extraction_timestamp TIMESTAMP', '_run_id VARCHAR', '_location VARCHAR', '_row_hash VARCHAR'],
+            'embryo_data': ['EmbryoID VARCHAR', 'PatientIDx VARCHAR', 'TreatmentName VARCHAR', 'raw_json TEXT', '_extraction_timestamp TIMESTAMP', '_run_id VARCHAR', '_location VARCHAR', '_row_hash VARCHAR'],
+            'idascore': ['EmbryoID VARCHAR', 'raw_json TEXT', '_extraction_timestamp TIMESTAMP', '_run_id VARCHAR', '_location VARCHAR', '_row_hash VARCHAR'],
+        }
+        for data_type, columns in bronze_defs.items():
+            table = f"{bronze_schema}.raw_{data_type}"
+            columns_sql = ', '.join(columns)
+            conn.execute(f"CREATE TABLE IF NOT EXISTS {table} ({columns_sql})")
+
+    def save_bronze_raw(self, data_type: str, records: list, extraction_timestamp, run_id, location):
+        """Save raw records to bronze layer, deduplicated by business key + hash."""
+        bronze_schema = 'bronze'
+        table = f"{bronze_schema}.raw_{data_type}"
+        if not records:
+            return 0
+        # Determine business keys
+        if data_type == 'patients':
+            key_fields = ['PatientIDx']
+        elif data_type == 'treatments':
+            key_fields = ['PatientIDx', 'TreatmentName']
+        elif data_type == 'embryo_data':
+            key_fields = ['EmbryoID', 'PatientIDx', 'TreatmentName']
+        elif data_type == 'idascore':
+            key_fields = ['EmbryoID']
+        else:
+            raise ValueError(f"Unknown data_type: {data_type}")
+        # Prepare DataFrame
+        import hashlib, json
+        rows = []
+        for rec in records:
+            # rec is a dict with all fields from API
+            raw_json = json.dumps(rec, default=str)
+            row_hash = hashlib.md5(raw_json.encode()).hexdigest()
+            row = {k: rec.get(k, None) for k in key_fields}
+            row['raw_json'] = raw_json
+            row['_extraction_timestamp'] = extraction_timestamp
+            row['_run_id'] = run_id
+            row['_location'] = location
+            row['_row_hash'] = row_hash
+            rows.append(row)
+        import pandas as pd
+        df = pd.DataFrame(rows)
+        # Deduplicate: only insert if (business key + hash) not already present
+        with duckdb.connect(self.db_path) as conn:
+            self._create_bronze_tables(conn)
+            # Build where clause for deduplication
+            if not df.empty:
+                # Compose a unique key for deduplication
+                key_cols = key_fields + ['_row_hash']
+                # Find existing hashes
+                where_clauses = [f"{k} = ?" for k in key_fields]
+                select_sql = f"SELECT {', '.join(key_fields)}, _row_hash FROM {table} WHERE _location = ?"
+                existing = conn.execute(select_sql, [location]).fetchall()
+                existing_set = set(tuple(row[:len(key_fields)] + (row[-1],)) for row in existing)
+                # Only keep new/changed
+                def is_new(row):
+                    return tuple(row[k] for k in key_fields) + (row['_row_hash'],) not in existing_set
+                df_new = df[df.apply(is_new, axis=1)]
+                if not df_new.empty:
+                    conn.register('df_new', df_new)
+                    conn.execute(f"INSERT INTO {table} SELECT * FROM df_new")
+                    conn.unregister('df_new')
+                return len(df_new)
+            return 0
     
     def _get_table_name(self, data_type: str) -> str:
         """Get the table name for a data type."""
-        return f"{self.schema}.data_{data_type}"
+        return f"data_{data_type}"
     
     def _get_view_metadata(self, conn, view_name: str, location: str) -> Optional[Dict[str, Any]]:
         """Get metadata for a specific view and location."""
         result = conn.execute(f"""
-            SELECT * FROM {self.schema}.view_metadata 
+            SELECT * FROM view_metadata 
             WHERE view_name = ? AND location = ?
         """, [view_name, location]).fetchone()
         
@@ -157,7 +240,7 @@ class EmbryoscopeDatabaseManager:
     def _update_view_metadata(self, conn, view_name: str, location: str, metadata: Dict[str, Any]):
         """Update metadata for a specific view and location."""
         conn.execute(f"""
-            INSERT OR REPLACE INTO {self.schema}.view_metadata 
+            INSERT OR REPLACE INTO view_metadata 
             (view_name, location, last_extraction_timestamp, last_row_count, last_data_hash, 
              change_detection_method, extraction_strategy, batch_size, parallel_processing, updated_at)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
@@ -197,7 +280,7 @@ class EmbryoscopeDatabaseManager:
             return 0
         
         # Get existing hashes
-        existing_hashes = self._get_existing_hashes(conn, table_name, location)
+        existing_hashes = list(self._get_existing_hashes(conn, table_name, location))
         
         # Filter for new/changed rows
         new_rows = df[~df['_row_hash'].isin(existing_hashes)]
@@ -360,7 +443,7 @@ class EmbryoscopeDatabaseManager:
         with duckdb.connect(self.db_path) as conn:
             if location:
                 query = f"""
-                    SELECT * FROM {self.schema}.incremental_runs
+                    SELECT * FROM incremental_runs
                     WHERE location = ?
                     ORDER BY extraction_timestamp DESC
                     LIMIT ?
@@ -368,7 +451,7 @@ class EmbryoscopeDatabaseManager:
                 return conn.execute(query, [location, limit]).df()
             else:
                 query = f"""
-                    SELECT * FROM {self.schema}.incremental_runs
+                    SELECT * FROM incremental_runs
                     ORDER BY extraction_timestamp DESC
                     LIMIT ?
                 """
