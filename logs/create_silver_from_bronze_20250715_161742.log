@@ -1,0 +1,58 @@
+2025-07-15 16:17:42,468 - create_silver_from_bronze - INFO - [embryoscope_brasilia.db] Starting processing.
+2025-07-15 16:17:42,473 - create_silver_from_bronze - INFO - [embryoscope_brasilia.db] Processing patients table.
+2025-07-15 16:17:42,527 - create_silver_from_bronze - INFO - [embryoscope_brasilia.db] Reading patients with query: SELECT raw_json FROM bronze.raw_patients
+2025-07-15 16:17:42,538 - create_silver_from_bronze - INFO - [embryoscope_brasilia.db] Read 1674 rows from bronze.raw_patients.
+2025-07-15 16:17:42,574 - create_silver_from_bronze - INFO - [embryoscope_brasilia.db] Flattened to 1674 patient records.
+2025-07-15 16:17:42,579 - create_silver_from_bronze - INFO - [embryoscope_brasilia.db] Saving patients to table: silver.patients.
+2025-07-15 16:17:42,746 - create_silver_from_bronze - INFO - [embryoscope_brasilia.db] silver.patients creation complete.
+2025-07-15 16:17:42,748 - create_silver_from_bronze - INFO - [embryoscope_brasilia.db] Processing treatments table.
+2025-07-15 16:17:42,942 - create_silver_from_bronze - INFO - [embryoscope_brasilia.db] Reading treatments with query: SELECT raw_json FROM bronze.raw_treatments
+2025-07-15 16:17:42,945 - create_silver_from_bronze - INFO - [embryoscope_brasilia.db] Read 2261 rows from bronze.raw_treatments.
+2025-07-15 16:17:42,986 - create_silver_from_bronze - INFO - [embryoscope_brasilia.db] Parsed 2261 treatment records.
+2025-07-15 16:17:42,986 - create_silver_from_bronze - INFO - [embryoscope_brasilia.db] Saving treatments to table: silver.treatments.
+2025-07-15 16:17:43,155 - create_silver_from_bronze - INFO - [embryoscope_brasilia.db] silver.treatments creation complete.
+2025-07-15 16:17:43,156 - create_silver_from_bronze - INFO - [embryoscope_brasilia.db] Processing idascore table.
+2025-07-15 16:17:43,353 - create_silver_from_bronze - INFO - [embryoscope_brasilia.db] Reading idascore with query: SELECT raw_json FROM bronze.raw_idascore
+2025-07-15 16:17:43,353 - create_silver_from_bronze - INFO - [embryoscope_brasilia.db] Read 0 rows from bronze.raw_idascore.
+2025-07-15 16:17:43,353 - create_silver_from_bronze - INFO - [embryoscope_brasilia.db] Parsed 0 idascore records.
+2025-07-15 16:17:43,353 - create_silver_from_bronze - WARNING - [embryoscope_brasilia.db] No idascore records found.
+2025-07-15 16:17:43,353 - create_silver_from_bronze - INFO - [embryoscope_brasilia.db] Finished processing.
+2025-07-15 16:17:43,353 - create_silver_from_bronze - INFO - [embryoscope_vila_mariana.db] Starting processing.
+2025-07-15 16:17:43,353 - create_silver_from_bronze - INFO - [embryoscope_vila_mariana.db] Processing patients table.
+2025-07-15 16:17:43,417 - create_silver_from_bronze - INFO - [embryoscope_vila_mariana.db] Reading patients with query: SELECT raw_json FROM bronze.raw_patients
+2025-07-15 16:17:43,420 - create_silver_from_bronze - INFO - [embryoscope_vila_mariana.db] Read 2652 rows from bronze.raw_patients.
+2025-07-15 16:17:43,472 - create_silver_from_bronze - INFO - [embryoscope_vila_mariana.db] Flattened to 2652 patient records.
+2025-07-15 16:17:43,476 - create_silver_from_bronze - INFO - [embryoscope_vila_mariana.db] Saving patients to table: silver.patients.
+2025-07-15 16:17:43,687 - create_silver_from_bronze - INFO - [embryoscope_vila_mariana.db] silver.patients creation complete.
+2025-07-15 16:17:43,687 - create_silver_from_bronze - INFO - [embryoscope_vila_mariana.db] Processing treatments table.
+2025-07-15 16:17:43,893 - create_silver_from_bronze - INFO - [embryoscope_vila_mariana.db] Reading treatments with query: SELECT raw_json FROM bronze.raw_treatments
+2025-07-15 16:17:43,893 - create_silver_from_bronze - INFO - [embryoscope_vila_mariana.db] Read 3526 rows from bronze.raw_treatments.
+2025-07-15 16:17:43,977 - create_silver_from_bronze - INFO - [embryoscope_vila_mariana.db] Parsed 3526 treatment records.
+2025-07-15 16:17:43,981 - create_silver_from_bronze - INFO - [embryoscope_vila_mariana.db] Saving treatments to table: silver.treatments.
+2025-07-15 16:17:44,238 - create_silver_from_bronze - INFO - [embryoscope_vila_mariana.db] silver.treatments creation complete.
+2025-07-15 16:17:44,239 - create_silver_from_bronze - INFO - [embryoscope_vila_mariana.db] Processing idascore table.
+2025-07-15 16:17:44,421 - create_silver_from_bronze - INFO - [embryoscope_vila_mariana.db] Reading idascore with query: SELECT raw_json FROM bronze.raw_idascore
+2025-07-15 16:17:44,430 - create_silver_from_bronze - INFO - [embryoscope_vila_mariana.db] Read 9521 rows from bronze.raw_idascore.
+2025-07-15 16:17:44,677 - create_silver_from_bronze - INFO - [embryoscope_vila_mariana.db] Parsed 9521 idascore records.
+2025-07-15 16:17:44,689 - create_silver_from_bronze - INFO - [embryoscope_vila_mariana.db] Saving idascore to table: silver.idascore.
+2025-07-15 16:17:44,940 - create_silver_from_bronze - INFO - [embryoscope_vila_mariana.db] silver.idascore creation complete.
+2025-07-15 16:17:44,944 - create_silver_from_bronze - INFO - [embryoscope_vila_mariana.db] Finished processing.
+2025-07-15 16:17:44,944 - create_silver_from_bronze - INFO - [embryoscope_ibirapuera.db] Starting processing.
+2025-07-15 16:17:44,945 - create_silver_from_bronze - INFO - [embryoscope_ibirapuera.db] Processing patients table.
+2025-07-15 16:17:45,113 - create_silver_from_bronze - INFO - [embryoscope_ibirapuera.db] Reading patients with query: SELECT raw_json FROM bronze.raw_patients
+2025-07-15 16:17:45,117 - create_silver_from_bronze - INFO - [embryoscope_ibirapuera.db] Read 5264 rows from bronze.raw_patients.
+2025-07-15 16:17:45,226 - create_silver_from_bronze - INFO - [embryoscope_ibirapuera.db] Flattened to 5264 patient records.
+2025-07-15 16:17:45,227 - create_silver_from_bronze - INFO - [embryoscope_ibirapuera.db] Saving patients to table: silver.patients.
+2025-07-15 16:17:45,432 - create_silver_from_bronze - INFO - [embryoscope_ibirapuera.db] silver.patients creation complete.
+2025-07-15 16:17:45,437 - create_silver_from_bronze - INFO - [embryoscope_ibirapuera.db] Processing treatments table.
+2025-07-15 16:17:45,756 - create_silver_from_bronze - INFO - [embryoscope_ibirapuera.db] Reading treatments with query: SELECT raw_json FROM bronze.raw_treatments
+2025-07-15 16:17:45,756 - create_silver_from_bronze - INFO - [embryoscope_ibirapuera.db] Read 7981 rows from bronze.raw_treatments.
+2025-07-15 16:17:45,922 - create_silver_from_bronze - INFO - [embryoscope_ibirapuera.db] Parsed 7981 treatment records.
+2025-07-15 16:17:45,922 - create_silver_from_bronze - INFO - [embryoscope_ibirapuera.db] Saving treatments to table: silver.treatments.
+2025-07-15 16:17:46,162 - create_silver_from_bronze - INFO - [embryoscope_ibirapuera.db] silver.treatments creation complete.
+2025-07-15 16:17:46,172 - create_silver_from_bronze - INFO - [embryoscope_ibirapuera.db] Processing idascore table.
+2025-07-15 16:17:46,382 - create_silver_from_bronze - INFO - [embryoscope_ibirapuera.db] Reading idascore with query: SELECT raw_json FROM bronze.raw_idascore
+2025-07-15 16:17:46,383 - create_silver_from_bronze - INFO - [embryoscope_ibirapuera.db] Read 0 rows from bronze.raw_idascore.
+2025-07-15 16:17:46,384 - create_silver_from_bronze - INFO - [embryoscope_ibirapuera.db] Parsed 0 idascore records.
+2025-07-15 16:17:46,384 - create_silver_from_bronze - WARNING - [embryoscope_ibirapuera.db] No idascore records found.
+2025-07-15 16:17:46,387 - create_silver_from_bronze - INFO - [embryoscope_ibirapuera.db] Finished processing.

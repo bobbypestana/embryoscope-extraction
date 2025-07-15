@@ -1,0 +1,115 @@
+2025-07-15 15:57:57,422 INFO:Starting processing for G:\My Drive\projetos_individuais\Huntington\database\embryoscope_brasilia.db
+2025-07-15 15:57:57,422 INFO:Processing database: G:\My Drive\projetos_individuais\Huntington\database\embryoscope_brasilia.db
+2025-07-15 15:57:57,514 INFO:Reading patients with query: SELECT raw_json FROM bronze.raw_patients
+2025-07-15 15:57:57,517 INFO:Read 1674 rows from bronze.raw_patients in G:\My Drive\projetos_individuais\Huntington\database\embryoscope_brasilia.db
+2025-07-15 15:57:57,555 INFO:Flattened to 0 patient records in G:\My Drive\projetos_individuais\Huntington\database\embryoscope_brasilia.db
+2025-07-15 15:57:57,555 WARNING:No patients found in G:\My Drive\projetos_individuais\Huntington\database\embryoscope_brasilia.db
+2025-07-15 15:57:57,555 INFO:Processing treatments for database: G:\My Drive\projetos_individuais\Huntington\database\embryoscope_brasilia.db
+2025-07-15 15:57:57,596 INFO:Reading treatments with query: SELECT raw_json FROM bronze.raw_treatments
+2025-07-15 15:57:57,602 INFO:Read 2261 rows from bronze.raw_treatments in G:\My Drive\projetos_individuais\Huntington\database\embryoscope_brasilia.db
+2025-07-15 15:57:57,651 INFO:Parsed 2261 treatment records in G:\My Drive\projetos_individuais\Huntington\database\embryoscope_brasilia.db
+2025-07-15 15:57:57,654 INFO:Saving treatments to table: silver.treatments in G:\My Drive\projetos_individuais\Huntington\database\embryoscope_brasilia.db
+2025-07-15 15:57:57,757 INFO:Successfully processed treatments for G:\My Drive\projetos_individuais\Huntington\database\embryoscope_brasilia.db
+2025-07-15 15:57:57,757 INFO:Finished processing for G:\My Drive\projetos_individuais\Huntington\database\embryoscope_brasilia.db
+2025-07-15 15:57:57,757 INFO:Starting processing for G:\My Drive\projetos_individuais\Huntington\database\embryoscope_vila_mariana.db
+2025-07-15 15:57:57,769 INFO:Processing database: G:\My Drive\projetos_individuais\Huntington\database\embryoscope_vila_mariana.db
+2025-07-15 15:57:57,823 INFO:Reading patients with query: SELECT raw_json FROM bronze.raw_patients
+2025-07-15 15:57:57,827 INFO:Read 2652 rows from bronze.raw_patients in G:\My Drive\projetos_individuais\Huntington\database\embryoscope_vila_mariana.db
+2025-07-15 15:57:57,937 INFO:Flattened to 0 patient records in G:\My Drive\projetos_individuais\Huntington\database\embryoscope_vila_mariana.db
+2025-07-15 15:57:57,938 WARNING:No patients found in G:\My Drive\projetos_individuais\Huntington\database\embryoscope_vila_mariana.db
+2025-07-15 15:57:57,941 INFO:Processing treatments for database: G:\My Drive\projetos_individuais\Huntington\database\embryoscope_vila_mariana.db
+2025-07-15 15:57:57,975 INFO:Reading treatments with query: SELECT raw_json FROM bronze.raw_treatments
+2025-07-15 15:57:57,978 INFO:Read 3526 rows from bronze.raw_treatments in G:\My Drive\projetos_individuais\Huntington\database\embryoscope_vila_mariana.db
+2025-07-15 15:57:58,092 INFO:Parsed 3526 treatment records in G:\My Drive\projetos_individuais\Huntington\database\embryoscope_vila_mariana.db
+2025-07-15 15:57:58,094 INFO:Saving treatments to table: silver.treatments in G:\My Drive\projetos_individuais\Huntington\database\embryoscope_vila_mariana.db
+2025-07-15 15:57:58,354 INFO:Successfully processed treatments for G:\My Drive\projetos_individuais\Huntington\database\embryoscope_vila_mariana.db
+2025-07-15 15:57:58,354 INFO:Finished processing for G:\My Drive\projetos_individuais\Huntington\database\embryoscope_vila_mariana.db
+2025-07-15 15:57:58,354 INFO:Starting processing for G:\My Drive\projetos_individuais\Huntington\database\embryoscope_ibirapuera.db
+2025-07-15 15:57:58,354 INFO:Processing database: G:\My Drive\projetos_individuais\Huntington\database\embryoscope_ibirapuera.db
+2025-07-15 15:57:58,605 ERROR:Failed to process G:\My Drive\projetos_individuais\Huntington\database\embryoscope_ibirapuera.db: IO Error: Cannot open file "g:\my drive\projetos_individuais\huntington\database\embryoscope_ibirapuera.db": The process cannot access the file because it is being used by another process.
+
+File is already open in 
+C:\Users\FilipeFurlanBellotti\anaconda3\envs\try_request\python.exe (PID 33936)
+2025-07-15 15:57:58,606 INFO:Processing treatments for database: G:\My Drive\projetos_individuais\Huntington\database\embryoscope_ibirapuera.db
+2025-07-15 15:57:58,848 ERROR:Failed to process treatments for G:\My Drive\projetos_individuais\Huntington\database\embryoscope_ibirapuera.db: IO Error: Cannot open file "g:\my drive\projetos_individuais\huntington\database\embryoscope_ibirapuera.db": The process cannot access the file because it is being used by another process.
+
+File is already open in 
+C:\Users\FilipeFurlanBellotti\anaconda3\envs\try_request\python.exe (PID 33936)
+2025-07-15 15:57:58,849 INFO:Finished processing for G:\My Drive\projetos_individuais\Huntington\database\embryoscope_ibirapuera.db
+2025-07-15 15:59:19,450 INFO:Starting processing for G:\My Drive\projetos_individuais\Huntington\database\embryoscope_brasilia.db
+2025-07-15 15:59:19,455 INFO:Processing database: G:\My Drive\projetos_individuais\Huntington\database\embryoscope_brasilia.db
+2025-07-15 15:59:19,510 INFO:Reading patients with query: SELECT raw_json FROM bronze.raw_patients
+2025-07-15 15:59:19,514 INFO:Read 1674 rows from bronze.raw_patients in G:\My Drive\projetos_individuais\Huntington\database\embryoscope_brasilia.db
+2025-07-15 15:59:19,552 INFO:Flattened to 0 patient records in G:\My Drive\projetos_individuais\Huntington\database\embryoscope_brasilia.db
+2025-07-15 15:59:19,552 WARNING:No patients found in G:\My Drive\projetos_individuais\Huntington\database\embryoscope_brasilia.db
+2025-07-15 15:59:19,557 INFO:Processing treatments for database: G:\My Drive\projetos_individuais\Huntington\database\embryoscope_brasilia.db
+2025-07-15 15:59:19,591 INFO:Reading treatments with query: SELECT raw_json FROM bronze.raw_treatments
+2025-07-15 15:59:19,591 INFO:Read 2261 rows from bronze.raw_treatments in G:\My Drive\projetos_individuais\Huntington\database\embryoscope_brasilia.db
+2025-07-15 15:59:19,656 INFO:Parsed 2261 treatment records in G:\My Drive\projetos_individuais\Huntington\database\embryoscope_brasilia.db
+2025-07-15 15:59:19,656 INFO:Saving treatments to table: silver.treatments in G:\My Drive\projetos_individuais\Huntington\database\embryoscope_brasilia.db
+2025-07-15 15:59:19,819 INFO:Successfully processed treatments for G:\My Drive\projetos_individuais\Huntington\database\embryoscope_brasilia.db
+2025-07-15 15:59:19,820 INFO:Finished processing for G:\My Drive\projetos_individuais\Huntington\database\embryoscope_brasilia.db
+2025-07-15 15:59:19,820 INFO:Starting processing for G:\My Drive\projetos_individuais\Huntington\database\embryoscope_vila_mariana.db
+2025-07-15 15:59:19,820 INFO:Processing database: G:\My Drive\projetos_individuais\Huntington\database\embryoscope_vila_mariana.db
+2025-07-15 15:59:19,868 INFO:Reading patients with query: SELECT raw_json FROM bronze.raw_patients
+2025-07-15 15:59:19,871 INFO:Read 2652 rows from bronze.raw_patients in G:\My Drive\projetos_individuais\Huntington\database\embryoscope_vila_mariana.db
+2025-07-15 15:59:19,945 INFO:Flattened to 0 patient records in G:\My Drive\projetos_individuais\Huntington\database\embryoscope_vila_mariana.db
+2025-07-15 15:59:19,945 WARNING:No patients found in G:\My Drive\projetos_individuais\Huntington\database\embryoscope_vila_mariana.db
+2025-07-15 15:59:19,949 INFO:Processing treatments for database: G:\My Drive\projetos_individuais\Huntington\database\embryoscope_vila_mariana.db
+2025-07-15 15:59:19,991 INFO:Reading treatments with query: SELECT raw_json FROM bronze.raw_treatments
+2025-07-15 15:59:19,992 INFO:Read 3526 rows from bronze.raw_treatments in G:\My Drive\projetos_individuais\Huntington\database\embryoscope_vila_mariana.db
+2025-07-15 15:59:20,075 INFO:Parsed 3526 treatment records in G:\My Drive\projetos_individuais\Huntington\database\embryoscope_vila_mariana.db
+2025-07-15 15:59:20,078 INFO:Saving treatments to table: silver.treatments in G:\My Drive\projetos_individuais\Huntington\database\embryoscope_vila_mariana.db
+2025-07-15 15:59:20,514 INFO:Successfully processed treatments for G:\My Drive\projetos_individuais\Huntington\database\embryoscope_vila_mariana.db
+2025-07-15 15:59:20,515 INFO:Finished processing for G:\My Drive\projetos_individuais\Huntington\database\embryoscope_vila_mariana.db
+2025-07-15 15:59:20,515 INFO:Starting processing for G:\My Drive\projetos_individuais\Huntington\database\embryoscope_ibirapuera.db
+2025-07-15 15:59:20,515 INFO:Processing database: G:\My Drive\projetos_individuais\Huntington\database\embryoscope_ibirapuera.db
+2025-07-15 15:59:20,746 ERROR:Failed to process G:\My Drive\projetos_individuais\Huntington\database\embryoscope_ibirapuera.db: IO Error: Cannot open file "g:\my drive\projetos_individuais\huntington\database\embryoscope_ibirapuera.db": The process cannot access the file because it is being used by another process.
+
+File is already open in 
+C:\Users\FilipeFurlanBellotti\anaconda3\envs\try_request\python.exe (PID 33936)
+2025-07-15 15:59:20,746 INFO:Processing treatments for database: G:\My Drive\projetos_individuais\Huntington\database\embryoscope_ibirapuera.db
+2025-07-15 15:59:20,955 ERROR:Failed to process treatments for G:\My Drive\projetos_individuais\Huntington\database\embryoscope_ibirapuera.db: IO Error: Cannot open file "g:\my drive\projetos_individuais\huntington\database\embryoscope_ibirapuera.db": The process cannot access the file because it is being used by another process.
+
+File is already open in 
+C:\Users\FilipeFurlanBellotti\anaconda3\envs\try_request\python.exe (PID 33936)
+2025-07-15 15:59:20,955 INFO:Finished processing for G:\My Drive\projetos_individuais\Huntington\database\embryoscope_ibirapuera.db
+2025-07-15 16:02:20,589 - create_silver_from_bronze - INFO - [embryoscope_brasilia.db] Starting processing.
+2025-07-15 16:02:20,593 - create_silver_from_bronze - INFO - [embryoscope_brasilia.db] Processing patients table.
+2025-07-15 16:02:20,644 - create_silver_from_bronze - INFO - [embryoscope_brasilia.db] Reading patients with query: SELECT raw_json FROM bronze.raw_patients
+2025-07-15 16:02:20,647 - create_silver_from_bronze - INFO - [embryoscope_brasilia.db] Read 1674 rows from bronze.raw_patients.
+2025-07-15 16:02:20,679 - create_silver_from_bronze - INFO - [embryoscope_brasilia.db] Flattened to 0 patient records.
+2025-07-15 16:02:20,680 - create_silver_from_bronze - WARNING - [embryoscope_brasilia.db] No patients found.
+2025-07-15 16:02:20,684 - create_silver_from_bronze - INFO - [embryoscope_brasilia.db] Processing treatments table.
+2025-07-15 16:02:20,718 - create_silver_from_bronze - INFO - [embryoscope_brasilia.db] Reading treatments with query: SELECT raw_json FROM bronze.raw_treatments
+2025-07-15 16:02:20,721 - create_silver_from_bronze - INFO - [embryoscope_brasilia.db] Read 2261 rows from bronze.raw_treatments.
+2025-07-15 16:02:20,773 - create_silver_from_bronze - INFO - [embryoscope_brasilia.db] Parsed 2261 treatment records.
+2025-07-15 16:02:20,775 - create_silver_from_bronze - INFO - [embryoscope_brasilia.db] Saving treatments to table: silver.treatments.
+2025-07-15 16:02:20,962 - create_silver_from_bronze - INFO - [embryoscope_brasilia.db] silver.treatments creation complete.
+2025-07-15 16:02:20,963 - create_silver_from_bronze - INFO - [embryoscope_brasilia.db] Finished processing.
+2025-07-15 16:02:20,963 - create_silver_from_bronze - INFO - [embryoscope_vila_mariana.db] Starting processing.
+2025-07-15 16:02:20,963 - create_silver_from_bronze - INFO - [embryoscope_vila_mariana.db] Processing patients table.
+2025-07-15 16:02:21,015 - create_silver_from_bronze - INFO - [embryoscope_vila_mariana.db] Reading patients with query: SELECT raw_json FROM bronze.raw_patients
+2025-07-15 16:02:21,018 - create_silver_from_bronze - INFO - [embryoscope_vila_mariana.db] Read 2652 rows from bronze.raw_patients.
+2025-07-15 16:02:21,084 - create_silver_from_bronze - INFO - [embryoscope_vila_mariana.db] Flattened to 0 patient records.
+2025-07-15 16:02:21,084 - create_silver_from_bronze - WARNING - [embryoscope_vila_mariana.db] No patients found.
+2025-07-15 16:02:21,088 - create_silver_from_bronze - INFO - [embryoscope_vila_mariana.db] Processing treatments table.
+2025-07-15 16:02:21,124 - create_silver_from_bronze - INFO - [embryoscope_vila_mariana.db] Reading treatments with query: SELECT raw_json FROM bronze.raw_treatments
+2025-07-15 16:02:21,124 - create_silver_from_bronze - INFO - [embryoscope_vila_mariana.db] Read 3526 rows from bronze.raw_treatments.
+2025-07-15 16:02:21,203 - create_silver_from_bronze - INFO - [embryoscope_vila_mariana.db] Parsed 3526 treatment records.
+2025-07-15 16:02:21,206 - create_silver_from_bronze - INFO - [embryoscope_vila_mariana.db] Saving treatments to table: silver.treatments.
+2025-07-15 16:02:21,468 - create_silver_from_bronze - INFO - [embryoscope_vila_mariana.db] silver.treatments creation complete.
+2025-07-15 16:02:21,469 - create_silver_from_bronze - INFO - [embryoscope_vila_mariana.db] Finished processing.
+2025-07-15 16:02:21,470 - create_silver_from_bronze - INFO - [embryoscope_ibirapuera.db] Starting processing.
+2025-07-15 16:02:21,470 - create_silver_from_bronze - INFO - [embryoscope_ibirapuera.db] Processing patients table.
+2025-07-15 16:02:21,518 - create_silver_from_bronze - INFO - [embryoscope_ibirapuera.db] Reading patients with query: SELECT raw_json FROM bronze.raw_patients
+2025-07-15 16:02:21,522 - create_silver_from_bronze - INFO - [embryoscope_ibirapuera.db] Read 5264 rows from bronze.raw_patients.
+2025-07-15 16:02:21,650 - create_silver_from_bronze - INFO - [embryoscope_ibirapuera.db] Flattened to 0 patient records.
+2025-07-15 16:02:21,651 - create_silver_from_bronze - WARNING - [embryoscope_ibirapuera.db] No patients found.
+2025-07-15 16:02:21,653 - create_silver_from_bronze - INFO - [embryoscope_ibirapuera.db] Processing treatments table.
+2025-07-15 16:02:21,791 - create_silver_from_bronze - INFO - [embryoscope_ibirapuera.db] Reading treatments with query: SELECT raw_json FROM bronze.raw_treatments
+2025-07-15 16:02:21,791 - create_silver_from_bronze - INFO - [embryoscope_ibirapuera.db] Read 7981 rows from bronze.raw_treatments.
+2025-07-15 16:02:21,958 - create_silver_from_bronze - INFO - [embryoscope_ibirapuera.db] Parsed 7981 treatment records.
+2025-07-15 16:02:21,960 - create_silver_from_bronze - INFO - [embryoscope_ibirapuera.db] Saving treatments to table: silver.treatments.
+2025-07-15 16:02:22,082 - create_silver_from_bronze - INFO - [embryoscope_ibirapuera.db] silver.treatments creation complete.
+2025-07-15 16:02:22,085 - create_silver_from_bronze - INFO - [embryoscope_ibirapuera.db] Finished processing.
