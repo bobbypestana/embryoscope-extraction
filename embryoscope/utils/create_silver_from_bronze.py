@@ -6,23 +6,35 @@ import logging
 import pandas as pd
 from datetime import datetime
 import collections
+import yaml
 
-# Ensure logs directory exists
-log_dir = os.path.abspath(os.path.join(os.getcwd(), 'embryoscope', 'logs'))
+script_dir = os.path.dirname(os.path.abspath(__file__))
+project_root = os.path.abspath(os.path.join(script_dir, '..'))
+log_dir = os.path.join(project_root, 'logs')
 os.makedirs(log_dir, exist_ok=True)
 log_ts = datetime.now().strftime('%Y%m%d_%H%M%S')
 log_file = os.path.join(log_dir, f'create_silver_from_bronze_{log_ts}.log')
 
+# Load log level from params.yml
+params_path = os.path.join(project_root, 'params.yml')
+with open(params_path, 'r') as f:
+    params = yaml.safe_load(f)
+log_level_str = params.get('extraction', {}).get('log_level', 'INFO').upper()
+log_level = getattr(logging, log_level_str, logging.INFO)
+
 # Setup logger with custom format
 logger = logging.getLogger('create_silver_from_bronze')
-logger.setLevel(logging.INFO)
+logger.setLevel(log_level)
 formatter = logging.Formatter('%(asctime)s,%(msecs)03d - %(name)s - %(levelname)s - %(message)s', datefmt='%Y-%m-%d %H:%M:%S')
 file_handler = logging.FileHandler(log_file)
 file_handler.setFormatter(formatter)
+stream_handler = logging.StreamHandler()
+stream_handler.setFormatter(formatter)
 if not logger.hasHandlers():
     logger.addHandler(file_handler)
+    logger.addHandler(stream_handler)
 
-print(f"[INFO] Logging to: {log_file}")
+logger.info(f"Logging to: {log_file}")
 
 def flatten_patients_json(raw_json_str):
     try:
@@ -82,27 +94,34 @@ def flatten_embryo_json(raw_json_str, annotation_names_set=None, log_errors=True
 def process_database(db_path):
     db_name = os.path.basename(db_path)
     logger.info(f"[{db_name}] Processing patients table.")
-    print(f"[INFO] Processing patients for database: {db_path}")
     try:
         con = duckdb.connect(db_path)
-        read_query = 'SELECT raw_json FROM bronze.raw_patients'
-        print(f"[DEBUG] Reading patients with query: {read_query}")
+        con.execute('CREATE SCHEMA IF NOT EXISTS silver')
+        read_query = 'SELECT raw_json, _extraction_timestamp, _location, _run_id, _row_hash FROM bronze.raw_patients'
+        logger.debug(f"[{db_name}] Reading patients with query: {read_query}")
         logger.info(f"[{db_name}] Reading patients with query: {read_query}")
         df = con.execute(read_query).fetchdf()
         logger.info(f"[{db_name}] Read {len(df)} rows from bronze.raw_patients.")
         all_patients = []
+        meta_cols = ['_extraction_timestamp', '_location', '_run_id', '_row_hash']
         for idx, row in df.iterrows():
             patients = flatten_patients_json(row['raw_json'])
+            for p in patients:
+                for col in meta_cols:
+                    p[col] = row[col]
             all_patients.extend(patients)
         logger.info(f"[{db_name}] Flattened to {len(all_patients)} patient records.")
         if not all_patients:
             logger.warning(f"[{db_name}] No patients found.")
-            print(f"[WARNING] No patients found in {db_path}")
             return
         patients_df = pd.DataFrame(all_patients)
         if 'DateOfBirth' in patients_df.columns:
             patients_df['DateOfBirth'] = pd.to_datetime(patients_df['DateOfBirth'], errors='coerce')
-        print(f"[DEBUG] Saving patients to table: silver.patients in database: {db_path}")
+        # Ensure all metadata columns exist
+        for col in meta_cols:
+            if col not in patients_df.columns:
+                patients_df[col] = None
+        logger.debug(f"[{db_name}] Saving patients to table: silver.patients in database: {db_path}")
         logger.info(f"[{db_name}] Saving patients to table: silver.patients.")
         con.execute('DROP TABLE IF EXISTS silver.patients')
         con.register('patients_df', patients_df)
@@ -110,40 +129,42 @@ def process_database(db_path):
         con.unregister('patients_df')
         con.close()
         logger.info(f"[{db_name}] silver.patients creation complete.")
-        print(f"[SUCCESS] silver.patients written for {db_path}")
+        logger.debug(f"[{db_name}] silver.patients written for {db_path}")
     except Exception as e:
         logger.error(f"[{db_name}] Failed to process patients: {e}")
-        print(f"[ERROR] Failed to process patients for {db_path}: {e}")
 
 def process_treatments_database(db_path):
     db_name = os.path.basename(db_path)
     logger.info(f"[{db_name}] Processing treatments table.")
-    print(f"[INFO] Processing treatments for database: {db_path}")
     try:
         con = duckdb.connect(db_path)
         con.execute('CREATE SCHEMA IF NOT EXISTS silver')
-        read_query = 'SELECT raw_json FROM bronze.raw_treatments'
-        print(f"[DEBUG] Reading treatments with query: {read_query}")
+        read_query = 'SELECT raw_json, _extraction_timestamp, _location, _run_id, _row_hash FROM bronze.raw_treatments'
+        logger.debug(f"[{db_name}] Reading treatments with query: {read_query}")
         logger.info(f"[{db_name}] Reading treatments with query: {read_query}")
         df = con.execute(read_query).fetchdf()
         logger.info(f"[{db_name}] Read {len(df)} rows from bronze.raw_treatments.")
         all_treatments = []
+        meta_cols = ['_extraction_timestamp', '_location', '_run_id', '_row_hash']
         for idx, row in df.iterrows():
             try:
                 treatment = json.loads(str(row['raw_json']))
+                for col in meta_cols:
+                    treatment[col] = row[col]
                 all_treatments.append(treatment)
             except Exception as e:
                 logger.error(f"[{db_name}] Error parsing treatment JSON at row {idx}: {e}")
-                print(f"[ERROR] Error parsing treatment JSON in {db_path} at row {idx}: {e}")
         logger.info(f"[{db_name}] Parsed {len(all_treatments)} treatment records.")
         if not all_treatments:
             logger.warning(f"[{db_name}] No treatments found.")
-            print(f"[WARNING] No treatments found in {db_path}")
             return
         treatments_df = pd.DataFrame(all_treatments)
         for col in treatments_df.columns:
             treatments_df[col] = treatments_df[col].astype(str)
-        print(f"[DEBUG] Saving treatments to table: silver.treatments in database: {db_path}")
+        # Ensure all metadata columns exist
+        for col in meta_cols:
+            if col not in treatments_df.columns:
+                treatments_df[col] = None
         logger.info(f"[{db_name}] Saving treatments to table: silver.treatments.")
         con.execute('DROP TABLE IF EXISTS silver.treatments')
         con.register('treatments_df', treatments_df)
@@ -151,26 +172,22 @@ def process_treatments_database(db_path):
         con.unregister('treatments_df')
         con.close()
         logger.info(f"[{db_name}] silver.treatments creation complete.")
-        print(f"[SUCCESS] silver.treatments written for {db_path}")
     except Exception as e:
         logger.error(f"[{db_name}] Failed to process treatments: {e}")
-        print(f"[ERROR] Failed to process treatments for {db_path}: {e}")
 
 def process_idascore_database(db_path):
     db_name = os.path.basename(db_path)
     logger.info(f"[{db_name}] Processing idascore table.")
-    print(f"[INFO] Processing idascore for database: {db_path}")
     try:
         con = duckdb.connect(db_path)
         con.execute('CREATE SCHEMA IF NOT EXISTS silver')
-        read_query = 'SELECT raw_json FROM bronze.raw_idascore'
-        print(f"[DEBUG] Reading idascore with query: {read_query}")
+        read_query = 'SELECT raw_json, _extraction_timestamp, _location, _run_id, _row_hash FROM bronze.raw_idascore'
+        logger.debug(f"[{db_name}] Reading idascore with query: {read_query}")
         logger.info(f"[{db_name}] Reading idascore with query: {read_query}")
         try:
             df = con.execute(read_query).fetchdf()
         except Exception as e:
             logger.warning(f"[{db_name}] Table bronze.raw_idascore does not exist: {e}")
-            print(f"[WARNING] Table bronze.raw_idascore does not exist in {db_path}")
             con.close()
             return
         logger.info(f"[{db_name}] Read {len(df)} rows from bronze.raw_idascore.")
@@ -191,27 +208,27 @@ def process_idascore_database(db_path):
                         mapped_record['IDATimestamp'] = v
                     else:
                         mapped_record[k] = v
+                # Add meta columns
+                mapped_record['_extraction_timestamp'] = row['_extraction_timestamp']
+                mapped_record['_location'] = row['_location']
+                mapped_record['_run_id'] = row['_run_id']
+                mapped_record['_row_hash'] = row['_row_hash']
                 all_idascore.append(mapped_record)
             except Exception as e:
                 logger.error(f"[{db_name}] Error parsing idascore JSON at row {idx}: {e}")
-                print(f"[ERROR] Error parsing idascore JSON in {db_path} at row {idx}: {e}")
         logger.info(f"[{db_name}] Parsed {len(all_idascore)} idascore records.")
         if not all_idascore:
             logger.warning(f"[{db_name}] No idascore records found.")
-            print(f"[WARNING] No idascore records found in {db_path}")
             # Create empty table with correct columns
-            print(f"[DEBUG] Creating empty silver.idascore table in database: {db_path}")
             logger.info(f"[{db_name}] Creating empty silver.idascore table.")
             con.execute('DROP TABLE IF EXISTS silver.idascore')
-            con.execute('CREATE TABLE silver.idascore (EmbryoID TEXT, IDAScore TEXT, IDATime TEXT, IDAVersion TEXT, IDATimestamp TEXT)')
+            con.execute('CREATE TABLE silver.idascore (EmbryoID TEXT, IDAScore TEXT, IDATime TEXT, IDAVersion TEXT, IDATimestamp TEXT, _extraction_timestamp TIMESTAMP, _location TEXT, _run_id TEXT, _row_hash TEXT)')
             con.close()
             logger.info(f"[{db_name}] Empty silver.idascore table created.")
-            print(f"[SUCCESS] Empty silver.idascore table created for {db_path}")
             return
         idascore_df = pd.DataFrame(all_idascore)
         for col in idascore_df.columns:
             idascore_df[col] = idascore_df[col].astype(str)
-        print(f"[DEBUG] Saving idascore to table: silver.idascore in database: {db_path}")
         logger.info(f"[{db_name}] Saving idascore to table: silver.idascore.")
         con.execute('DROP TABLE IF EXISTS silver.idascore')
         con.register('idascore_df', idascore_df)
@@ -219,26 +236,22 @@ def process_idascore_database(db_path):
         con.unregister('idascore_df')
         con.close()
         logger.info(f"[{db_name}] silver.idascore creation complete.")
-        print(f"[SUCCESS] silver.idascore written for {db_path}")
     except Exception as e:
         logger.error(f"[{db_name}] Failed to process idascore: {e}")
-        print(f"[ERROR] Failed to process idascore for {db_path}: {e}")
 
 def process_embryo_data_database(db_path):
     db_name = os.path.basename(db_path)
     logger.info(f"[{db_name}] Processing embryo_data table.")
-    print(f"[INFO] Processing embryo_data for database: {db_path}")
     try:
         con = duckdb.connect(db_path)
         con.execute('CREATE SCHEMA IF NOT EXISTS silver')
-        read_query = 'SELECT raw_json FROM bronze.raw_embryo_data'
-        print(f"[DEBUG] Reading embryo_data with query: {read_query}")
+        read_query = 'SELECT raw_json, _extraction_timestamp, _location, _run_id, _row_hash FROM bronze.raw_embryo_data'
+        logger.debug(f"[{db_name}] Reading embryo_data with query: {read_query}")
         logger.info(f"[{db_name}] Reading embryo_data with query: {read_query}")
         try:
             df = con.execute(read_query).fetchdf()
         except Exception as e:
             logger.warning(f"[{db_name}] Table bronze.raw_embryo_data does not exist: {e}")
-            print(f"[WARNING] Table bronze.raw_embryo_data does not exist in {db_path}")
             con.close()
             return
         logger.info(f"[{db_name}] Read {len(df)} rows from bronze.raw_embryo_data.")
@@ -252,23 +265,27 @@ def process_embryo_data_database(db_path):
                         annotation_names.add(ann['Name'])
             except Exception as e:
                 logger.error(f"[{db_name}] Error collecting annotation names at row {idx}: {e}")
+        logger.debug(f"[{db_name}] Found annotation types: {sorted(annotation_names)}")
         logger.info(f"[{db_name}] Found annotation types: {sorted(annotation_names)}")
         # Second pass: flatten all rows
         all_embryos = []
+        meta_cols = ['_extraction_timestamp', '_location', '_run_id', '_row_hash']
         for idx, row in df.iterrows():
             flat = flatten_embryo_json(row['raw_json'], annotation_names_set=annotation_names)
+            for col in meta_cols:
+                flat[col] = row[col]
             all_embryos.append(flat)
         logger.info(f"[{db_name}] Flattened {len(all_embryos)} embryo records.")
         if not all_embryos:
             logger.warning(f"[{db_name}] No embryo_data records found.")
-            print(f"[WARNING] No embryo_data records found in {db_path}")
             # Create empty table with all expected columns
             columns = [
                 'EmbryoID', 'PatientIDx', 'TreatmentName',
                 'EmbryoDetails_InstrumentNumber', 'EmbryoDetails_Position', 'EmbryoDetails_WellNumber',
                 'EmbryoDetails_FertilizationTime', 'EmbryoDetails_FertilizationMethod', 'EmbryoDetails_EmbryoFate',
                 'EmbryoDetails_Description', 'EmbryoDetails_EmbryoDescriptionID',
-                'Evaluation_Model', 'Evaluation_User', 'Evaluation_EvaluationDate'
+                'Evaluation_Model', 'Evaluation_User', 'Evaluation_EvaluationDate',
+                '_extraction_timestamp', '_location', '_run_id', '_row_hash'
             ]
             for ann_name in sorted(annotation_names):
                 columns.extend([
@@ -279,7 +296,6 @@ def process_embryo_data_database(db_path):
             con.execute(f'CREATE TABLE silver.embryo_data ({col_defs})')
             con.close()
             logger.info(f"[{db_name}] Empty silver.embryo_data table created.")
-            print(f"[SUCCESS] Empty silver.embryo_data table created for {db_path}")
             return
         embryo_df = pd.DataFrame(all_embryos)
         # Cast types
@@ -317,7 +333,10 @@ def process_embryo_data_database(db_path):
         other_cols = sorted([c for c in cols if c not in main_cols + kid_cols + ida_cols])
         ordered_cols = main_cols + kid_cols + ida_cols + other_cols
         embryo_df = embryo_df.reindex(columns=ordered_cols)
-        print(f"[DEBUG] Saving embryo_data to table: silver.embryo_data in database: {db_path}")
+        # Ensure all metadata columns exist
+        for col in meta_cols:
+            if col not in embryo_df.columns:
+                embryo_df[col] = None
         logger.info(f"[{db_name}] Saving embryo_data to table: silver.embryo_data.")
         con.execute('DROP TABLE IF EXISTS silver.embryo_data')
         con.register('embryo_df', embryo_df)
@@ -325,30 +344,29 @@ def process_embryo_data_database(db_path):
         con.unregister('embryo_df')
         con.close()
         logger.info(f"[{db_name}] silver.embryo_data creation complete.")
-        print(f"[SUCCESS] silver.embryo_data written for {db_path}")
     except Exception as e:
         logger.error(f"[{db_name}] Failed to process embryo_data: {e}")
-        print(f"[ERROR] Failed to process embryo_data for {db_path}: {e}")
 
 def main():
-    db_dir = os.path.abspath(os.path.join(os.getcwd(), 'database'))
-    print(f"[DEBUG] Looking for DuckDB files in: {db_dir}")
+    db_dir = r'G:/My Drive/projetos_individuais/Huntington/database'
+    logger.info(f"Looking for DuckDB files in: {db_dir}")
+    logger.debug(f"Looking for DuckDB files in: {db_dir}")
     db_paths = glob.glob(os.path.join(db_dir, '*.db'))
-    print(f"[DEBUG] Found DB files: {db_paths}")
+    logger.info(f"Found DB files: {db_paths}")
+    logger.debug(f"Found DB files: {db_paths}")
     if not db_paths:
         logger.warning("No DuckDB databases found in database/ directory.")
-        print("[WARNING] No DuckDB databases found in database/ directory.")
         return
     for db_path in db_paths:
         db_name = os.path.basename(db_path)
-        print(f"[INFO] Starting processing for {db_path}")
-        logger.info(f"[{db_name}] Starting processing.")
+        logger.info(f"Starting processing for {db_path}")
+        logger.debug(f"Starting processing for {db_path}")
         process_database(db_path)
         process_treatments_database(db_path)
         process_idascore_database(db_path)
         process_embryo_data_database(db_path)
-        print(f"[INFO] Finished processing for {db_path}")
-        logger.info(f"[{db_name}] Finished processing.")
+        logger.info(f"Finished processing for {db_path}")
+        logger.debug(f"Finished processing for {db_path}")
 
 if __name__ == '__main__':
     main() 

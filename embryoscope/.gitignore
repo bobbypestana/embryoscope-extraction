@@ -41,7 +41,7 @@ MANIFEST
 
 # Jupyter Notebook checkpoints
 .ipynb_checkpoints
-*.ipynb
+# *.ipynb
 
 # Environment files
 .venv/

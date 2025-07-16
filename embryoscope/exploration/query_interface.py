@@ -21,7 +21,7 @@ from database_manager import EmbryoscopeDatabaseManager
 class EmbryoscopeQueryInterface:
     """Interface for querying embryoscope data from the database."""
     
-    def __init__(self, config_path: str = "params.yml"):
+    def __init__(self, config_path: str = "../params.yml"):
         """
         Initialize the query interface.
         

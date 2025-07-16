@@ -12,7 +12,7 @@ from pathlib import Path
 class EmbryoscopeConfigManager:
     """Manages configuration for embryoscope data extraction."""
     
-    def __init__(self, config_path: str = "params.yml"):
+    def __init__(self, config_path: str = "embryoscope/params.yml"):
         """
         Initialize the configuration manager.
         
@@ -25,6 +25,7 @@ class EmbryoscopeConfigManager:
     def _load_config(self) -> Dict[str, Any]:
         """Load configuration from YAML file."""
         try:
+            print(f"[DEBUG] Trying to load config from: {os.path.abspath(self.config_path)}")
             with open(self.config_path, 'r', encoding='utf-8') as file:
                 config = yaml.safe_load(file)
             return config
@@ -66,9 +67,11 @@ class EmbryoscopeConfigManager:
         """Get extraction configuration."""
         return self.config.get('extraction', {})
     
-    def get_rate_limit_delay(self) -> float:
-        """Get rate limit delay between requests."""
+    def get_rate_limit_delay(self, endpoint: Optional[str] = None) -> float:
+        """Get rate limit delay between requests. If endpoint is provided, use endpoint-specific config."""
         extraction_config = self.get_extraction_config()
+        if endpoint and endpoint in extraction_config:
+            return extraction_config[endpoint].get('rate_limit_delay', extraction_config.get('rate_limit_delay', 0.1))
         return extraction_config.get('rate_limit_delay', 0.1)
     
     def get_max_retries(self) -> int:
@@ -91,9 +94,11 @@ class EmbryoscopeConfigManager:
         extraction_config = self.get_extraction_config()
         return extraction_config.get('parallel_processing', True)
     
-    def get_max_workers(self) -> int:
-        """Get maximum number of parallel workers."""
+    def get_max_workers(self, endpoint: Optional[str] = None) -> int:
+        """Get maximum number of parallel workers. If endpoint is provided, use endpoint-specific config."""
         extraction_config = self.get_extraction_config()
+        if endpoint and endpoint in extraction_config:
+            return extraction_config[endpoint].get('max_workers', extraction_config.get('max_workers', 3))
         return extraction_config.get('max_workers', 3)
     
     def get_token_refresh_patients(self) -> int:

@@ -27,14 +27,30 @@ from database_manager import EmbryoscopeDatabaseManager
 class EmbryoscopeExtractor:
     """Main class for orchestrating embryoscope data extraction."""
     
-    def __init__(self, config_path: str = "params.yml"):
+    def __init__(self, config_path: str = ""):
         """
         Initialize the embryoscope extractor.
         
         Args:
-            config_path: Path to configuration file
+            config_path: Path to configuration file (optional)
         """
-        self.config_manager = EmbryoscopeConfigManager(config_path)
+        # Determine config path robustly
+        if not config_path:
+            # Always resolve relative to this script's parent directory
+            script_dir = os.path.dirname(os.path.abspath(__file__))
+            candidate = os.path.join(script_dir, "params.yml")
+            if os.path.exists(candidate):
+                resolved_config_path = candidate
+            else:
+                # Try one directory up (for running from test/ or other subfolders)
+                parent_candidate = os.path.join(os.path.dirname(script_dir), "params.yml")
+                if os.path.exists(parent_candidate):
+                    resolved_config_path = parent_candidate
+                else:
+                    raise FileNotFoundError(f"Configuration file not found: {candidate} or {parent_candidate}")
+        else:
+            resolved_config_path = config_path
+        self.config_manager = EmbryoscopeConfigManager(resolved_config_path)
         self.logger = self._setup_logging()
         
         # Validate configuration
@@ -45,8 +61,9 @@ class EmbryoscopeExtractor:
     
     def _setup_logging(self) -> logging.Logger:
         """Setup logging configuration."""
-        # Create logs directory
-        os.makedirs('logs', exist_ok=True)
+        # Create logs directory in embryoscope
+        log_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'logs')
+        os.makedirs(log_dir, exist_ok=True)
         
         # Setup logging
         logger = logging.getLogger('embryoscope_extractor')
@@ -58,7 +75,7 @@ class EmbryoscopeExtractor:
         
         # Create handlers
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        file_handler = logging.FileHandler(f'logs/embryoscope_extraction_{timestamp}.log')
+        file_handler = logging.FileHandler(os.path.join(log_dir, f'embryoscope_extraction_{timestamp}.log'))
         console_handler = logging.StreamHandler()
         
         # Create formatters and add it to handlers
@@ -95,10 +112,8 @@ class EmbryoscopeExtractor:
         max_workers = self.config_manager.get_max_workers()
         api_client = EmbryoscopeAPIClient(clinic_name, config, rate_limit_delay)
         data_processor = EmbryoscopeDataProcessor(clinic_name)
-        
         extraction_timestamp = datetime.now()
         run_id = str(uuid.uuid4())
-        
         try:
             # 1. Get all patients
             self.logger.info(f"[{clinic_name}] Fetching all patients from API...")
@@ -111,11 +126,10 @@ class EmbryoscopeExtractor:
                 db_manager.save_bronze_raw('patients', patients_data['Patients'], extraction_timestamp, run_id, clinic_name)
             patients_df = data_processor.process_patients(patients_data, extraction_timestamp, run_id)
             self.logger.info(f"[{clinic_name}] Fetched {len(patients_df)} patients from API.")
-            print(f"[{clinic_name}] Fetched {len(patients_df)} patients from API.")
+            self.logger.debug(f"[{clinic_name}] Fetched {len(patients_df)} patients from API.")
             # Restrict to provided patient_ids if given
             if patient_ids is not None:
                 patients_df = patients_df[patients_df['PatientIDx'].isin(patient_ids)]
-
             # 1b. Get ongoing patients
             self.logger.info(f"[{clinic_name}] Fetching ongoing patients from API...")
             ongoing_patients_data = api_client.get_ongoing_patients()
@@ -127,11 +141,9 @@ class EmbryoscopeExtractor:
                     if idx:
                         ongoing_patient_idxs.add(str(idx))
             self.logger.info(f"[{clinic_name}] Found {len(ongoing_patient_idxs)} ongoing patients.")
-            
-            # 2. Get all treatments for each patient (sequential, progress bar)
+            # 2. Get all treatments for each patient (parallel, progress bar)
             self.logger.info(f"[{clinic_name}] Fetching all treatments from API (sequential)...")
             all_treatments = []
-            
             def fetch_treatments_for_patient(patient_idx):
                 treatments_data = api_client.get_treatments(patient_idx)
                 if treatments_data is None:
@@ -144,7 +156,6 @@ class EmbryoscopeExtractor:
                     ]
                     db_manager.save_bronze_raw('treatments', raw_treatments, extraction_timestamp, run_id, clinic_name)
                 return data_processor.process_treatments(treatments_data, patient_idx, extraction_timestamp, run_id)
-            
             patient_ids = list(patients_df['PatientIDx'])
             if patient_ids:
                 with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
@@ -154,17 +165,14 @@ class EmbryoscopeExtractor:
                         result = f.result()
                         if not result.empty:
                             all_treatments.append(result)
-                
                 if all_treatments:
                     treatments_df = pd.concat(all_treatments, ignore_index=True)
                 else:
                     treatments_df = pd.DataFrame(columns=pd.Index(['PatientIDx', 'TreatmentName']))
             else:
                 treatments_df = pd.DataFrame(columns=pd.Index(['PatientIDx', 'TreatmentName']))
-            
             self.logger.info(f"[{clinic_name}] Fetched {len(treatments_df)} treatments from API.")
-            print(f"[{clinic_name}] Fetched {len(treatments_df)} treatments from API.")
-            
+            self.logger.debug(f"[{clinic_name}] Fetched {len(treatments_df)} treatments from API.")
             # 3. Compare with local DB to find new patient-treatment pairs
             self.logger.info(f"[{clinic_name}] Comparing with local DuckDB to find new patient-treatment pairs...")
             try:
@@ -172,26 +180,21 @@ class EmbryoscopeExtractor:
                 existing_pairs = set(zip(existing_treatments['PatientIDx'], existing_treatments['TreatmentName']))
             except Exception:
                 existing_pairs = set()
-            
             all_pairs = set(zip(treatments_df['PatientIDx'], treatments_df['TreatmentName']))
             new_pairs = all_pairs - existing_pairs
             self.logger.info(f"[{clinic_name}] Found {len(new_pairs)} new patient-treatment pairs needing embryo data.")
-            
-            # 4. Fetch embryo data only for new pairs (sequential, progress bar)
+            # 4. Fetch embryo data only for new pairs (parallel, progress bar)
             all_embryo_data = []
-            
             def fetch_embryo_for_pair(pair):
                 patient_idx, treatment_name = pair
                 embryo_data = api_client.get_embryo_data(patient_idx, treatment_name)
                 if embryo_data is None:
                     # Check if patient is ongoing; if so, skip logging as missing
                     if str(patient_idx) in ongoing_patient_idxs:
-                        self.logger.info(f"[{clinic_name}] Pair (PatientIDx={patient_idx}, TreatmentName={treatment_name}) is ongoing, will retry in future runs.")
-                        print(f"[{clinic_name}] Pair (PatientIDx={patient_idx}, TreatmentName={treatment_name}) is ongoing, will retry in future runs.")
+                        self.logger.debug(f"[{clinic_name}] Pair (PatientIDx={patient_idx}, TreatmentName={treatment_name}) is ongoing, will retry in future runs.")
                         return pd.DataFrame()  # Do not treat as missing
                     else:
                         self.logger.warning(f"[{clinic_name}] No embryo data for pair (PatientIDx={patient_idx}, TreatmentName={treatment_name}) and patient is NOT ongoing.")
-                        print(f"[{clinic_name}] No embryo data for pair (PatientIDx={patient_idx}, TreatmentName={treatment_name}) and patient is NOT ongoing.")
                         return pd.DataFrame()
                 # Save raw embryo_data to bronze
                 if 'EmbryoDataList' in embryo_data:
@@ -202,7 +205,6 @@ class EmbryoscopeExtractor:
                         rec['TreatmentName'] = treatment_name
                     db_manager.save_bronze_raw('embryo_data', raw_embryos, extraction_timestamp, run_id, clinic_name)
                 return data_processor.process_embryo_data(embryo_data, patient_idx, treatment_name, extraction_timestamp, run_id)
-            
             new_pairs_list = list(new_pairs)
             if new_pairs_list:
                 with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
@@ -212,17 +214,14 @@ class EmbryoscopeExtractor:
                         result = f.result()
                         if not result.empty:
                             all_embryo_data.append(result)
-                
                 if all_embryo_data:
                     embryo_data_df = pd.concat(all_embryo_data, ignore_index=True)
                 else:
                     embryo_data_df = pd.DataFrame()
             else:
                 embryo_data_df = pd.DataFrame()
-            
             self.logger.info(f"[{clinic_name}] Fetched {len(embryo_data_df)} embryo data records from API.")
-            print(f"[{clinic_name}] Fetched {len(embryo_data_df)} embryo data records from API.")
-            
+            self.logger.debug(f"[{clinic_name}] Fetched {len(embryo_data_df)} embryo data records from API.")
             # 4b. Fetch IDA score data for the clinic
             self.logger.info(f"[{clinic_name}] Fetching IDA score data from API...")
             idascore_data = api_client.get_idascore()
@@ -234,8 +233,7 @@ class EmbryoscopeExtractor:
             else:
                 idascore_df = pd.DataFrame()
             self.logger.info(f"[{clinic_name}] Fetched {len(idascore_df)} IDA score records from API.")
-            print(f"[{clinic_name}] Fetched {len(idascore_df)} IDA score records from API.")
-            
+            self.logger.debug(f"[{clinic_name}] Fetched {len(idascore_df)} IDA score records from API.")
             # 5. Save all data incrementally
             self.logger.info(f"[{clinic_name}] Saving data to DuckDB...")
             data_to_save = {
@@ -246,11 +244,9 @@ class EmbryoscopeExtractor:
             }
             row_counts = db_manager.save_data(data_to_save, clinic_name, run_id, extraction_timestamp)
             self.logger.info(f"[{clinic_name}] Saved data to {db_path}: {row_counts}")
-            print(f"[{clinic_name}] Saved data to {db_path}: {row_counts}")
+            self.logger.debug(f"[{clinic_name}] Saved data to {db_path}: {row_counts}")
             self.logger.info(f"[{clinic_name}] Extraction complete.")
-            
             return True
-            
         except Exception as e:
             self.logger.error(f"[{clinic_name}] Error in extraction: {e}")
             return False
@@ -383,25 +379,25 @@ def main():
         extractor.config_manager.print_config_summary()
         
         # Run extraction
-        print("\nStarting embryoscope data extraction...")
+        extractor.logger.info("Starting embryoscope data extraction...")
         results = extractor.extract_all_locations(parallel=True)
         
         # Print results
-        print("\nExtraction Results:")
+        extractor.logger.info("\nExtraction Results:")
         for location, success in results.items():
             status = "SUCCESS" if success else "FAILED"
-            print(f"  {location}: {status}")
+            extractor.logger.info(f"  {location}: {status}")
         
         # Print summary
-        print("\nExtraction Summary:")
+        extractor.logger.info("\nExtraction Summary:")
         summary = extractor.get_extraction_summary()
         for location, data_summary in summary['data_summary'].items():
-            print(f"  {location}:")
+            extractor.logger.info(f"  {location}:")
             for data_type, stats in data_summary.items():
-                print(f"    {data_type}: {stats['count']} records (last: {stats['last_extraction']})")
+                extractor.logger.info(f"    {data_type}: {stats['count']} records (last: {stats['last_extraction']})")
         
     except Exception as e:
-        print(f"Error in main execution: {e}")
+        extractor.logger.error(f"Error in main execution: {e}")
         return 1
     
     return 0
