@@ -1,0 +1,50 @@
+# Extraction source: 'csv' or 'db'
+source: csv  # Change to 'db' for production
+
+duckdb_path: ../database/clinisys_all.duckdb
+
+# DB extraction config (used if source: db)
+db:
+  connection_string: "mysql+pymysql://username:password@host:port/database"
+  tables:
+    view_medicamentos:
+      query: "SELECT * FROM view_medicamentos"
+    view_medicamentos_prescricoes:
+      query: "SELECT * FROM view_medicamentos_prescricoes"
+    view_medicos:
+      query: "SELECT * FROM view_medicos"
+    view_pacientes:
+      query: "SELECT * FROM view_pacientes"
+    view_tratamentos:
+      query: "SELECT * FROM view_tratamentos"
+    view_unidades:
+      query: "SELECT * FROM view_unidades"
+    view_congelamentos_embrioes:
+      query: "SELECT * FROM view_congelamentos_embrioes"
+    view_congelamentos_ovulos:
+      query: "SELECT * FROM view_congelamentos_ovulos"
+    view_descongelamentos_embrioes:
+      query: "SELECT * FROM view_descongelamentos_embrioes"
+    view_descongelamentos_ovulos:
+      query: "SELECT * FROM view_descongelamentos_ovulos"
+    view_embrioes_congelados:
+      query: "SELECT * FROM view_embrioes_congelados"
+    view_extrato_atendimentos_central:
+      query: "SELECT * FROM view_extrato_atendimentos_central"
+    view_micromanipulacao:
+      query: "SELECT * FROM view_micromanipulacao"
+    view_micromanipulacao_oocitos:
+      query: "SELECT * FROM view_micromanipulacao_oocitos"
+    view_orcamentos:
+      query: "SELECT * FROM view_orcamentos"
+    view_procedimentos_financas:
+      query: "SELECT * FROM view_procedimentos_financas"
+
+# Connection parameters template (replace with actual values)
+con_params:
+  data_prod:
+    host: your_host_here
+    user: your_username_here
+    password: your_password_here
+    database: your_database_here
+    port: your_port_here 

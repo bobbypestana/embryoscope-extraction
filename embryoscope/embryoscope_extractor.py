@@ -60,34 +60,47 @@ class EmbryoscopeExtractor:
         self.logger.info("Embryoscope extractor initialized successfully")
     
     def _setup_logging(self) -> logging.Logger:
-        """Setup logging configuration."""
+        """Setup logging configuration for the entire process (root logger)."""
         # Create logs directory in embryoscope
         log_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'logs')
         os.makedirs(log_dir, exist_ok=True)
-        
-        # Setup logging
-        logger = logging.getLogger('embryoscope_extractor')
-        
+
         # Get log level from config
         log_level_str = self.config_manager.config['extraction'].get('log_level', 'INFO')
         log_level = getattr(logging, log_level_str.upper(), logging.INFO)
-        logger.setLevel(log_level)
-        
+
+        # Configure root logger
+        root_logger = logging.getLogger()
+        root_logger.setLevel(log_level)
+        root_logger.propagate = False
+        # Remove any existing handlers (avoid duplicate logs on rerun)
+        if root_logger.hasHandlers():
+            root_logger.handlers.clear()
+
         # Create handlers
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         file_handler = logging.FileHandler(os.path.join(log_dir, f'embryoscope_extraction_{timestamp}.log'))
+        file_handler.setLevel(logging.DEBUG)  # Log everything to file
         console_handler = logging.StreamHandler()
-        
+        console_handler.setLevel(logging.INFO)  # Only show INFO+ in terminal
+
         # Create formatters and add it to handlers
         log_format = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
         file_handler.setFormatter(log_format)
         console_handler.setFormatter(log_format)
-        
-        # Add handlers to the logger
-        logger.addHandler(file_handler)
-        logger.addHandler(console_handler)
-        
-        return logger
+
+        # Add handlers to the root logger
+        root_logger.addHandler(file_handler)
+
+        # Add a filter to the console handler to only show logs from 'embryoscope_extractor'
+        class ExtractorOnlyFilter(logging.Filter):
+            def filter(self, record):
+                return record.name == 'embryoscope_extractor'
+        console_handler.addFilter(ExtractorOnlyFilter())
+        root_logger.addHandler(console_handler)
+
+        # Return a named logger for the extractor for code compatibility
+        return logging.getLogger('embryoscope_extractor')
     
     def _get_db_path(self, clinic_name: str) -> str:
         """Get database path for a specific clinic."""
@@ -167,6 +180,12 @@ class EmbryoscopeExtractor:
                             all_treatments.append(result)
                 if all_treatments:
                     treatments_df = pd.concat(all_treatments, ignore_index=True)
+                    # Cumulative batch logging for treatments
+                    total_treatments = len(treatments_df)
+                    for i in range(100, total_treatments + 1, 100):
+                        self.logger.info(f"Processed {i} treatments records for {clinic_name}")
+                    if total_treatments % 100 != 0:
+                        self.logger.info(f"Processed {total_treatments} treatments records for {clinic_name}")
                 else:
                     treatments_df = pd.DataFrame(columns=pd.Index(['PatientIDx', 'TreatmentName']))
             else:

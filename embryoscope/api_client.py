@@ -38,6 +38,7 @@ class EmbryoscopeAPIClient:
         
         # Setup logging
         self.logger = logging.getLogger(f"embryoscope_api_{location}")
+        self.logger.propagate = True  # Only propagate to parent, do not add handlers here
         
     def authenticate(self) -> bool:
         """
@@ -103,7 +104,7 @@ class EmbryoscopeAPIClient:
                 response.raise_for_status()
                 return response
             except Exception as e:
-                self.logger.debug(f"[RETRY] Exception on attempt {attempt+1}: {e}")
+                self.logger.error(f"[RETRY] Exception on attempt {attempt+1}: {e}")
                 if attempt < max_retries - 1:
                     self.logger.warning(f"Request failed for {self.location} - {url} (attempt {attempt + 1}/{max_retries}): {e}")
                     self.logger.debug(f"[RETRY] Backing off for {retry_delay} seconds before next attempt.")

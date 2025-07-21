@@ -166,10 +166,18 @@ class EmbryoscopeDataProcessor:
             available_columns = [col for col in db_columns if col in df.columns]
             df = df[available_columns]
         
-        # Add metadata columns (now passes data_type for correct hashing)
-        df = self._add_metadata_columns(df, extraction_timestamp, run_id, str(data_type) if data_type else '')
-        
-        self.logger.info(f"Processed {len(df)} {data_type} records for {self.location}")
+        # Ensure data_type is always a string and never None
+        safe_data_type = str(data_type or '')
+        # Ensure df is a DataFrame
+        if not isinstance(df, pd.DataFrame):
+            df = pd.DataFrame(df)
+        df = self._add_metadata_columns(df, extraction_timestamp, run_id, safe_data_type)
+
+        # Commented out: logging now handled in extractor for treatments
+        # if len(df) >= 100 and len(df) % 100 == 0:
+        #     self.logger.info(f"Processed {len(df)} {data_type} records for {self.location}")
+        # elif len(df) < 100 and len(df) > 0:
+        #     self.logger.info(f"Processed {len(df)} {data_type} records for {self.location}")
         return df
     
     def process_patients(self, patients_data: Dict[str, Any], extraction_timestamp: datetime, run_id: str) -> pd.DataFrame:
