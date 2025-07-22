@@ -2,6 +2,14 @@ import duckdb
 import os
 import logging
 from datetime import datetime
+import yaml
+
+# Load config and logging level
+CONFIG_PATH = os.path.join(os.path.dirname(__file__), 'params.yml')
+with open(CONFIG_PATH, 'r') as f:
+    config = yaml.safe_load(f)
+logging_level_str = config.get('logging_level', 'INFO').upper()
+logging_level = getattr(logging, logging_level_str, logging.INFO)
 
 # Setup logging
 LOGS_DIR = os.path.join(os.path.dirname(__file__), 'logs')
@@ -9,7 +17,7 @@ os.makedirs(LOGS_DIR, exist_ok=True)
 timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
 LOG_PATH = os.path.join(LOGS_DIR, f'silver_loader_try_strptime_complete_{timestamp}.log')
 logging.basicConfig(
-    level=logging.DEBUG,
+    level=logging_level,
     format='%(asctime)s %(levelname)s %(message)s',
     handlers=[
         logging.FileHandler(LOG_PATH),
@@ -17,6 +25,7 @@ logging.basicConfig(
     ]
 )
 logger = logging.getLogger(__name__)
+logger.info(f'Loaded logging level: {logging_level_str}')
 
 db_path = os.path.join('..', 'database', 'clinisys_all.duckdb') if not os.path.exists('database/clinisys_all.duckdb') else 'database/clinisys_all.duckdb'
 
@@ -28,7 +37,7 @@ def get_column_transformation(column_name, column_type, sample_data=None):
         'data', 'data_inicial', 'data_final', 'Data', 'DataCongelamento', 'DataDescongelamento',
         'DataTransferencia', 'data_entrega', 'data_pagamento', 'data_entrega_orcamento',
         'data_ultima_modificacao', 'data_agendamento_original', 'responsavel_recebimento_data',
-        'responsavel_armazenamento_data'
+        'responsavel_armazenamento_data', 'Data_DL'
     ]
     
     # Special handling for known time columns

@@ -13,20 +13,33 @@ from datetime import datetime
 import hashlib
 import os
 
-# Configure logging
+# Load config and logging level
+CONFIG_PATH = os.path.join(os.path.dirname(__file__), 'params.yml')
+with open(CONFIG_PATH, 'r') as f:
+    config = yaml.safe_load(f)
+logging_level_str = config.get('logging_level', 'INFO').upper()
+logging_level = getattr(logging, logging_level_str, logging.INFO)
+
+# Setup logging
+LOGS_DIR = os.path.join(os.path.dirname(__file__), 'logs')
+os.makedirs(LOGS_DIR, exist_ok=True)
+timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+LOG_PATH = os.path.join(LOGS_DIR, f'db_copy_loader_{timestamp}.log')
 logging.basicConfig(
-    level=logging.INFO,
+    level=logging_level,
     format='%(asctime)s %(levelname)s %(message)s',
     handlers=[
-        logging.FileHandler(f'logs/db_copy_loader_{datetime.now().strftime("%Y%m%d_%H%M%S")}.log'),
+        logging.FileHandler(LOG_PATH),
         logging.StreamHandler()
     ]
 )
+logger = logging.getLogger(__name__)
+logger.info(f'Loaded logging level: {logging_level_str}')
 
 def load_config():
     """Load configuration from params.yml"""
-    with open('params.yml', 'r', encoding='utf-8') as f:
-        return yaml.safe_load(f)
+    # Config is already loaded at module level
+    return config
 
 def get_mysql_connection(config):
     """Create MySQL connection using SQLAlchemy"""
@@ -93,7 +106,7 @@ def create_duckdb_table(con, table_name, schema):
     """).fetchone()[0]
     
     if table_exists:
-        logging.info(f"Table bronze.{table_name} already exists, skipping creation")
+        logger.info(f"Table bronze.{table_name} already exists, skipping creation")
         return
     
     columns = []
@@ -114,12 +127,12 @@ def create_duckdb_table(con, table_name, schema):
     )
     """
     
-    logging.info(f"Creating table bronze.{table_name}")
+    logger.info(f"Creating table bronze.{table_name}")
     con.execute(create_sql)
 
 def copy_table_data(engine, con, table_name, config):
     """Copy data from MySQL table to DuckDB table (incremental)"""
-    logging.info(f"Copying data from MySQL table {table_name} (incremental mode)")
+    logger.info(f"Copying data from MySQL table {table_name} (incremental mode)")
     
     # Get the query from config
     query = config['db']['tables'][table_name]['query']
@@ -128,10 +141,10 @@ def copy_table_data(engine, con, table_name, config):
     with engine.connect() as mysql_conn:
         df = pd.read_sql(query, mysql_conn)
     
-    logging.info(f"Read {len(df)} rows from MySQL table {table_name}")
+    logger.info(f"Read {len(df)} rows from MySQL table {table_name}")
     
     if len(df) == 0:
-        logging.warning(f"No data found in table {table_name}")
+        logger.warning(f"No data found in table {table_name}")
         return
     
     # Clean empty strings that might cause type conversion issues
@@ -158,35 +171,35 @@ def copy_table_data(engine, con, table_name, config):
     try:
         existing_hashes = set(con.execute(f"SELECT hash FROM bronze.{table_name}").fetchall())
         existing_hashes = {row[0] for row in existing_hashes if row[0]}
-        logging.info(f"Found {len(existing_hashes)} existing hashes in bronze.{table_name}")
+        logger.info(f"Found {len(existing_hashes)} existing hashes in bronze.{table_name}")
     except Exception as e:
-        logging.warning(f"Could not get existing hashes for {table_name}: {e}")
+        logger.warning(f"Could not get existing hashes for {table_name}: {e}")
         existing_hashes = set()
     
     # Filter out rows that already exist (based on hash)
     new_rows = df[~df['hash'].isin(list(existing_hashes))]
     
     if len(new_rows) == 0:
-        logging.info(f"No new rows to insert for {table_name}")
+        logger.info(f"No new rows to insert for {table_name}")
         return
     
-    logging.info(f"Inserting {len(new_rows)} new rows to bronze.{table_name}")
+    logger.info(f"Inserting {len(new_rows)} new rows to bronze.{table_name}")
     
     # Insert only new rows
     con.execute(f"INSERT INTO bronze.{table_name} SELECT * FROM new_rows")
     
-    logging.info(f"Successfully inserted {len(new_rows)} new rows to bronze.{table_name}")
-    logging.info(f"Total rows in bronze.{table_name}: {con.execute(f'SELECT COUNT(*) FROM bronze.{table_name}').fetchone()[0]}")
+    logger.info(f"Successfully inserted {len(new_rows)} new rows to bronze.{table_name}")
+    logger.info(f"Total rows in bronze.{table_name}: {con.execute(f'SELECT COUNT(*) FROM bronze.{table_name}').fetchone()[0]}")
 
 def main():
     """Main function to copy database"""
-    logging.info("Starting database copy loader")
+    logger.info("Starting database copy loader")
     
     # Load configuration
     config = load_config()
     duckdb_path = config['duckdb_path']
     
-    logging.info(f"DuckDB path: {duckdb_path}")
+    logger.info(f"DuckDB path: {duckdb_path}")
     
     # Create logs directory if it doesn't exist
     os.makedirs('logs', exist_ok=True)
@@ -203,7 +216,7 @@ def main():
     
     for table_name in tables:
         try:
-            logging.info(f"Processing table {table_name}")
+            logger.info(f"Processing table {table_name}")
             
             # Get MySQL table schema
             schema = get_table_schema(mysql_engine, table_name)
@@ -214,15 +227,15 @@ def main():
             # Copy data
             copy_table_data(mysql_engine, duckdb_con, table_name, config)
             
-            logging.info(f"Successfully processed table {table_name}")
+            logger.info(f"Successfully processed table {table_name}")
             
         except Exception as e:
-            logging.error(f"Error processing table {table_name}: {e}")
+            logger.error(f"Error processing table {table_name}: {e}")
             continue
     
     # Close connections
     duckdb_con.close()
-    logging.info("Database copy loader finished")
+    logger.info("Database copy loader finished")
 
 if __name__ == "__main__":
     main() 
