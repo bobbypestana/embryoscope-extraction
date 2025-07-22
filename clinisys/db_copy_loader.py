@@ -85,9 +85,16 @@ def map_mysql_to_duckdb_type(mysql_type):
     return 'VARCHAR'
 
 def create_duckdb_table(con, table_name, schema):
-    """Create DuckDB table with the same structure as MySQL"""
-    # Drop existing table if it exists to ensure clean schema
-    con.execute(f"DROP TABLE IF EXISTS bronze.{table_name}")
+    """Create DuckDB table with the same structure as MySQL (only if it doesn't exist)"""
+    # Check if table exists
+    table_exists = con.execute(f"""
+        SELECT COUNT(*) FROM information_schema.tables 
+        WHERE table_schema = 'bronze' AND table_name = '{table_name}'
+    """).fetchone()[0]
+    
+    if table_exists:
+        logging.info(f"Table bronze.{table_name} already exists, skipping creation")
+        return
     
     columns = []
     for col_name, col_info in schema.items():
@@ -111,8 +118,8 @@ def create_duckdb_table(con, table_name, schema):
     con.execute(create_sql)
 
 def copy_table_data(engine, con, table_name, config):
-    """Copy data from MySQL table to DuckDB table"""
-    logging.info(f"Copying data from MySQL table {table_name}")
+    """Copy data from MySQL table to DuckDB table (incremental)"""
+    logging.info(f"Copying data from MySQL table {table_name} (incremental mode)")
     
     # Get the query from config
     query = config['db']['tables'][table_name]['query']
@@ -147,11 +154,29 @@ def copy_table_data(engine, con, table_name, config):
     new_df['extraction_timestamp'] = extraction_timestamp
     df = new_df
     
-    # Insert data into DuckDB
-    con.execute(f"DELETE FROM bronze.{table_name}")
-    con.execute(f"INSERT INTO bronze.{table_name} SELECT * FROM df")
+    # Get existing hashes from DuckDB to avoid duplicates
+    try:
+        existing_hashes = set(con.execute(f"SELECT hash FROM bronze.{table_name}").fetchall())
+        existing_hashes = {row[0] for row in existing_hashes if row[0]}
+        logging.info(f"Found {len(existing_hashes)} existing hashes in bronze.{table_name}")
+    except Exception as e:
+        logging.warning(f"Could not get existing hashes for {table_name}: {e}")
+        existing_hashes = set()
     
-    logging.info(f"Successfully copied {len(df)} rows to bronze.{table_name}")
+    # Filter out rows that already exist (based on hash)
+    new_rows = df[~df['hash'].isin(list(existing_hashes))]
+    
+    if len(new_rows) == 0:
+        logging.info(f"No new rows to insert for {table_name}")
+        return
+    
+    logging.info(f"Inserting {len(new_rows)} new rows to bronze.{table_name}")
+    
+    # Insert only new rows
+    con.execute(f"INSERT INTO bronze.{table_name} SELECT * FROM new_rows")
+    
+    logging.info(f"Successfully inserted {len(new_rows)} new rows to bronze.{table_name}")
+    logging.info(f"Total rows in bronze.{table_name}: {con.execute(f'SELECT COUNT(*) FROM bronze.{table_name}').fetchone()[0]}")
 
 def main():
     """Main function to copy database"""
