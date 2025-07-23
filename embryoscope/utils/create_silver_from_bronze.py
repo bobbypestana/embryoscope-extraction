@@ -342,10 +342,44 @@ def process_embryo_data_database(db_path):
         con.register('embryo_df', embryo_df)
         con.execute('CREATE TABLE silver.embryo_data AS SELECT * FROM embryo_df')
         con.unregister('embryo_df')
+        
+        # Add embryo_number feature
+        create_embryo_number_feature(con, db_name)
+        
         con.close()
         logger.info(f"[{db_name}] silver.embryo_data creation complete.")
     except Exception as e:
         logger.error(f"[{db_name}] Failed to process embryo_data: {e}")
+
+def create_embryo_number_feature(con, db_name):
+    """Add embryo_number column to silver.embryo_data with proper sorting logic for EmbryoDescriptionID."""
+    logger.info(f"[{db_name}] Adding embryo_number feature to silver.embryo_data")
+    
+    try:
+        # Add embryo_number directly using a window function with proper sorting
+        # Transform EmbryoDescriptionID inline for sorting: AA1 -> AA01, AA2 -> AA02, etc.
+        con.execute("""
+            CREATE OR REPLACE TABLE silver.embryo_data AS
+            SELECT *,
+                   ROW_NUMBER() OVER (
+                       PARTITION BY TreatmentName 
+                       ORDER BY 
+                           CASE 
+                               WHEN EmbryoDescriptionID IS NULL THEN NULL
+                               WHEN regexp_matches(EmbryoDescriptionID, '^[A-Z]+[0-9]+$') THEN
+                                   regexp_replace(EmbryoDescriptionID, '^([A-Z]+)([0-9]+)$', 
+                                                 '\\1' || lpad(regexp_extract(EmbryoDescriptionID, '([0-9]+)$', 1), 2, '0'))
+                               ELSE EmbryoDescriptionID
+                           END
+                   ) AS embryo_number
+            FROM silver.embryo_data
+        """)
+        
+        logger.info(f"[{db_name}] embryo_number feature added successfully")
+        
+    except Exception as e:
+        logger.error(f"[{db_name}] Error adding embryo_number feature: {e}")
+        raise
 
 def main():
     db_dir = r'G:/My Drive/projetos_individuais/Huntington/database'

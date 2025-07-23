@@ -37,7 +37,7 @@ def get_column_transformation(column_name, column_type, sample_data=None):
         'data', 'data_inicial', 'data_final', 'Data', 'DataCongelamento', 'DataDescongelamento',
         'DataTransferencia', 'data_entrega', 'data_pagamento', 'data_entrega_orcamento',
         'data_ultima_modificacao', 'data_agendamento_original', 'responsavel_recebimento_data',
-        'responsavel_armazenamento_data', 'Data_DL'
+        'responsavel_armazenamento_data', 'Data_DL', 'data_procedimento'
     ]
     
     # Special handling for known time columns
@@ -142,6 +142,20 @@ def deduplicate_and_format_sql(table, cast_sql):
     WHERE rn = 1;
     '''
 
+def feature_creation(con, table):
+    """Apply table-specific feature engineering to the silver table."""
+    if table == 'view_micromanipulacao_oocitos':
+        # Add embryo_number: row_number per id_micromanipulacao ordered by id
+        logger.info(f"Adding embryo_number to silver.{table}")
+        con.execute(f"""
+            CREATE OR REPLACE TABLE silver.{table} AS
+            SELECT *,
+                   ROW_NUMBER() OVER (PARTITION BY id_micromanipulacao ORDER BY id) AS embryo_number
+            FROM silver.{table}
+        """)
+        logger.info(f"embryo_number added to silver.{table}")
+    # Add more table-specific features here as needed
+
 def main():
     logger.info('Starting complete try_strptime silver loader (ALL COLUMNS)')
     logger.info(f'Database path: {db_path}')
@@ -165,6 +179,9 @@ def main():
                 
                 con.execute(sql)
                 logger.info(f'Created/updated silver.{table}')
+                
+                # Feature creation session (table-specific)
+                feature_creation(con, table)
                 
                 # Verify column count
                 bronze_cols = len(get_all_columns_from_bronze(con, table))
