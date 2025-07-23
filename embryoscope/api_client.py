@@ -89,8 +89,8 @@ class EmbryoscopeAPIClient:
         Returns:
             Response object or None if request failed
         """
-        max_retries = 3
-        retry_delay = 1
+        max_retries = 5
+        retry_delay = 0.2
         for attempt in range(max_retries):
             time.sleep(self.rate_limit_delay)
             # Log outgoing request details

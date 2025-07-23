@@ -195,13 +195,23 @@ class EmbryoscopeExtractor:
             # 3. Compare with local DB to find new patient-treatment pairs
             self.logger.info(f"[{clinic_name}] Comparing with local DuckDB to find new patient-treatment pairs...")
             try:
-                existing_treatments = db_manager.get_latest_data('treatments', clinic_name)
-                existing_pairs = set(zip(existing_treatments['PatientIDx'], existing_treatments['TreatmentName']))
+                existing_pairs = db_manager.get_all_existing_pairs(clinic_name)
             except Exception:
                 existing_pairs = set()
             all_pairs = set(zip(treatments_df['PatientIDx'], treatments_df['TreatmentName']))
             new_pairs = all_pairs - existing_pairs
             self.logger.info(f"[{clinic_name}] Found {len(new_pairs)} new patient-treatment pairs needing embryo data.")
+            
+            # Log detailed breakdown
+            if new_pairs:
+                self.logger.info(f"[{clinic_name}] New pairs breakdown:")
+                self.logger.info(f"  - Total pairs from API: {len(all_pairs)}")
+                self.logger.info(f"  - Existing pairs in DB: {len(existing_pairs)}")
+                self.logger.info(f"  - New pairs to process: {len(new_pairs)}")
+                self.logger.info(f"  - Estimated embryo API calls: {len(new_pairs)}")
+            else:
+                self.logger.info(f"[{clinic_name}] No new patient-treatment pairs found. Skipping embryo data extraction.")
+            
             # 4. Fetch embryo data only for new pairs (parallel, progress bar)
             all_embryo_data = []
             def fetch_embryo_for_pair(pair):
@@ -226,6 +236,7 @@ class EmbryoscopeExtractor:
                 return data_processor.process_embryo_data(embryo_data, patient_idx, treatment_name, extraction_timestamp, run_id)
             new_pairs_list = list(new_pairs)
             if new_pairs_list:
+                self.logger.info(f"[{clinic_name}] Starting embryo data extraction for {len(new_pairs_list)} new pairs...")
                 with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
                     futures = {executor.submit(fetch_embryo_for_pair, pair): pair for pair in new_pairs_list}
                     for f in tqdm(concurrent.futures.as_completed(futures), total=len(futures), 
@@ -233,12 +244,25 @@ class EmbryoscopeExtractor:
                         result = f.result()
                         if not result.empty:
                             all_embryo_data.append(result)
+                
+                # Log detailed results
+                total_embryos_fetched = sum(len(df) for df in all_embryo_data)
+                pairs_with_embryos = len(all_embryo_data)
+                pairs_without_embryos = len(new_pairs_list) - pairs_with_embryos
+                
+                self.logger.info(f"[{clinic_name}] Embryo data extraction complete:")
+                self.logger.info(f"  - Pairs processed: {len(new_pairs_list)}")
+                self.logger.info(f"  - Pairs with embryo data: {pairs_with_embryos}")
+                self.logger.info(f"  - Pairs without embryo data: {pairs_without_embryos}")
+                self.logger.info(f"  - Total embryos fetched: {total_embryos_fetched}")
+                
                 if all_embryo_data:
                     embryo_data_df = pd.concat(all_embryo_data, ignore_index=True)
                 else:
                     embryo_data_df = pd.DataFrame()
             else:
                 embryo_data_df = pd.DataFrame()
+                self.logger.info(f"[{clinic_name}] No embryo data to fetch (no new pairs).")
             self.logger.info(f"[{clinic_name}] Fetched {len(embryo_data_df)} embryo data records from API.")
             self.logger.debug(f"[{clinic_name}] Fetched {len(embryo_data_df)} embryo data records from API.")
             # 4b. Fetch IDA score data for the clinic
@@ -264,6 +288,14 @@ class EmbryoscopeExtractor:
             row_counts = db_manager.save_data(data_to_save, clinic_name, run_id, extraction_timestamp)
             self.logger.info(f"[{clinic_name}] Saved data to {db_path}: {row_counts}")
             self.logger.debug(f"[{clinic_name}] Saved data to {db_path}: {row_counts}")
+            
+            # Final summary
+            self.logger.info(f"[{clinic_name}] Extraction summary:")
+            self.logger.info(f"  - New patient-treatment pairs: {len(new_pairs)}")
+            self.logger.info(f"  - Embryo API calls made: {len(new_pairs_list) if new_pairs_list else 0}")
+            self.logger.info(f"  - Embryo records added: {row_counts.get('embryo_data', 0)}")
+            self.logger.info(f"  - Total records processed: {sum(row_counts.values())}")
+            
             self.logger.info(f"[{clinic_name}] Extraction complete.")
             return True
         except Exception as e:

@@ -388,6 +388,26 @@ class EmbryoscopeDatabaseManager:
             """
             return conn.execute(query, [location, location]).df()
     
+    def get_all_existing_pairs(self, location: str) -> set:
+        """
+        Get all existing patient-treatment pairs from the database.
+        This is used for incremental extraction to avoid re-fetching existing data.
+        
+        Args:
+            location: Location identifier
+            
+        Returns:
+            Set of tuples (PatientIDx, TreatmentName) representing existing pairs
+        """
+        with duckdb.connect(self.db_path) as conn:
+            query = """
+                SELECT DISTINCT PatientIDx, TreatmentName 
+                FROM data_treatments 
+                WHERE _location = ?
+            """
+            result = conn.execute(query, [location]).fetchall()
+            return set((row[0], row[1]) for row in result)
+    
     def get_data_summary(self, location: str = None) -> Dict[str, Any]:
         """
         Get summary of data in the database.
