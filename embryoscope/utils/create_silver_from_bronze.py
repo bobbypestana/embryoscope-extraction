@@ -91,6 +91,99 @@ def flatten_embryo_json(raw_json_str, annotation_names_set=None, log_errors=True
             logger.error(f"Error flattening embryo JSON: {e}")
         return {}
 
+def clean_patient_id(df, table_name, db_name):
+    """
+    Clean PatientID column by converting to integer where possible.
+    Discard records that cannot be converted and log unique discarded values.
+    
+    Args:
+        df: DataFrame containing PatientID column
+        table_name: Name of the table being processed
+        db_name: Name of the database being processed
+        
+    Returns:
+        DataFrame with cleaned PatientID (integer) and discarded records logged
+    """
+    if 'PatientID' not in df.columns:
+        logger.debug(f"[{db_name}] No PatientID column found in {table_name}, skipping cleaning")
+        return df
+    
+    original_count = len(df)
+    logger.info(f"[{db_name}] Cleaning PatientID for {table_name}: {original_count} records")
+    
+    # Create a copy to avoid modifying original
+    df_clean = df.copy()
+    
+    # Function to convert PatientID to integer
+    def convert_to_int(patient_id):
+        if pd.isna(patient_id) or patient_id is None:
+            return None
+        
+        # Convert to string first
+        patient_id_str = str(patient_id).strip()
+        
+        # Handle formatted numbers with dots (e.g., "520.124" -> 520124)
+        if '.' in patient_id_str:
+            # Remove all dots and convert to integer
+            try:
+                # Remove dots and check if the result is numeric
+                cleaned_str = patient_id_str.replace('.', '')
+                if cleaned_str.isdigit():
+                    converted_id = int(cleaned_str)
+                    # Discard if the result is 0
+                    if converted_id == 0:
+                        return None
+                    return converted_id
+            except (ValueError, AttributeError):
+                pass
+        
+        # Handle pure numeric strings
+        if patient_id_str.isdigit():
+            converted_id = int(patient_id_str)
+            # Discard if the result is 0
+            if converted_id == 0:
+                return None
+            return converted_id
+        
+        # If it's not a number, return None (will be discarded)
+        return None
+    
+    # Apply conversion
+    df_clean['PatientID'] = df_clean['PatientID'].apply(convert_to_int)
+    
+    # Convert to integer type (not float)
+    df_clean['PatientID'] = df_clean['PatientID'].astype('Int64')  # pandas nullable integer type
+    
+    # Identify records to keep (where PatientID is not None)
+    valid_mask = df_clean['PatientID'].notna()
+    df_valid = df_clean[valid_mask]
+    df_discarded = df_clean[~valid_mask]
+    
+    # Log discarded records
+    discarded_count = len(df_discarded)
+    if discarded_count > 0:
+        # Get unique discarded PatientID values from original data
+        discarded_original_values = df.loc[~valid_mask, 'PatientID'].unique()
+        logger.warning(f"[{db_name}] Discarded {discarded_count} records from {table_name} due to non-numeric PatientID")
+        logger.warning(f"[{db_name}] Unique discarded PatientID values: {sorted(discarded_original_values)}")
+        
+        # Log some examples of discarded records
+        if discarded_count <= 10:
+            logger.warning(f"[{db_name}] All discarded records from {table_name}:")
+            for idx, row in df_discarded.iterrows():
+                logger.warning(f"[{db_name}]   - PatientIDx: {row.get('PatientIDx', 'N/A')}, PatientID: {row.get('PatientID', 'N/A')}, Name: {row.get('Name', 'N/A')}")
+        else:
+            logger.warning(f"[{db_name}] First 5 discarded records from {table_name}:")
+            for idx, row in df_discarded.head().iterrows():
+                logger.warning(f"[{db_name}]   - PatientIDx: {row.get('PatientIDx', 'N/A')}, PatientID: {row.get('PatientID', 'N/A')}, Name: {row.get('Name', 'N/A')}")
+    else:
+        logger.info(f"[{db_name}] No records discarded from {table_name}")
+    
+    valid_count = len(df_valid)
+    logger.info(f"[{db_name}] PatientID cleaning complete for {table_name}: {valid_count} valid records, {discarded_count} discarded")
+    
+    return df_valid
+
 def process_database(db_path):
     db_name = os.path.basename(db_path)
     logger.info(f"[{db_name}] Processing patients table.")
@@ -117,6 +210,10 @@ def process_database(db_path):
         patients_df = pd.DataFrame(all_patients)
         if 'DateOfBirth' in patients_df.columns:
             patients_df['DateOfBirth'] = pd.to_datetime(patients_df['DateOfBirth'], errors='coerce')
+        
+        # Clean PatientID column
+        patients_df = clean_patient_id(patients_df, 'patients', db_name)
+        
         # Ensure all metadata columns exist
         for col in meta_cols:
             if col not in patients_df.columns:
@@ -161,6 +258,10 @@ def process_treatments_database(db_path):
         treatments_df = pd.DataFrame(all_treatments)
         for col in treatments_df.columns:
             treatments_df[col] = treatments_df[col].astype(str)
+        
+        # Clean PatientID column
+        treatments_df = clean_patient_id(treatments_df, 'treatments', db_name)
+        
         # Ensure all metadata columns exist
         for col in meta_cols:
             if col not in treatments_df.columns:
@@ -333,6 +434,10 @@ def process_embryo_data_database(db_path):
         other_cols = sorted([c for c in cols if c not in main_cols + kid_cols + ida_cols])
         ordered_cols = main_cols + kid_cols + ida_cols + other_cols
         embryo_df = embryo_df.reindex(columns=ordered_cols)
+        
+        # Clean PatientID column
+        embryo_df = clean_patient_id(embryo_df, 'embryo_data', db_name)
+        
         # Ensure all metadata columns exist
         for col in meta_cols:
             if col not in embryo_df.columns:
@@ -352,17 +457,22 @@ def process_embryo_data_database(db_path):
         logger.error(f"[{db_name}] Failed to process embryo_data: {e}")
 
 def create_embryo_number_feature(con, db_name):
-    """Add embryo_number column to silver.embryo_data with proper sorting logic for EmbryoDescriptionID."""
+    """Add embryo_number column to silver.embryo_data with proper sorting logic for EmbryoDescriptionID.
+    
+    The embryo_number is assigned sequentially within each patient-treatment combination,
+    ensuring unique numbering per patient even when multiple patients share the same treatment name.
+    """
     logger.info(f"[{db_name}] Adding embryo_number feature to silver.embryo_data")
     
     try:
         # Add embryo_number directly using a window function with proper sorting
         # Transform EmbryoDescriptionID inline for sorting: AA1 -> AA01, AA2 -> AA02, etc.
+        # FIXED: Partition by both PatientIDx and TreatmentName to ensure unique numbering per patient-treatment
         con.execute("""
             CREATE OR REPLACE TABLE silver.embryo_data AS
             SELECT *,
                    ROW_NUMBER() OVER (
-                       PARTITION BY TreatmentName 
+                       PARTITION BY PatientIDx, TreatmentName 
                        ORDER BY 
                            CASE 
                                WHEN EmbryoDescriptionID IS NULL THEN NULL

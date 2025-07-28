@@ -1,6 +1,6 @@
 @echo off
 REM Full Embryoscope Dataflow Batch File
-REM Runs: extract -> bronze to silver -> consolidate
+REM Runs: extract -> bronze to silver -> consolidate -> gold
 
 echo ========================================
 echo Full Embryoscope Dataflow
@@ -98,6 +98,17 @@ if errorlevel 1 (
 )
 cd ..
 echo Consolidation step completed successfully
+echo.
+
+REM Step 4: Silver to Gold (Embryoscope only)
+echo Running embryoscope gold layer creation step...
+python gold_loader.py
+if errorlevel 1 (
+    echo ERROR: Embryoscope gold layer creation step failed.
+    pause
+    exit /b 1
+)
+echo Embryoscope gold layer creation step completed successfully
 echo.
 
 echo Dataflow complete. Check logs in embryoscope\logs\

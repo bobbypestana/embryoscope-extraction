@@ -3,6 +3,7 @@ import os
 import logging
 from datetime import datetime
 import yaml
+import pandas as pd
 
 # Load config and logging level
 CONFIG_PATH = os.path.join(os.path.dirname(__file__), 'params.yml')
@@ -98,6 +99,138 @@ def get_all_columns_from_bronze(con, table_name):
         logger.error(f"Error getting columns for {table_name}: {e}")
         return []
 
+def clean_prontuario_columns(con, table_name):
+    """
+    Clean prontuario columns by converting to integer where possible.
+    For view_pacientes: Keep all records, just clean prontuario values
+    For other tables: Discard records that cannot be converted and log unique discarded values.
+    
+    Args:
+        con: DuckDB connection
+        table_name: Name of the table being processed
+        
+    Returns:
+        None (modifies the silver table in place)
+    """
+    # Find all columns that contain 'prontuario' in their name
+    columns = con.execute(f"DESCRIBE silver.{table_name}").df()
+    prontuario_columns = [col for col in columns['column_name'] if 'prontuario' in col.lower()]
+    
+    if not prontuario_columns:
+        logger.debug(f"No prontuario columns found in {table_name}")
+        return
+    
+    logger.info(f"Found {len(prontuario_columns)} prontuario columns in {table_name}: {prontuario_columns}")
+    
+    # Special handling for view_pacientes - we cannot discard records
+    is_patient_table = table_name == 'view_pacientes'
+    
+    for prontuario_col in prontuario_columns:
+        logger.info(f"Cleaning prontuario column: {prontuario_col} in {table_name}")
+        
+        # Get current data
+        df = con.execute(f"SELECT {prontuario_col} FROM silver.{table_name}").df()
+        original_count = len(df)
+        
+        # Function to convert prontuario to integer
+        def convert_to_int(prontuario_val):
+            if pd.isna(prontuario_val) or prontuario_val is None:
+                return None
+            
+            # Convert to string first
+            prontuario_str = str(prontuario_val).strip()
+            
+            # Handle formatted numbers with dots (e.g., "520.124" -> 520124)
+            if '.' in prontuario_str:
+                # Remove all dots and convert to integer
+                try:
+                    # Remove dots and check if the result is numeric
+                    cleaned_str = prontuario_str.replace('.', '')
+                    if cleaned_str.isdigit():
+                        result = int(cleaned_str)
+                        # Discard if result is 0
+                        return None if result == 0 else result
+                except (ValueError, AttributeError):
+                    pass
+            
+            # Handle pure numeric strings
+            if prontuario_str.isdigit():
+                result = int(prontuario_str)
+                # Discard if result is 0
+                return None if result == 0 else result
+            
+            # If it's not a number, return None (will be discarded)
+            return None
+        
+        # Apply conversion
+        df[prontuario_col] = df[prontuario_col].apply(convert_to_int)
+        
+        # Split into valid and discarded records
+        valid_mask = df[prontuario_col].notna()
+        valid_df = df[valid_mask]
+        discarded_df = df[~valid_mask]
+        
+        valid_count = len(valid_df)
+        discarded_count = len(discarded_df)
+        
+        logger.info(f"[{table_name}] {prontuario_col}: {original_count} records -> {valid_count} valid, {discarded_count} discarded")
+        
+        if discarded_count > 0:
+            # Get unique discarded values
+            discarded_values = discarded_df[prontuario_col].unique()
+            logger.info(f"[{table_name}] {prontuario_col} - Unique discarded values: {list(discarded_values)}")
+            
+            # Log some examples of discarded rows
+            sample_discarded = discarded_df.head(5)
+            logger.info(f"[{table_name}] {prontuario_col} - Sample discarded rows: {sample_discarded.to_dict('records')}")
+        
+        # Update the silver table with cleaned data
+        if is_patient_table:
+            # For view_pacientes: Keep all records, just clean the prontuario values
+            # Get all data from the table
+            all_data = con.execute(f"SELECT * FROM silver.{table_name}").df()
+            
+            # Apply the conversion to the prontuario column
+            all_data[prontuario_col] = all_data[prontuario_col].apply(convert_to_int)
+            
+            # Create a temporary table with the cleaned data
+            temp_table = f"temp_{table_name}_{prontuario_col}"
+            con.execute(f"DROP TABLE IF EXISTS {temp_table}")
+            con.register(temp_table, all_data)
+            con.execute(f"CREATE TABLE {temp_table} AS SELECT * FROM {temp_table}")
+            con.unregister(temp_table)
+            
+            # Replace the original table
+            con.execute(f"DROP TABLE silver.{table_name}")
+            con.execute(f"CREATE TABLE silver.{table_name} AS SELECT * FROM {temp_table}")
+            con.execute(f"DROP TABLE {temp_table}")
+            
+            logger.info(f"[{table_name}] {prontuario_col} cleaning completed (kept all records)")
+        else:
+            # For other tables: Discard records with invalid prontuario values
+            # Get all data from the table
+            all_data = con.execute(f"SELECT * FROM silver.{table_name}").df()
+            
+            # Apply the conversion to the prontuario column
+            all_data[prontuario_col] = all_data[prontuario_col].apply(convert_to_int)
+            
+            # Filter to keep only records with valid prontuario values
+            valid_data = all_data[all_data[prontuario_col].notna()]
+            
+            # Create a temporary table with only valid records
+            temp_table = f"temp_{table_name}_{prontuario_col}"
+            con.execute(f"DROP TABLE IF EXISTS {temp_table}")
+            con.register(temp_table, valid_data)
+            con.execute(f"CREATE TABLE {temp_table} AS SELECT * FROM {temp_table}")
+            con.unregister(temp_table)
+            
+            # Replace the original table with only valid records
+            con.execute(f"DROP TABLE silver.{table_name}")
+            con.execute(f"CREATE TABLE silver.{table_name} AS SELECT * FROM {temp_table}")
+            con.execute(f"DROP TABLE {temp_table}")
+            
+            logger.info(f"[{table_name}] {prontuario_col} cleaning completed (discarded invalid records)")
+
 def generate_complete_cast_sql(con, table_name):
     """Generate complete CAST SQL for all columns in a table"""
     columns = get_all_columns_from_bronze(con, table_name)
@@ -129,14 +262,40 @@ def generate_complete_cast_sql(con, table_name):
     
     return ',\n        '.join(cast_clauses)
 
+def get_primary_key_for_table(table_name):
+    """Get the primary key column for a given table"""
+    primary_keys = {
+        'view_micromanipulacao': 'codigo_ficha',
+        'view_micromanipulacao_oocitos': 'id',
+        'view_tratamentos': 'id',
+        'view_medicamentos_prescricoes': 'id',
+        'view_pacientes': 'codigo',
+        'view_medicos': 'id',
+        'view_unidades': 'id',
+        'view_medicamentos': 'id',
+        'view_procedimentos_financas': 'id',
+        'view_orcamentos': 'id',
+        'view_extrato_atendimentos_central': 'agendamento_id',
+        'view_congelamentos_embrioes': 'id',
+        'view_congelamentos_ovulos': 'id',
+        'view_descongelamentos_embrioes': 'id',
+        'view_descongelamentos_ovulos': 'id',
+        'view_embrioes_congelados': 'id'
+    }
+    return primary_keys.get(table_name, 'id')  # Default to 'id' if not found
+
 def deduplicate_and_format_sql(table, cast_sql):
+    """Generate SQL with proper primary key-based deduplication"""
+    primary_key = get_primary_key_for_table(table)
+    logger.info(f'Using primary key "{primary_key}" for deduplication of table {table}')
+    
     return f'''
     CREATE SCHEMA IF NOT EXISTS silver;
     CREATE OR REPLACE TABLE silver.{table} AS
     SELECT {cast_sql}
     FROM (
         SELECT *,
-               ROW_NUMBER() OVER (PARTITION BY hash ORDER BY extraction_timestamp DESC) AS rn
+               ROW_NUMBER() OVER (PARTITION BY {primary_key} ORDER BY extraction_timestamp DESC) AS rn
         FROM bronze.{table}
     )
     WHERE rn = 1;
@@ -145,12 +304,26 @@ def deduplicate_and_format_sql(table, cast_sql):
 def feature_creation(con, table):
     """Apply table-specific feature engineering to the silver table."""
     if table == 'view_micromanipulacao_oocitos':
-        # Add embryo_number: row_number per id_micromanipulacao ordered by id
-        logger.info(f"Adding embryo_number to silver.{table}")
+        # Add flag_embryoscope: 1 if InseminacaoOocito is not null, 0 otherwise
+        logger.info(f"Adding flag_embryoscope to silver.{table}")
         con.execute(f"""
             CREATE OR REPLACE TABLE silver.{table} AS
             SELECT *,
-                   ROW_NUMBER() OVER (PARTITION BY id_micromanipulacao ORDER BY id) AS embryo_number
+                   CASE WHEN InseminacaoOocito IS NOT NULL THEN 1 ELSE 0 END AS flag_embryoscope
+            FROM silver.{table}
+        """)
+        logger.info(f"flag_embryoscope added to silver.{table}")
+        
+        # Add embryo_number: row_number per id_micromanipulacao ordered by id, but only for embryos (flag_embryoscope = 1)
+        logger.info(f"Adding embryo_number to silver.{table} (only for embryos)")
+        con.execute(f"""
+            CREATE OR REPLACE TABLE silver.{table} AS
+            SELECT *,
+                   CASE 
+                       WHEN flag_embryoscope = 1 THEN 
+                           ROW_NUMBER() OVER (PARTITION BY id_micromanipulacao ORDER BY id)
+                       ELSE NULL 
+                   END AS embryo_number
             FROM silver.{table}
         """)
         logger.info(f"embryo_number added to silver.{table}")
@@ -182,6 +355,9 @@ def main():
                 
                 # Feature creation session (table-specific)
                 feature_creation(con, table)
+                
+                # Clean prontuario columns (convert to integer, discard invalid values)
+                clean_prontuario_columns(con, table)
                 
                 # Verify column count
                 bronze_cols = len(get_all_columns_from_bronze(con, table))
