@@ -9,7 +9,7 @@ import hashlib
 from typing import Dict, Any, List, Optional
 from datetime import datetime
 import logging
-from schema_config import get_column_mapping, get_api_structure, validate_data_type
+from utils.schema_config import get_column_mapping, get_api_structure, validate_data_type
 
 # Metadata columns to exclude from hash
 METADATA_COLUMNS = {'_location', '_extraction_timestamp', '_run_id', '_row_hash'}
@@ -143,10 +143,6 @@ class EmbryoscopeDataProcessor:
             if db_col in db_columns:
                 if data_type == 'treatments' and db_col == 'PatientIDx':
                     df[db_col] = patient_idx
-                elif data_type == 'treatments' and db_col == 'PatientID':
-                    # For treatments, we need to get PatientID from the patient context
-                    # This will be handled during consolidation
-                    df[db_col] = None
                 elif data_type == 'treatments' and db_col == 'TreatmentName':
                     df[db_col] = df['TreatmentName']  # Already set above
                 elif data_type == 'embryo_data' and db_col in ['PatientIDx', 'TreatmentName']:
@@ -154,10 +150,6 @@ class EmbryoscopeDataProcessor:
                         df[db_col] = patient_idx
                     elif db_col == 'TreatmentName':
                         df[db_col] = treatment_name
-                elif data_type == 'embryo_data' and db_col == 'PatientID':
-                    # For embryo_data, we need to get PatientID from the patient context
-                    # This will be handled during consolidation
-                    df[db_col] = None
                 else:
                     # Apply transformation function
                     try:

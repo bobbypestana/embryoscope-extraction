@@ -8,7 +8,7 @@ import sys
 import os
 
 PARAMS_PATH = '../params.yml'
-EXTRACT_SCRIPT = '../embryoscope_extractor.py'
+EXTRACT_SCRIPT = '../01_source_to_bronze.py'
 
 # Activate conda env if needed (Windows batch file should do this)
 

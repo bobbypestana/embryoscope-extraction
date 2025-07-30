@@ -26,7 +26,7 @@ embryoscope/
 ├── schema_config.py           # Schema configuration and mappings
 ├── data_processor.py          # Generic JSON flattening and data processing
 ├── database_manager.py        # DuckDB operations and incremental logic
-├── embryoscope_extractor.py   # Main extraction orchestrator
+├── 01_source_to_bronze.py     # Main extraction orchestrator
 ├── query_interface.py         # Data querying and export interface
 ├── close_db_connections.py    # Database connection manager utility
 ├── close_db_connections.bat   # Windows batch file for connection manager
@@ -259,12 +259,12 @@ run_extraction.bat
 
 **Python Script**:
 ```bash
-python embryoscope_extractor.py
+python 01_source_to_bronze.py
 ```
 
 **Individual Location**:
 ```python
-from embryoscope_extractor import EmbryoscopeExtractor
+from embryoscope.01_source_to_bronze import EmbryoscopeExtractor
 
 extractor = EmbryoscopeExtractor()
 success = extractor.extract_single_location('Santa Joana')
@@ -412,7 +412,7 @@ GROUP BY _location;
 
 ### Debug Mode
 
-Enable debug logging by modifying the logging level in `embryoscope_extractor.py`:
+Enable debug logging by modifying the logging level in `01_source_to_bronze.py`:
 
 ```python
 logger.setLevel(logging.DEBUG)

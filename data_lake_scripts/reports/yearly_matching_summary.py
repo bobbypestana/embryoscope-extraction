@@ -13,7 +13,7 @@ def yearly_matching_summary():
     logger.info("Starting yearly matching summary analysis")
     
     try:
-        con = duckdb.connect('../database/huntington_data_lake.duckdb')
+        con = duckdb.connect('database/huntington_data_lake.duckdb')
         logger.info("Connected to data lake")
         
         print("=" * 80)

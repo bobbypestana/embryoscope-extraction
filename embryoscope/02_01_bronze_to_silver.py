@@ -9,21 +9,22 @@ import collections
 import yaml
 
 script_dir = os.path.dirname(os.path.abspath(__file__))
+script_name = os.path.splitext(os.path.basename(__file__))[0]  # Get filename without extension
 project_root = os.path.abspath(os.path.join(script_dir, '..'))
 log_dir = os.path.join(project_root, 'logs')
 os.makedirs(log_dir, exist_ok=True)
 log_ts = datetime.now().strftime('%Y%m%d_%H%M%S')
-log_file = os.path.join(log_dir, f'create_silver_from_bronze_{log_ts}.log')
+log_file = os.path.join(log_dir, f'{script_name}_{log_ts}.log')
 
 # Load log level from params.yml
-params_path = os.path.join(project_root, 'params.yml')
+params_path = os.path.join(script_dir, 'params.yml')
 with open(params_path, 'r') as f:
     params = yaml.safe_load(f)
 log_level_str = params.get('extraction', {}).get('log_level', 'INFO').upper()
 log_level = getattr(logging, log_level_str, logging.INFO)
 
 # Setup logger with custom format
-logger = logging.getLogger('create_silver_from_bronze')
+logger = logging.getLogger(script_name)
 logger.setLevel(log_level)
 formatter = logging.Formatter('%(asctime)s,%(msecs)03d - %(name)s - %(levelname)s - %(message)s', datefmt='%Y-%m-%d %H:%M:%S')
 file_handler = logging.FileHandler(log_file)

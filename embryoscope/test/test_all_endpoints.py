@@ -15,10 +15,10 @@ import duckdb
 # Add the parent directory to the path so we can import our modules
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from config_manager import EmbryoscopeConfigManager
-from api_client import EmbryoscopeAPIClient
-from data_processor import EmbryoscopeDataProcessor
-from database_manager import EmbryoscopeDatabaseManager
+from utils.config_manager import EmbryoscopeConfigManager
+from utils.api_client import EmbryoscopeAPIClient
+from utils.data_processor import EmbryoscopeDataProcessor
+from utils.database_manager import EmbryoscopeDatabaseManager
 
 def setup_logging():
     """Setup logging configuration."""

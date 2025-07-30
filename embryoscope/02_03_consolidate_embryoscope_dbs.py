@@ -9,7 +9,7 @@ import yaml
 
 # Configuration
 script_dir = Path(__file__).resolve().parent
-project_root = script_dir.parent
+project_root = script_dir  # Use current directory since params.yml is here
 params_path = project_root / 'params.yml'
 with open(params_path, 'r') as f:
     params = yaml.safe_load(f)
@@ -126,7 +126,7 @@ def write_table_to_central_db(df, table, schema, central_db):
         con.execute(f"DROP TABLE IF EXISTS {schema}.{table}")
         logger.debug(f"Creating table: {schema}.{table} from DataFrame")
         con.execute(f"CREATE TABLE {schema}.{table} AS SELECT * FROM df")
-        logger.info(f"Wrote {len(df)} rows to {schema}.{table}")
+        logger.info(f"Wrote {len(df)} rows and {len(df.columns)} columns to {schema}.{table}")
     except Exception as e:
         logger.error(f"Failed to write {table} to central DB: {e}")
     finally:

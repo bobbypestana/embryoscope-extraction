@@ -14,7 +14,7 @@ def test_config_manager():
     """Test configuration manager."""
     print("Testing Configuration Manager...")
     try:
-        from config_manager import EmbryoscopeConfigManager
+        from utils.config_manager import EmbryoscopeConfigManager
         
         config_manager = EmbryoscopeConfigManager()
         config_manager.print_config_summary()
@@ -36,8 +36,8 @@ def test_api_client():
     """Test API client with a single location."""
     print("\nTesting API Client...")
     try:
-        from config_manager import EmbryoscopeConfigManager
-        from api_client import EmbryoscopeAPIClient
+        from utils.config_manager import EmbryoscopeConfigManager
+        from utils.api_client import EmbryoscopeAPIClient
         
         config_manager = EmbryoscopeConfigManager()
         enabled_embryoscopes = config_manager.get_enabled_embryoscopes()
@@ -71,7 +71,7 @@ def test_data_processor():
     """Test data processor with sample data."""
     print("\nTesting Data Processor...")
     try:
-        from data_processor import EmbryoscopeDataProcessor
+        from utils.data_processor import EmbryoscopeDataProcessor
         
         processor = EmbryoscopeDataProcessor("Test Location")
         
@@ -115,7 +115,7 @@ def test_database_manager():
     """Test database manager."""
     print("\nTesting Database Manager...")
     try:
-        from database_manager import EmbryoscopeDatabaseManager
+        from utils.database_manager import EmbryoscopeDatabaseManager
         
         # Use test database
         db_manager = EmbryoscopeDatabaseManager("../database/embryoscope_test.duckdb")

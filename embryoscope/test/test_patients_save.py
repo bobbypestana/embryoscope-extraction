@@ -12,10 +12,10 @@ from datetime import datetime
 # Add parent directory to path for imports
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from config_manager import EmbryoscopeConfigManager
-from api_client import EmbryoscopeAPIClient
-from data_processor import EmbryoscopeDataProcessor
-from database_manager import EmbryoscopeDatabaseManager
+from utils.config_manager import EmbryoscopeConfigManager
+from utils.api_client import EmbryoscopeAPIClient
+from utils.data_processor import EmbryoscopeDataProcessor
+from utils.database_manager import EmbryoscopeDatabaseManager
 
 def setup_logging():
     """Setup basic logging."""

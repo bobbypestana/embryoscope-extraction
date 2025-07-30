@@ -12,7 +12,6 @@ TABLE_SCHEMAS = {
     'patients': {
         'columns': [
             'PatientIDx VARCHAR',
-            'PatientID INTEGER',
             'Name VARCHAR', 
             'BirthDate DATE',
             '_location VARCHAR',
@@ -25,7 +24,6 @@ TABLE_SCHEMAS = {
     'treatments': {
         'columns': [
             'PatientIDx VARCHAR',
-            'PatientID INTEGER',
             'TreatmentName VARCHAR',
             '_location VARCHAR',
             '_extraction_timestamp TIMESTAMP',
@@ -38,7 +36,6 @@ TABLE_SCHEMAS = {
         'columns': [
             'EmbryoID VARCHAR',
             'PatientIDx VARCHAR',
-            'PatientID INTEGER',
             'TreatmentName VARCHAR',
             'AnnotationList TEXT',
             'InstrumentNumber VARCHAR',
@@ -76,34 +73,31 @@ TABLE_SCHEMAS = {
 # API to Database column mappings for each data type
 COLUMN_MAPPINGS = {
     'patients': {
-        'api_fields': ['PatientIDx', 'PatientID', 'FirstName', 'LastName', 'DateOfBirth'],
-        'db_columns': ['PatientIDx', 'PatientID', 'Name', 'BirthDate'],
+        'api_fields': ['PatientIDx', 'FirstName', 'LastName', 'DateOfBirth'],
+        'db_columns': ['PatientIDx', 'Name', 'BirthDate'],
         'transformations': {
-            'PatientID': lambda row: row.get('PatientID'),
             'Name': lambda row: f"{row.get('FirstName', '')} {row.get('LastName', '')}".strip(),
             'BirthDate': lambda row: row.get('DateOfBirth', '').replace('.', '-') if isinstance(row.get('DateOfBirth', ''), str) else None
         }
     },
     'treatments': {
         'api_fields': ['TreatmentList'],  # This is a list, not individual fields
-        'db_columns': ['PatientIDx', 'PatientID', 'TreatmentName'],
+        'db_columns': ['PatientIDx', 'TreatmentName'],
         'transformations': {
             'PatientIDx': lambda row, patient_idx: patient_idx,
-            'PatientID': lambda row, patient_id: patient_id,
             'TreatmentName': lambda row: row  # row is the treatment name string
         }
     },
     'embryo_data': {
         'api_fields': ['EmbryoID', 'AnnotationList', 'EmbryoDetails', 'Evaluation'],
         'db_columns': [
-            'EmbryoID', 'PatientIDx', 'PatientID', 'TreatmentName', 'AnnotationList',
+            'EmbryoID', 'PatientIDx', 'TreatmentName', 'AnnotationList',
             'InstrumentNumber', 'Position', 'WellNumber', 'FertilizationTime',
             'EmbryoFate', 'Description', 'EmbryoDescriptionID',
             'EvaluationModel', 'EvaluationScore', 'EvaluationUser', 'EvaluationDate'
         ],
         'transformations': {
             'PatientIDx': lambda row, patient_idx: patient_idx,
-            'PatientID': lambda row, patient_id: patient_id,
             'TreatmentName': lambda row, treatment_name: treatment_name,
             'AnnotationList': lambda row: json.dumps(row.get('AnnotationList', [])) if isinstance(row.get('AnnotationList', []), (list, dict)) else None,
             'InstrumentNumber': lambda row: row.get('EmbryoDetails', {}).get('InstrumentNumber') if isinstance(row.get('EmbryoDetails', {}), dict) else None,

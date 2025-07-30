@@ -18,10 +18,10 @@ import pandas as pd
 # Add current directory to path for imports
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
-from config_manager import EmbryoscopeConfigManager
-from api_client import EmbryoscopeAPIClient
-from data_processor import EmbryoscopeDataProcessor
-from database_manager import EmbryoscopeDatabaseManager
+from utils.config_manager import EmbryoscopeConfigManager
+from utils.api_client import EmbryoscopeAPIClient
+from utils.data_processor import EmbryoscopeDataProcessor
+from utils.database_manager import EmbryoscopeDatabaseManager
 
 
 class EmbryoscopeExtractor:
@@ -122,7 +122,8 @@ class EmbryoscopeExtractor:
         
         # Initialize API client and data processor
         rate_limit_delay = self.config_manager.get_rate_limit_delay()
-        max_workers = self.config_manager.get_max_workers()
+        max_workers = self.config_manager.get_max_workers()  # For clinic-level parallelization
+        clinic_workers = self.config_manager.get_clinic_parallel_workers()  # For internal clinic operations
         api_client = EmbryoscopeAPIClient(clinic_name, config, rate_limit_delay)
         data_processor = EmbryoscopeDataProcessor(clinic_name)
         extraction_timestamp = datetime.now()
@@ -171,7 +172,7 @@ class EmbryoscopeExtractor:
                 return data_processor.process_treatments(treatments_data, patient_idx, extraction_timestamp, run_id)
             patient_ids = list(patients_df['PatientIDx'])
             if patient_ids:
-                with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
+                with concurrent.futures.ThreadPoolExecutor(max_workers=clinic_workers) as executor:
                     futures = {executor.submit(fetch_treatments_for_patient, pid): pid for pid in patient_ids}
                     for f in tqdm(concurrent.futures.as_completed(futures), total=len(futures), 
                                 desc=f"Fetching treatments for {clinic_name}", unit="patient"):
@@ -237,7 +238,7 @@ class EmbryoscopeExtractor:
             new_pairs_list = list(new_pairs)
             if new_pairs_list:
                 self.logger.info(f"[{clinic_name}] Starting embryo data extraction for {len(new_pairs_list)} new pairs...")
-                with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
+                with concurrent.futures.ThreadPoolExecutor(max_workers=clinic_workers) as executor:
                     futures = {executor.submit(fetch_embryo_for_pair, pair): pair for pair in new_pairs_list}
                     for f in tqdm(concurrent.futures.as_completed(futures), total=len(futures), 
                                 desc=f"Fetching embryo data for {clinic_name}", unit="pair"):
@@ -357,7 +358,7 @@ class EmbryoscopeExtractor:
                     for location in enabled_embryoscopes.keys()
                 }
                 
-                # Collect results
+                # Collect results - simple approach that handles failures gracefully
                 for future in concurrent.futures.as_completed(future_to_location):
                     location = future_to_location[future]
                     try:
@@ -448,7 +449,10 @@ def main():
                 extractor.logger.info(f"    {data_type}: {stats['count']} records (last: {stats['last_extraction']})")
         
     except Exception as e:
-        extractor.logger.error(f"Error in main execution: {e}")
+        import traceback
+        print(f"ERROR in main execution: {e}")
+        print("Full traceback:")
+        traceback.print_exc()
         return 1
     
     return 0

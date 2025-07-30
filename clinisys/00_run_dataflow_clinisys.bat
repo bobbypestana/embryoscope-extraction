@@ -65,7 +65,7 @@ echo.
 
 REM Step 1: Extract from API to bronze
 echo Running extraction step...
-python db_copy_loader.py
+python 01_source_to_bronze.py
 if errorlevel 1 (
     echo ERROR: Extraction step failed.
     pause
@@ -77,7 +77,7 @@ echo.
 
 REM Step 2: Bronze to Silver
 echo Running bronze to silver step...
-python silver_loader_try_strptime_complete.py
+python 02_01_bronze_to_silver.py
 if errorlevel 1 (
     echo ERROR: Bronze to Silver step failed.
     cd ..
@@ -90,7 +90,7 @@ echo.
 
 REM Step 3: Check Tables
 echo Running table validation step...
-python clinisys/check_tables.py
+python clinisys/02_02_compare_bronze_and_silver.py
 if errorlevel 1 (
     echo WARNING: Table validation step had issues, but continuing...
 ) else (
@@ -100,7 +100,7 @@ echo.
 
 REM Step 4: Silver to Consolidate
 echo Running consolidation step...
-python clinisys/gold_loader.py
+python clinisys/03_silver_to_golde.py
 if errorlevel 1 (
     echo ERROR: Consolidation step failed.
     cd ..

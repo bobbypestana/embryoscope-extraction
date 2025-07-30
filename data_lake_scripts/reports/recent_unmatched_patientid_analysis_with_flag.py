@@ -13,7 +13,7 @@ def recent_unmatched_patientid_analysis_with_flag():
     logger.info("Starting recent unmatched PatientID analysis with flag_embryoscope")
     
     try:
-        con = duckdb.connect('../database/huntington_data_lake.duckdb')
+        con = duckdb.connect('database/huntington_data_lake.duckdb')
         logger.info("Connected to data lake")
         
         print("=" * 80)

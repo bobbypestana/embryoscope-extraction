@@ -11,7 +11,7 @@ from typing import Dict, Any, List, Optional, Tuple
 from datetime import datetime
 import hashlib
 import json
-from schema_config import get_table_schema, get_supported_data_types, validate_data_type
+from utils.schema_config import get_table_schema, get_supported_data_types, validate_data_type
 
 
 def check_db_lock(db_path):
@@ -279,6 +279,31 @@ class EmbryoscopeDatabaseManager:
         if df.empty:
             return 0
         
+        # DEBUG: Print table schema and data columns
+        try:
+            # Get table schema
+            schema_result = conn.execute(f"DESCRIBE {table_name}").fetchall()
+            table_columns = [row[0] for row in schema_result]
+            self.logger.info(f"DEBUG: Table {table_name} has {len(table_columns)} columns: {table_columns}")
+            
+            # Get data columns
+            data_columns = list(df.columns)
+            self.logger.info(f"DEBUG: Data has {len(data_columns)} columns: {data_columns}")
+            
+            # Check for mismatch
+            if len(table_columns) != len(data_columns):
+                self.logger.error(f"DEBUG: COLUMN COUNT MISMATCH! Table: {len(table_columns)}, Data: {len(data_columns)}")
+                self.logger.error(f"DEBUG: Missing in data: {set(table_columns) - set(data_columns)}")
+                self.logger.error(f"DEBUG: Extra in data: {set(data_columns) - set(table_columns)}")
+            
+            # Show first row for debugging
+            if not df.empty:
+                first_row = df.iloc[0].to_dict()
+                self.logger.info(f"DEBUG: First row data: {first_row}")
+                
+        except Exception as debug_e:
+            self.logger.error(f"DEBUG: Error getting schema info: {debug_e}")
+        
         # Get existing hashes
         existing_hashes = list(self._get_existing_hashes(conn, table_name, location))
         
@@ -325,7 +350,9 @@ class EmbryoscopeDatabaseManager:
                             row_counts[data_type] = 0
                             continue
                         
+                        self.logger.info(f"DEBUG: Processing data_type: {data_type}")
                         table_name = self._get_table_name(data_type)
+                        self.logger.info(f"DEBUG: Target table: {table_name}")
                         
                         # Insert data incrementally
                         inserted_rows = self._insert_data_incremental(conn, df, table_name, location, run_id)

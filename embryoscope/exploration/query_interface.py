@@ -14,8 +14,8 @@ import os
 # Add the parent directory to the path so we can import our modules
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from config_manager import EmbryoscopeConfigManager
-from database_manager import EmbryoscopeDatabaseManager
+from utils.config_manager import EmbryoscopeConfigManager
+from utils.database_manager import EmbryoscopeDatabaseManager
 
 
 class EmbryoscopeQueryInterface:

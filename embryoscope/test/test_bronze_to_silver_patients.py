@@ -1,7 +1,7 @@
 import os
 import duckdb
 import pandas as pd
-from embryoscope.utils.create_silver_from_bronze import process_database
+from embryoscope.02_bronze_to_silver import process_database
 
 def test_silver_patients_creation():
     # Setup: create a test DuckDB database

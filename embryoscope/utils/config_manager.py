@@ -101,6 +101,11 @@ class EmbryoscopeConfigManager:
             return extraction_config[endpoint].get('max_workers', extraction_config.get('max_workers', 3))
         return extraction_config.get('max_workers', 3)
     
+    def get_clinic_parallel_workers(self) -> int:
+        """Get number of parallel workers for internal clinic operations (treatments, embryo data)."""
+        extraction_config = self.get_extraction_config()
+        return extraction_config.get('clinic_parallel_workers', 1)
+    
     def get_token_refresh_patients(self) -> int:
         """Get token refresh frequency for patients."""
         extraction_config = self.get_extraction_config()

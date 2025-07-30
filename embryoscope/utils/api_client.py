@@ -8,12 +8,42 @@ import urllib3
 import time
 import hashlib
 import json
+import threading
 from typing import Dict, Any, Optional, List
 from datetime import datetime
 import logging
 
 # Disable SSL warnings
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+
+
+class RateLimiter:
+    """Thread-safe rate limiter for API requests."""
+    
+    def __init__(self, delay: float):
+        """
+        Initialize rate limiter.
+        
+        Args:
+            delay: Minimum delay between requests in seconds
+        """
+        self.delay = delay
+        self.last_request_time = 0
+        self.lock = threading.Lock()
+    
+    def wait(self):
+        """Wait if necessary to respect rate limit."""
+        with self.lock:
+            current_time = time.time()
+            time_since_last = current_time - self.last_request_time
+            if time_since_last < self.delay:
+                sleep_time = self.delay - time_since_last
+                # Log rate limiting (only in debug mode to avoid spam)
+                import logging
+                logger = logging.getLogger(__name__)
+                logger.debug(f"Rate limiting: waiting {sleep_time:.3f}s (delay: {self.delay:.3f}s)")
+                time.sleep(sleep_time)
+            self.last_request_time = time.time()
 
 
 class EmbryoscopeAPIClient:
@@ -35,6 +65,9 @@ class EmbryoscopeAPIClient:
         self.token = None
         self.session = requests.Session()
         self.session.verify = False  # Disable SSL verification
+        
+        # Initialize thread-safe rate limiter
+        self.rate_limiter = RateLimiter(rate_limit_delay)
         
         # Setup logging
         self.logger = logging.getLogger(f"embryoscope_api_{location}")
@@ -92,7 +125,9 @@ class EmbryoscopeAPIClient:
         max_retries = 5
         retry_delay = 0.2
         for attempt in range(max_retries):
-            time.sleep(self.rate_limit_delay)
+            # Use thread-safe rate limiter
+            self.rate_limiter.wait()
+            
             # Log outgoing request details
             log_headers = kwargs.get('headers', {})
             log_headers_masked = {k: ('***MASKED***' if 'token' in k.lower() else v) for k, v in log_headers.items()}

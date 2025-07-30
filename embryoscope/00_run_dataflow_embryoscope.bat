@@ -62,7 +62,7 @@ echo.
 
 REM Step 1: Extract from API to bronze
 echo Running extraction step...
-python embryoscope_extractor.py
+python 01_source_to_bronze.py
 if errorlevel 1 (
     echo ERROR: Extraction step failed.
     pause
@@ -74,35 +74,40 @@ echo.
 
 REM Step 2: Bronze to Silver
 echo Running bronze to silver step...
-cd utils
-python create_silver_from_bronze.py
+python 02_01_bronze_to_silver.py
 if errorlevel 1 (
     echo ERROR: Bronze to Silver step failed.
-    cd ..
     pause
     exit /b 1
 )
-cd ..
 echo Bronze to silver step completed successfully
 echo.
 
-REM Step 3: Silver to Consolidate
-echo Running consolidation step...
-cd utils
-python consolidate_embryoscope_dbs.py
+REM Step 3: Cleanup Silver Layer (remove orphaned records)
+echo Running silver layer cleanup step...
+python 02_02_cleanup_silver_layer.py
 if errorlevel 1 (
-    echo ERROR: Consolidation step failed.
-    cd ..
+    echo ERROR: Silver layer cleanup step failed.
     pause
     exit /b 1
 )
-cd ..
+echo Silver layer cleanup step completed successfully
+echo.
+
+REM Step 4: Silver to Consolidate
+echo Running consolidation step...
+python 02_03_consolidate_embryoscope_dbs.py
+if errorlevel 1 (
+    echo ERROR: Consolidation step failed.
+    pause
+    exit /b 1
+)
 echo Consolidation step completed successfully
 echo.
 
-REM Step 4: Silver to Gold (Embryoscope only)
+REM Step 5: Silver to Gold (Embryoscope only)
 echo Running embryoscope gold layer creation step...
-python gold_loader.py
+python 03_consolidated_to_gold.py
 if errorlevel 1 (
     echo ERROR: Embryoscope gold layer creation step failed.
     pause
