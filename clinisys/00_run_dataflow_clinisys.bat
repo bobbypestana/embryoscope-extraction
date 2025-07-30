@@ -99,7 +99,7 @@ if errorlevel 1 (
 echo.
 
 REM Step 4: Silver to Consolidate
-echo Running consolidation step...
+echo Running silver to gold step...
 python clinisys/03_silver_to_golde.py
 if errorlevel 1 (
     echo ERROR: Consolidation step failed.
@@ -108,7 +108,7 @@ if errorlevel 1 (
     exit /b 1
 )
 cd ..
-echo Consolidation step completed successfully
+echo Silver to gold step completed successfully
 echo.
 
 echo Dataflow complete. Check logs in clinisys\logs\

@@ -31,86 +31,38 @@ logger.info(f'Loaded logging level: {logging_level_str}')
 db_path = os.path.join('..', 'database', 'huntington_data_lake.duckdb')
 
 def test_join_strategies(con):
-    """Test different join strategies to find the best one."""
-    logger.info("Testing different join strategies...")
+    """Test exact day matching strategy."""
+    logger.info("Testing exact day matching strategy...")
     
-    strategies = [
-        {
-            'name': 'Both as DATE with clean PatientID (embryos only)',
-            'query': '''
-                SELECT COUNT(*) as matches
-                FROM gold.clinisys_embrioes c
-                LEFT JOIN (
-                    SELECT *,
-                        CASE 
-                            WHEN patient_PatientID IS NULL THEN NULL
-                            ELSE patient_PatientID
-                        END as patient_PatientID_clean
-                    FROM gold.embryoscope_embrioes
-                ) e
-                                         ON CAST(c.micro_Data_DL AS DATE) = CAST(e.embryo_FertilizationTime AS DATE)
-                     AND c.oocito_embryo_number = e.embryo_embryo_number
-                     AND c.micro_prontuario = e.patient_PatientID_clean
-                     AND e.patient_PatientID_clean IS NOT NULL
-                     AND c.oocito_flag_embryoscope = 1
-                WHERE e.embryo_EmbryoID IS NOT NULL
-            '''
-        },
-        {
-            'name': 'Date with time tolerance (1 day) and clean PatientID (embryos only)',
-            'query': '''
-                SELECT COUNT(*) as matches
-                FROM gold.clinisys_embrioes c
-                LEFT JOIN (
-                    SELECT *,
-                        CASE 
-                            WHEN patient_PatientID IS NULL THEN NULL
-                            ELSE patient_PatientID
-                        END as patient_PatientID_clean
-                    FROM gold.embryoscope_embrioes
-                ) e
-                                         ON ABS(DATE_DIFF('day', CAST(c.micro_Data_DL AS DATE), CAST(e.embryo_FertilizationTime AS DATE))) <= 1
-                     AND c.oocito_embryo_number = e.embryo_embryo_number
-                     AND c.micro_prontuario = e.patient_PatientID_clean
-                     AND e.patient_PatientID_clean IS NOT NULL
-                     AND c.oocito_flag_embryoscope = 1
-                WHERE e.embryo_EmbryoID IS NOT NULL
-            '''
-        },
-        {
-            'name': 'Date with time tolerance (2 days) and clean PatientID (embryos only)',
-            'query': '''
-                SELECT COUNT(*) as matches
-                FROM gold.clinisys_embrioes c
-                LEFT JOIN (
-                    SELECT *,
-                        CASE 
-                            WHEN patient_PatientID IS NULL THEN NULL
-                            ELSE patient_PatientID
-                        END as patient_PatientID_clean
-                    FROM gold.embryoscope_embrioes
-                ) e
-                                         ON ABS(DATE_DIFF('day', CAST(c.micro_Data_DL AS DATE), CAST(e.embryo_FertilizationTime AS DATE))) <= 2
-                     AND c.oocito_embryo_number = e.embryo_embryo_number
-                     AND c.micro_prontuario = e.patient_PatientID_clean
-                     AND e.patient_PatientID_clean IS NOT NULL
-                     AND c.oocito_flag_embryoscope = 1
-                WHERE e.embryo_EmbryoID IS NOT NULL
-            '''
-        }
-    ]
+    strategy = {
+        'name': 'Exact DATE match with clean PatientID (embryos only)',
+        'query': '''
+            SELECT COUNT(*) as matches
+            FROM gold.clinisys_embrioes c
+            LEFT JOIN (
+                SELECT *,
+                    CASE 
+                        WHEN patient_PatientID IS NULL THEN NULL
+                        ELSE patient_PatientID
+                    END as patient_PatientID_clean
+                FROM gold.embryoscope_embrioes
+            ) e
+                                     ON CAST(c.micro_Data_DL AS DATE) = CAST(e.embryo_FertilizationTime AS DATE)
+                 AND c.oocito_embryo_number = e.embryo_embryo_number
+                 AND c.micro_prontuario = e.patient_PatientID_clean
+                 AND e.patient_PatientID_clean IS NOT NULL
+                 AND c.oocito_flag_embryoscope = 1
+            WHERE e.embryo_EmbryoID IS NOT NULL
+        '''
+    }
     
-    results = {}
-    for strategy in strategies:
-        try:
-            result = con.execute(strategy['query']).fetchone()[0]
-            results[strategy['name']] = result
-            logger.info(f"{strategy['name']}: {result} matches")
-        except Exception as e:
-            logger.warning(f"Strategy '{strategy['name']}' failed: {e}")
-            results[strategy['name']] = 0
-    
-    return results
+    try:
+        result = con.execute(strategy['query']).fetchone()[0]
+        logger.info(f"{strategy['name']}: {result} matches")
+        return {strategy['name']: result}
+    except Exception as e:
+        logger.warning(f"Strategy '{strategy['name']}' failed: {e}")
+        return {strategy['name']: 0}
 
 def main():
     logger.info('Starting combined gold loader (fixed) for embryoscope_clinisys_combined')
@@ -127,20 +79,12 @@ def main():
         with duckdb.connect(db_path) as con:
             logger.info('Connected to DuckDB')
             
-            # Test different join strategies
+            # Test exact day matching strategy
             join_results = test_join_strategies(con)
             
-            # Find the best strategy
-            best_strategy = max(join_results.items(), key=lambda x: x[1])
-            logger.info(f"Best join strategy: {best_strategy[0]} with {best_strategy[1]} matches")
-            
-            # Use the best strategy for the actual query
-            if '1 day' in best_strategy[0]:
-                date_condition = "ABS(DATE_DIFF('day', CAST(c.micro_Data_DL AS DATE), CAST(e.embryo_FertilizationTime AS DATE))) <= 1"
-            elif '2 days' in best_strategy[0]:
-                date_condition = "ABS(DATE_DIFF('day', CAST(c.micro_Data_DL AS DATE), CAST(e.embryo_FertilizationTime AS DATE))) <= 2"
-            else:
-                date_condition = "CAST(c.micro_Data_DL AS DATE) = CAST(e.embryo_FertilizationTime AS DATE)"
+            # Use exact day matching
+            date_condition = "CAST(c.micro_Data_DL AS DATE) = CAST(e.embryo_FertilizationTime AS DATE)"
+            logger.info(f"Using exact day matching strategy")
             
             query = f'''
             SELECT 
@@ -167,7 +111,7 @@ def main():
                 e.patient_PatientID_clean
                 
             FROM gold.clinisys_embrioes c
-            LEFT JOIN (
+            FULL OUTER JOIN (
                 SELECT *,
                     CASE 
                         WHEN patient_PatientID IS NULL THEN NULL
@@ -180,10 +124,10 @@ def main():
                 AND c.micro_prontuario = e.patient_PatientID_clean
                 AND e.patient_PatientID_clean IS NOT NULL
                 AND c.oocito_flag_embryoscope = 1
-            ORDER BY c.oocito_id
+            ORDER BY COALESCE(CAST(c.oocito_id AS VARCHAR), e.embryo_EmbryoID)
             '''
             
-            logger.info(f"Using join condition: {date_condition} + PatientID_clean")
+            logger.info(f"Using FULL OUTER JOIN with exact day matching: {date_condition} + PatientID_clean")
             
             # Execute query to get data
             df = con.execute(query).df()
@@ -220,17 +164,21 @@ def main():
             clinisys_count = con.execute("SELECT COUNT(*) FROM gold.clinisys_embrioes").fetchone()[0]
             clinisys_embryos_count = con.execute("SELECT COUNT(*) FROM gold.clinisys_embrioes WHERE oocito_flag_embryoscope = 1").fetchone()[0]
             embryoscope_count = con.execute("SELECT COUNT(*) FROM gold.embryoscope_embrioes").fetchone()[0]
-            matched_count = con.execute("SELECT COUNT(*) FROM gold.embryoscope_clinisys_combined WHERE embryo_EmbryoID IS NOT NULL").fetchone()[0]
+            matched_count = con.execute("SELECT COUNT(*) FROM gold.embryoscope_clinisys_combined WHERE embryo_EmbryoID IS NOT NULL AND oocito_id IS NOT NULL").fetchone()[0]
+            clinisys_only_count = con.execute("SELECT COUNT(*) FROM gold.embryoscope_clinisys_combined WHERE embryo_EmbryoID IS NULL AND oocito_id IS NOT NULL").fetchone()[0]
+            embryoscope_only_count = con.execute("SELECT COUNT(*) FROM gold.embryoscope_clinisys_combined WHERE embryo_EmbryoID IS NOT NULL AND oocito_id IS NULL").fetchone()[0]
             
-            logger.info(f'Join statistics:')
+            logger.info(f'FULL OUTER JOIN statistics:')
             logger.info(f'  - Total clinisys records: {clinisys_count}')
             logger.info(f'  - Clinisys embryos (flag_embryoscope=1): {clinisys_embryos_count}')
             logger.info(f'  - Embryoscope records: {embryoscope_count}')
             logger.info(f'  - Combined records: {row_count}')
-            logger.info(f'  - Matched records: {matched_count}')
-            logger.info(f'  - Unmatched clinisys embryos: {row_count - matched_count}')
+            logger.info(f'  - Matched records (both sides): {matched_count}')
+            logger.info(f'  - Clinisys only records: {clinisys_only_count}')
+            logger.info(f'  - Embryoscope only records: {embryoscope_only_count}')
             logger.info(f'  - Match rate (vs total clinisys): {(matched_count/clinisys_count*100):.2f}%')
             logger.info(f'  - Match rate (vs clinisys embryos): {(matched_count/clinisys_embryos_count*100):.2f}%')
+            logger.info(f'  - Match rate (vs embryoscope): {(matched_count/embryoscope_count*100):.2f}%')
             
     except Exception as e:
         logger.error(f'Error in combined gold loader: {e}', exc_info=True)
