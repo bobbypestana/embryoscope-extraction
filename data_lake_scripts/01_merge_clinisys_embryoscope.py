@@ -15,7 +15,8 @@ logging_level = getattr(logging, logging_level_str, logging.INFO)
 LOGS_DIR = os.path.join(os.path.dirname(__file__), 'logs')
 os.makedirs(LOGS_DIR, exist_ok=True)
 timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-LOG_PATH = os.path.join(LOGS_DIR, f'combined_gold_loader_fixed_{timestamp}.log')
+script_name = os.path.splitext(os.path.basename(__file__))[0]
+LOG_PATH = os.path.join(LOGS_DIR, f'{script_name}_{timestamp}.log')
 logging.basicConfig(
     level=logging_level,
     format='%(asctime)s %(levelname)s %(message)s',
@@ -86,29 +87,100 @@ def main():
             date_condition = "CAST(c.micro_Data_DL AS DATE) = CAST(e.embryo_FertilizationTime AS DATE)"
             logger.info(f"Using exact day matching strategy")
             
+            # CURRENT LOGIC (COMMENTED OUT) - Selective columns only
+            # query = f'''
+            # SELECT 
+            #     -- Clinisys columns
+            #     c.oocito_id,
+            #     c.oocito_id_micromanipulacao,
+            #     c.oocito_Maturidade,
+            #     c.oocito_TCD,
+            #     c.micro_prontuario,
+            #     c.micro_Data_DL,
+            #     c.emb_cong_embriao,
+            #     c.oocito_embryo_number,
+            #     c.oocito_flag_embryoscope,
+            #     
+            #     -- Embryoscope columns
+            #     e.embryo_EmbryoID,
+            #     e.embryo_FertilizationTime,
+            #     e.treatment_TreatmentName,
+            #     e.embryo_EmbryoFate,
+            #     e.embryo_EmbryoDescriptionID,
+            #     e.embryo_WellNumber,
+            #     e.embryo_embryo_number,
+            #     e.patient_PatientID,
+            #     e.patient_PatientID_clean
+            #     
+            # FROM gold.clinisys_embrioes c
+            
+            # NEW LOGIC - Optimized column selection
             query = f'''
             SELECT 
-                -- Clinisys columns
+                -- Selected Clinisys columns:
+                -- 1. All oocito_ columns
                 c.oocito_id,
                 c.oocito_id_micromanipulacao,
+                c.oocito_diaseguinte,
                 c.oocito_Maturidade,
+                c.oocito_RC,
+                c.oocito_ComentariosAntes,
+                c.oocito_Embriologista,
+                c.oocito_PI,
                 c.oocito_TCD,
+                c.oocito_AH,
+                c.oocito_PGD,
+                c.oocito_ResultadoPGD,
+                c.oocito_IdentificacaoPGD,
+                c.oocito_Fertilizacao,
+                c.oocito_CorpusculoPolar,
+                c.oocito_ComentariosDepois,
+                c.oocito_GD1,
+                c.oocito_OocitoDoado,
+                c.oocito_ICSI,
+                c.oocito_OrigemOocito,
+                c.oocito_InseminacaoOocito,
+                c.oocito_NClivou_D2,
+                c.oocito_NCelulas_D2,
+                c.oocito_Frag_D2,
+                c.oocito_Blastomero_D2,
+                c.oocito_NClivou_D3,
+                c.oocito_NCelulas_D3,
+                c.oocito_Frag_D3,
+                c.oocito_Blastomero_D3,
+                c.oocito_GD2,
+                c.oocito_NClivou_D4,
+                c.oocito_NCelulas_D4,
+                c.oocito_Compactando_D4,
+                c.oocito_MassaInterna_D4,
+                c.oocito_Trofoblasto_D4,
+                c.oocito_NClivou_D5,
+                c.oocito_NCelulas_D5,
+                c.oocito_Compactando_D5,
+                c.oocito_MassaInterna_D5,
+                c.oocito_Trofoblasto_D5,
+                c.oocito_NClivou_D6,
+                c.oocito_NCelulas_D6,
+                c.oocito_Compactando_D6,
+                c.oocito_MassaInterna_D6,
+                c.oocito_Trofoblasto_D6,
+                c.oocito_NClivou_D7,
+                c.oocito_NCelulas_D7,
+                c.oocito_Compactando_D7,
+                c.oocito_MassaInterna_D7,
+                c.oocito_Trofoblasto_D7,
+                c.oocito_score_maia,
+                c.oocito_relatorio_ia,
+                c.oocito_flag_embryoscope,
+                c.oocito_embryo_number,
+                
+                -- 2. Specific micro columns
                 c.micro_prontuario,
                 c.micro_Data_DL,
-                c.emb_cong_embriao,
-                c.oocito_embryo_number,
-                c.oocito_flag_embryoscope,
+                c.micro_numero_caso,
                 
-                -- Embryoscope columns
-                e.embryo_EmbryoID,
-                e.embryo_FertilizationTime,
-                e.treatment_TreatmentName,
-                e.embryo_EmbryoFate,
-                e.embryo_EmbryoDescriptionID,
-                e.embryo_WellNumber,
-                e.embryo_embryo_number,
-                e.patient_PatientID,
-                e.patient_PatientID_clean
+                -- ALL Embryoscope columns (prefixed with 'e.')
+                e.*
                 
             FROM gold.clinisys_embrioes c
             FULL OUTER JOIN (

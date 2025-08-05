@@ -13,11 +13,18 @@ from datetime import datetime
 import logging
 
 # Set up logging
+script_dir = os.path.dirname(os.path.abspath(__file__))
+script_name = os.path.splitext(os.path.basename(__file__))[0]
+log_dir = os.path.join(script_dir, 'logs')
+os.makedirs(log_dir, exist_ok=True)
+timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+log_file = os.path.join(log_dir, f'{script_name}_{timestamp}.log')
+
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(levelname)s - %(message)s',
     handlers=[
-        logging.FileHandler(f'logs/export_embryoscope_clinisys_combined_{datetime.now().strftime("%Y%m%d_%H%M%S")}.log'),
+        logging.FileHandler(log_file),
         logging.StreamHandler()
     ]
 )
@@ -70,11 +77,7 @@ def export_embryoscope_clinisys_combined():
         
         logging.info(f"Starting data export to: {output_file}")
         
-        # Read data in chunks to handle large datasets efficiently
-        chunk_size = 50000  # Adjust based on available memory
-        total_chunks = (row_count + chunk_size - 1) // chunk_size
-        
-        logging.info(f"Exporting data in {total_chunks} chunks of {chunk_size} rows each")
+        logging.info(f"Exporting all {row_count:,} rows to a single sheet")
         
         # Create Excel writer with xlsxwriter engine for better performance
         with pd.ExcelWriter(output_file, engine='xlsxwriter') as writer:
@@ -83,29 +86,14 @@ def export_embryoscope_clinisys_combined():
             schema.to_excel(writer, sheet_name='Table_Schema', index=False)
             logging.info("Schema information written to 'Table_Schema' sheet")
             
-            # Write data in chunks
-            for chunk_num in range(total_chunks):
-                offset = chunk_num * chunk_size
-                
-                logging.info(f"Processing chunk {chunk_num + 1}/{total_chunks} (rows {offset + 1}-{min(offset + chunk_size, row_count)})")
-                
-                # Query data with limit and offset
-                query = f"""
-                    SELECT * FROM gold.embryoscope_clinisys_combined 
-                    LIMIT {chunk_size} OFFSET {offset}
-                """
-                
-                chunk_df = con.execute(query).fetchdf()
-                
-                if chunk_df.empty:
-                    logging.info("No more data to process")
-                    break
-                
-                # Write chunk to Excel
-                sheet_name = f'Data_Chunk_{chunk_num + 1:03d}'
-                chunk_df.to_excel(writer, sheet_name=sheet_name, index=False)
-                
-                logging.info(f"Chunk {chunk_num + 1} written to sheet '{sheet_name}' ({len(chunk_df)} rows)")
+            # Read all data at once
+            logging.info("Reading all data from database...")
+            all_data_df = con.execute("SELECT * FROM gold.embryoscope_clinisys_combined").fetchdf()
+            logging.info(f"Retrieved {len(all_data_df):,} rows and {len(all_data_df.columns):,} columns from database")
+            
+            # Write all data to a single sheet
+            all_data_df.to_excel(writer, sheet_name='Data', index=False)
+            logging.info(f"All data written to 'Data' sheet ({len(all_data_df):,} rows)")
             
             # Create a summary sheet
             summary_data = {
@@ -115,7 +103,7 @@ def export_embryoscope_clinisys_combined():
                     'Export Date',
                     'Database Path',
                     'Table Name',
-                    'Chunks Exported'
+                    'Data Sheets'
                 ],
                 'Value': [
                     row_count,
@@ -123,7 +111,7 @@ def export_embryoscope_clinisys_combined():
                     datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
                     db_path,
                     'gold.embryoscope_clinisys_combined',
-                    total_chunks
+                    '1 (Data sheet)'
                 ]
             }
             
