@@ -79,7 +79,8 @@ class EmbryoscopeExtractor:
 
         # Create handlers
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        file_handler = logging.FileHandler(os.path.join(log_dir, f'embryoscope_extraction_{timestamp}.log'))
+        script_name = os.path.splitext(os.path.basename(__file__))[0]
+        file_handler = logging.FileHandler(os.path.join(log_dir, f'{script_name}_{timestamp}.log'))
         file_handler.setLevel(logging.DEBUG)  # Log everything to file
         console_handler = logging.StreamHandler()
         console_handler.setLevel(logging.INFO)  # Only show INFO+ in terminal

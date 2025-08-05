@@ -19,8 +19,7 @@ def setup_logging():
     """Setup logging configuration."""
     script_dir = os.path.dirname(os.path.abspath(__file__))
     script_name = os.path.splitext(os.path.basename(__file__))[0]
-    project_root = os.path.abspath(os.path.join(script_dir, '..'))
-    log_dir = os.path.join(project_root, 'logs')
+    log_dir = os.path.join(script_dir, 'logs')
     os.makedirs(log_dir, exist_ok=True)
     
     log_ts = datetime.now().strftime('%Y%m%d_%H%M%S')

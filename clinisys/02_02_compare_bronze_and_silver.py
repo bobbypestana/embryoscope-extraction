@@ -8,7 +8,8 @@ from datetime import datetime
 LOGS_DIR = os.path.join(os.path.dirname(__file__), 'logs')
 os.makedirs(LOGS_DIR, exist_ok=True)
 timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-LOG_PATH = os.path.join(LOGS_DIR, f'check_tables_{timestamp}.log')
+script_name = os.path.splitext(os.path.basename(__file__))[0]
+LOG_PATH = os.path.join(LOGS_DIR, f'{script_name}_{timestamp}.log')
 
 logging.basicConfig(
     level=logging.INFO,

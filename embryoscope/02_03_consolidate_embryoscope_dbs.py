@@ -17,9 +17,10 @@ log_level_str = params.get('extraction', {}).get('log_level', 'INFO').upper()
 log_level = getattr(logging, log_level_str, logging.INFO)
 
 DATABASE_DIR = project_root.parent / 'database'
-LOGS_DIR = project_root / 'logs'
+LOGS_DIR = Path(__file__).parent / 'logs'
 LOGS_DIR.mkdir(exist_ok=True)
-log_filename = LOGS_DIR / f"consolidate_embryoscope_dbs_{datetime.now().strftime('%Y%m%d_%H%M%S')}.log"
+script_name = os.path.splitext(os.path.basename(__file__))[0]
+log_filename = LOGS_DIR / f"{script_name}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.log"
 
 logger = logging.getLogger('consolidate_embryoscope_dbs')
 logger.setLevel(log_level)

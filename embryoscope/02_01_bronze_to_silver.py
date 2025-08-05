@@ -10,8 +10,7 @@ import yaml
 
 script_dir = os.path.dirname(os.path.abspath(__file__))
 script_name = os.path.splitext(os.path.basename(__file__))[0]  # Get filename without extension
-project_root = os.path.abspath(os.path.join(script_dir, '..'))
-log_dir = os.path.join(project_root, 'logs')
+log_dir = os.path.join(script_dir, 'logs')
 os.makedirs(log_dir, exist_ok=True)
 log_ts = datetime.now().strftime('%Y%m%d_%H%M%S')
 log_file = os.path.join(log_dir, f'{script_name}_{log_ts}.log')

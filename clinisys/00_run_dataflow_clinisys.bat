@@ -80,17 +80,16 @@ echo Running bronze to silver step...
 python 02_01_bronze_to_silver.py
 if errorlevel 1 (
     echo ERROR: Bronze to Silver step failed.
-    cd ..
     pause
     exit /b 1
 )
-cd ..
+
 echo Bronze to silver step completed successfully
 echo.
 
 REM Step 3: Check Tables
 echo Running table validation step...
-python clinisys/02_02_compare_bronze_and_silver.py
+python 02_02_compare_bronze_and_silver.py
 if errorlevel 1 (
     echo WARNING: Table validation step had issues, but continuing...
 ) else (
@@ -100,14 +99,14 @@ echo.
 
 REM Step 4: Silver to Consolidate
 echo Running silver to gold step...
-python clinisys/03_silver_to_golde.py
+python 03_silver_to_gold.py
 if errorlevel 1 (
     echo ERROR: Consolidation step failed.
-    cd ..
+
     pause
     exit /b 1
 )
-cd ..
+
 echo Silver to gold step completed successfully
 echo.
 

@@ -24,7 +24,8 @@ logging_level = getattr(logging, logging_level_str, logging.INFO)
 LOGS_DIR = os.path.join(os.path.dirname(__file__), 'logs')
 os.makedirs(LOGS_DIR, exist_ok=True)
 timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-LOG_PATH = os.path.join(LOGS_DIR, f'db_copy_loader_{timestamp}.log')
+script_name = os.path.splitext(os.path.basename(__file__))[0]
+LOG_PATH = os.path.join(LOGS_DIR, f'{script_name}_{timestamp}.log')
 logging.basicConfig(
     level=logging_level,
     format='%(asctime)s %(levelname)s %(message)s',
@@ -200,9 +201,6 @@ def main():
     duckdb_path = config['duckdb_path']
     
     logger.info(f"DuckDB path: {duckdb_path}")
-    
-    # Create logs directory if it doesn't exist
-    os.makedirs('logs', exist_ok=True)
     
     # Create connections
     mysql_engine = get_mysql_connection(config)
