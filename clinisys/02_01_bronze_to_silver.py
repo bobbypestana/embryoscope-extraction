@@ -39,7 +39,7 @@ def get_column_transformation(column_name, column_type, sample_data=None):
         'data', 'data_inicial', 'data_final', 'Data', 'DataCongelamento', 'DataDescongelamento',
         'DataTransferencia', 'data_entrega', 'data_pagamento', 'data_entrega_orcamento',
         'data_ultima_modificacao', 'data_agendamento_original', 'responsavel_recebimento_data',
-        'responsavel_armazenamento_data', 'Data_DL', 'data_procedimento'
+        'responsavel_armazenamento_data', 'Data_DL', 'data_procedimento', 'data_dum', 'data_inicio_inducao'
     ]
     
     # Special handling for known time columns
@@ -66,15 +66,35 @@ def get_column_transformation(column_name, column_type, sample_data=None):
     
     # Special handling for extraction_timestamp
     if column_name == 'extraction_timestamp':
-        return f"try_strptime({column_name}, '%Y%m%d_%H%M%S') AS {column_name}"
+        return f"""
+        CASE 
+            WHEN {column_name} IS NULL THEN NULL
+            WHEN try_strptime({column_name}, '%Y%m%d_%H%M%S') IS NULL THEN NULL
+            WHEN try_strptime({column_name}, '%Y%m%d_%H%M%S') > CURRENT_TIMESTAMP THEN NULL
+            ELSE try_strptime({column_name}, '%Y%m%d_%H%M%S')
+        END AS {column_name}"""
     
     # Date columns
     if column_name.lower() in [col.lower() for col in date_columns]:
-        return f"try_strptime({column_name}, '%d/%m/%Y') AS {column_name}"
+        return f"""
+        CASE 
+            WHEN {column_name} IS NULL THEN NULL
+            WHEN {column_name} IN ('00/00/0000', '0000-00-00', '00/00/00', '0000/00/00', 'NULL', 'null', '') THEN NULL
+            WHEN try_strptime({column_name}, '%d/%m/%Y') IS NULL THEN NULL
+            WHEN try_strptime({column_name}, '%d/%m/%Y') > CURRENT_DATE THEN NULL
+            WHEN year(try_strptime({column_name}, '%d/%m/%Y')) < 1900 OR year(try_strptime({column_name}, '%d/%m/%Y')) > 2030 THEN NULL
+            ELSE try_strptime({column_name}, '%d/%m/%Y')
+        END AS {column_name}"""
     
     # Time columns
     if column_name.lower() in [col.lower() for col in time_columns]:
-        return f"try_strptime({column_name}, '%H:%M') AS {column_name}"
+        return f"""
+        CASE 
+            WHEN {column_name} IS NULL THEN NULL
+            WHEN {column_name} IN ('NULL', 'null', '') THEN NULL
+            WHEN try_strptime({column_name}, '%H:%M') IS NULL THEN NULL
+            ELSE try_strptime({column_name}, '%H:%M')
+        END AS {column_name}"""
     
     # Integer columns (except prontuario which needs special handling)
     if column_name.lower() in [col.lower() for col in int_columns]:
@@ -331,6 +351,48 @@ def feature_creation(con, table):
             FROM silver.{table}
         """)
         logger.info(f"embryo_number added to silver.{table}")
+    
+    elif table == 'view_tratamentos':
+        # Fix gaps in tentativa column by creating sequential numbers per patient
+        logger.info(f"Fixing gaps in tentativa column for silver.{table}")
+        
+        # Get all column names with their ordinal positions
+        columns_result = con.execute(f"""
+            SELECT column_name, ordinal_position
+            FROM information_schema.columns 
+            WHERE table_schema = 'silver' AND table_name = '{table}'
+            ORDER BY ordinal_position
+        """).df()
+        
+        # Find the position of tentativa column
+        tentativa_position = columns_result[columns_result['column_name'] == 'tentativa']['ordinal_position'].iloc[0]
+        
+        # Build the SELECT clause with tentativa in its original position
+        select_parts = []
+        for _, row in columns_result.iterrows():
+            if row['column_name'] == 'tentativa':
+                # Insert the fixed tentativa value in its original position
+                select_parts.append(f"""
+                    CASE 
+                        WHEN prontuario IS NOT NULL THEN 
+                            CAST(ROW_NUMBER() OVER (PARTITION BY prontuario ORDER BY id) AS VARCHAR)
+                        ELSE tentativa 
+                    END AS tentativa""")
+            else:
+                select_parts.append(row['column_name'])
+        
+        columns_sql = ',\n                '.join(select_parts)
+        
+        # Update the tentativa column with the fixed sequential values
+        logger.info(f"Updating tentativa column with fixed sequential values for silver.{table}")
+        con.execute(f"""
+            CREATE OR REPLACE TABLE silver.{table} AS
+            SELECT 
+                {columns_sql}
+            FROM silver.{table}
+        """)
+        logger.info(f"tentativa column updated with fixed sequential values for silver.{table}")
+    
     # Add more table-specific features here as needed
 
 def main():

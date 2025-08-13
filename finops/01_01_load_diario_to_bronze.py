@@ -64,11 +64,15 @@ def get_newest_excel_file():
     return newest_file
 
 def create_bronze_table(con, df):
-    """Create the bronze.diario_vendas table if it doesn't exist"""
+    """Create the bronze.diario_vendas table - drops and recreates for fresh data"""
     logger.info(f"Creating bronze table: {TABLE_NAME}")
     
     # Create bronze schema if it doesn't exist
     con.execute("CREATE SCHEMA IF NOT EXISTS bronze")
+    
+    # Drop existing table to ensure fresh data
+    con.execute(f"DROP TABLE IF EXISTS bronze.{TABLE_NAME}")
+    logger.info(f"Dropped existing bronze.{TABLE_NAME} table")
     
     # Create table dynamically based on DataFrame columns
     columns = []
@@ -85,13 +89,13 @@ def create_bronze_table(con, df):
     ])
     
     create_table_sql = f"""
-    CREATE TABLE IF NOT EXISTS bronze.{TABLE_NAME} (
+    CREATE TABLE bronze.{TABLE_NAME} (
         {', '.join(columns)}
     )
     """
     
     con.execute(create_table_sql)
-    logger.info(f"Table bronze.{TABLE_NAME} created/verified")
+    logger.info(f"Table bronze.{TABLE_NAME} created successfully")
 
 def process_excel_file(file_path, con):
     """Process the Excel file and load data to bronze.diario_vendas"""
@@ -173,7 +177,7 @@ def main():
         logger.info("LOADING SUMMARY")
         logger.info("=" * 50)
         logger.info(f"File processed: {os.path.basename(file_path)}")
-        logger.info(f"New rows inserted: {new_rows}")
+        logger.info(f"Rows loaded to bronze: {new_rows}")
         logger.info(f"Total rows in bronze.{TABLE_NAME}: {total_rows:,}")
         logger.info("=" * 50)
         

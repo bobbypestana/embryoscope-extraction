@@ -123,7 +123,6 @@ def create_silver_table(con, df):
         '"Ciclos" INTEGER',
         '"Qnt Cons." INTEGER',
         'prontuario INTEGER',
-        'prontuario_1 INTEGER',
         'line_number INTEGER',
         'extraction_timestamp VARCHAR',
         'file_name VARCHAR'
@@ -176,10 +175,9 @@ def process_bronze_to_silver(con):
         # Transform data types
         df_transformed = transform_data_types(df_bronze_clean)
         
-        # Add simple prontuario columns (using Cliente values directly)
-        logger.info("Adding prontuario columns...")
+        # Add prontuario column (using Cliente values directly)
+        logger.info("Adding prontuario column...")
         df_transformed['prontuario'] = pd.to_numeric(df_transformed['Cliente'], errors='coerce').astype('Int64')
-        df_transformed['prontuario_1'] = pd.to_numeric(df_transformed['Cliente.1'], errors='coerce').astype('Int64')
         
         # Drop existing silver table and recreate
         logger.info("Dropping existing silver table...")
@@ -231,7 +229,6 @@ def process_bronze_to_silver(con):
             CAST("Ciclos" AS INTEGER) as "Ciclos",
             CAST("Qnt Cons." AS INTEGER) as "Qnt Cons.",
             CAST(prontuario AS INTEGER) as prontuario,
-            CAST(prontuario_1 AS INTEGER) as prontuario_1,
             CAST(line_number AS INTEGER) as line_number,
             CAST(extraction_timestamp AS VARCHAR) as extraction_timestamp,
             CAST(file_name AS VARCHAR) as file_name
