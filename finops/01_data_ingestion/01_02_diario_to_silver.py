@@ -31,7 +31,7 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 # Configuration
-DUCKDB_PATH = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'database', 'huntington_data_lake.duckdb')
+DUCKDB_PATH = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), 'database', 'huntington_data_lake.duckdb')
 BRONZE_TABLE = 'diario_vendas'
 SILVER_TABLE = 'diario_vendas'
 

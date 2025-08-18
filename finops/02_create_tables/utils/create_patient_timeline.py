@@ -12,7 +12,9 @@ from typing import Dict, List, Tuple, Optional
 
 def get_database_connection():
     """Create and return a connection to the clinisys_all database"""
-    path_to_db = 'database/clinisys_all.duckdb'
+    # Resolve DB path relative to repository root
+    repo_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(__file__))))
+    path_to_db = os.path.join(repo_root, 'database', 'clinisys_all.duckdb')
     conn = db.connect(path_to_db, read_only=True)
     
     print(f"Connected to database: {path_to_db}")
@@ -393,7 +395,9 @@ def save_timeline_to_database(timeline_df: pd.DataFrame, prontuario: int):
     
     try:
         # Connect to huntington_data_lake database
-        path_to_db = 'database/huntington_data_lake.duckdb'
+        # Resolve DB path relative to repository root
+        repo_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(__file__))))
+        path_to_db = os.path.join(repo_root, 'database', 'huntington_data_lake.duckdb')
         conn = db.connect(path_to_db)
         
         print(f"Connected to database: {path_to_db}")

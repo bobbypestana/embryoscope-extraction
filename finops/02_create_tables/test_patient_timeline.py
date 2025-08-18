@@ -10,8 +10,8 @@ import os
 from datetime import datetime
 from typing import Dict, List, Tuple, Optional
 
-# Import the timeline functions from the main script
-from create_patient_timeline import (
+# Import the timeline functions from the utils script
+from utils.create_patient_timeline import (
     get_database_connection,
     extract_timeline_data_for_patient,
     create_unified_timeline

@@ -30,8 +30,8 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 # Configuration
-DUCKDB_PATH = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'database', 'huntington_data_lake.duckdb')
-DATA_INPUT_DIR = os.path.join(os.path.dirname(__file__), 'data_input', 'diario')
+DUCKDB_PATH = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), 'database', 'huntington_data_lake.duckdb')
+DATA_INPUT_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'data_input', 'diario')
 SHEET_NAME = 'BD HT'
 TABLE_NAME = 'diario_vendas'
 
