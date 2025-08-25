@@ -4,7 +4,7 @@ Diario Vendas Silver Transformation - Simplified Version
 Transforms bronze.diario_vendas to silver layer with:
 - Proper data type casting
 - Remove completely blank lines
-- Simple prontuario columns (using Cliente values directly)
+- Complex prontuario matching logic (using clinisys_all.silver.view_pacientes)
 """
 
 import logging
@@ -137,6 +137,270 @@ def create_silver_table(con, df):
     con.execute(create_table_sql)
     logger.info(f"Table silver.{SILVER_TABLE} created/verified")
 
+def update_prontuario_column(con):
+    """Update prontuario column using complex matching logic with clinisys_all.silver.view_pacientes"""
+    logger.info("Updating prontuario column using complex matching logic...")
+    
+    # Attach clinisys_all database
+    clinisys_db_path = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), 'database', 'clinisys_all.duckdb')
+    logger.info(f"Attaching clinisys_all database from: {clinisys_db_path}")
+    con.execute(f"ATTACH '{clinisys_db_path}' AS clinisys_all")
+    logger.info("clinisys_all database attached successfully")
+    
+    # Complex matching SQL query
+    update_sql = """
+    WITH 
+    -- CTE 1: Extract and process diario_vendas data
+    diario_extract AS (
+        SELECT DISTINCT 
+            "Cliente", 
+            CASE 
+                WHEN "Nome" IS NOT NULL THEN TRIM(LOWER(SPLIT_PART("Nome", ' ', 1)))
+                ELSE NULL 
+            END as nome_first,
+            CASE 
+                WHEN "Nom Paciente" IS NOT NULL THEN TRIM(LOWER(SPLIT_PART("Nom Paciente", ' ', 1)))
+                ELSE NULL 
+            END as nom_paciente_first
+        FROM silver.diario_vendas
+        WHERE "Cliente" IS NOT NULL
+    ),
+
+    -- CTE 2: Cliente ↔ prontuario (main/codigo)
+    matches_1 AS (
+        SELECT d.*,
+               p.codigo as prontuario, lower(trim(p.esposa_nome)) esposa_nome, LOWER(TRIM(p.marido_nome)) marido_nome, p.unidade_origem,
+               'prontuario_main' as match_type
+        FROM diario_extract d
+        INNER JOIN clinisys_all.silver.view_pacientes p 
+            ON d."Cliente" = p.codigo
+    ),
+
+    -- CTE 3: Cliente ↔ prontuario_esposa
+    matches_2 AS (
+        SELECT d.*, 
+               p.codigo as prontuario, lower(trim(p.esposa_nome)) esposa_nome, LOWER(TRIM(p.marido_nome)) marido_nome, p.unidade_origem,
+               'prontuario_esposa' as match_type
+        FROM diario_extract d
+        INNER JOIN clinisys_all.silver.view_pacientes p 
+            ON d."Cliente" = p.prontuario_esposa
+    ),
+
+    -- CTE 4: Cliente ↔ prontuario_marido
+    matches_3 AS (
+        SELECT d.*,
+              p.codigo as prontuario, lower(trim(p.esposa_nome)) esposa_nome, LOWER(TRIM(p.marido_nome)) marido_nome, p.unidade_origem,
+               'prontuario_marido' as match_type
+        FROM diario_extract d
+        INNER JOIN clinisys_all.silver.view_pacientes p 
+            ON d."Cliente" = p.prontuario_marido
+    ),
+
+    -- CTE 5: Cliente ↔ prontuario_responsavel1
+    matches_4 AS (
+        SELECT d.*,
+              p.codigo as prontuario, lower(trim(p.esposa_nome)) esposa_nome, LOWER(TRIM(p.marido_nome)) marido_nome, p.unidade_origem,
+               'prontuario_responsavel1' as match_type
+        FROM diario_extract d
+        INNER JOIN clinisys_all.silver.view_pacientes p 
+            ON d."Cliente" = p.prontuario_responsavel1
+    ),
+
+    -- CTE 6: Cliente ↔ prontuario_responsavel2
+    matches_5 AS (
+        SELECT d.*,
+               p.codigo as prontuario, lower(trim(p.esposa_nome)) esposa_nome, LOWER(TRIM(p.marido_nome)) marido_nome, p.unidade_origem,
+               'prontuario_responsavel2' as match_type
+        FROM diario_extract d
+        INNER JOIN clinisys_all.silver.view_pacientes p 
+            ON d."Cliente" = p.prontuario_responsavel2
+    ),
+
+    -- CTE 7: Cliente ↔ prontuario_esposa_pel
+    matches_6 AS (
+        SELECT d.*,
+               p.codigo as prontuario, lower(trim(p.esposa_nome)) esposa_nome, LOWER(TRIM(p.marido_nome)) marido_nome, p.unidade_origem,
+               'prontuario_esposa_pel' as match_type
+        FROM diario_extract d
+        INNER JOIN clinisys_all.silver.view_pacientes p 
+            ON d."Cliente" = p.prontuario_esposa_pel
+    ),
+
+    -- CTE 8: Cliente ↔ prontuario_marido_pel
+    matches_7 AS (
+        SELECT d.*,
+               p.codigo as prontuario, lower(trim(p.esposa_nome)) esposa_nome, LOWER(TRIM(p.marido_nome)) marido_nome, p.unidade_origem,
+               'prontuario_marido_pel' as match_type
+        FROM diario_extract d
+        INNER JOIN clinisys_all.silver.view_pacientes p 
+            ON d."Cliente" = p.prontuario_marido_pel
+    ),
+    -- CTE 9: Cliente ↔ prontuario_esposa_pc
+    matches_8 AS (
+        SELECT d.*,
+               p.codigo as prontuario, lower(trim(p.esposa_nome)) esposa_nome, LOWER(TRIM(p.marido_nome)) marido_nome, p.unidade_origem,
+               'prontuario_esposa_pc' as match_type
+        FROM diario_extract d
+        INNER JOIN clinisys_all.silver.view_pacientes p 
+            ON d."Cliente" = p.prontuario_esposa_pc
+    ),
+    -- CTE 10: Cliente ↔ prontuario_marido_pc
+    matches_9 AS (
+        SELECT d.*,
+               p.codigo as prontuario, lower(trim(p.esposa_nome)) esposa_nome, LOWER(TRIM(p.marido_nome)) marido_nome, p.unidade_origem,
+               'prontuario_marido_pc' as match_type
+        FROM diario_extract d
+        INNER JOIN clinisys_all.silver.view_pacientes p 
+            ON d."Cliente" = p.prontuario_marido_pc
+    ),
+    -- CTE 11: Cliente ↔ prontuario_responsavel1_pc
+    matches_10 AS (
+        SELECT d.*,
+               p.codigo as prontuario, lower(trim(p.esposa_nome)) esposa_nome, LOWER(TRIM(p.marido_nome)) marido_nome, p.unidade_origem,
+               'prontuario_responsavel1_pc' as match_type
+        FROM diario_extract d
+        INNER JOIN clinisys_all.silver.view_pacientes p 
+            ON d."Cliente" = p.prontuario_responsavel1_pc
+    ),
+    -- CTE 12: Cliente ↔ prontuario_responsavel2_pc
+    matches_11 AS (
+        SELECT d.*,
+               p.codigo as prontuario, lower(trim(p.esposa_nome)) esposa_nome, LOWER(TRIM(p.marido_nome)) marido_nome, p.unidade_origem,
+               'prontuario_responsavel2_pc' as match_type
+        FROM diario_extract d
+        INNER JOIN clinisys_all.silver.view_pacientes p 
+            ON d."Cliente" = p.prontuario_responsavel2_pc
+    ),
+    -- CTE 13: Cliente ↔ prontuario_esposa_fc
+    matches_12 AS (
+        SELECT d.*,
+               p.codigo as prontuario, lower(trim(p.esposa_nome)) esposa_nome, LOWER(TRIM(p.marido_nome)) marido_nome, p.unidade_origem,
+               'prontuario_esposa_fc' as match_type
+        FROM diario_extract d
+        INNER JOIN clinisys_all.silver.view_pacientes p 
+            ON d."Cliente" = p.prontuario_esposa_fc
+    ),
+    -- CTE 14: Cliente ↔ prontuario_marido_fc
+    matches_13 AS (
+        SELECT d.*,
+               p.codigo as prontuario, lower(trim(p.esposa_nome)) esposa_nome, LOWER(TRIM(p.marido_nome)) marido_nome, p.unidade_origem,
+               'prontuario_marido_fc' as match_type
+        FROM diario_extract d
+        INNER JOIN clinisys_all.silver.view_pacientes p 
+            ON d."Cliente" = p.prontuario_marido_fc
+    ),
+    -- CTE 15: Cliente ↔ prontuario_esposa_ba
+    matches_14 AS (
+        SELECT d.*,
+               p.codigo as prontuario, lower(trim(p.esposa_nome)) esposa_nome, LOWER(TRIM(p.marido_nome)) marido_nome, p.unidade_origem,
+               'prontuario_esposa_ba' as match_type
+        FROM diario_extract d
+        INNER JOIN clinisys_all.silver.view_pacientes p 
+            ON d."Cliente" = p.prontuario_esposa_ba
+    ),
+    -- CTE 16: Cliente ↔ prontuario_marido_ba
+    matches_15 AS (
+        SELECT d.*,
+               p.codigo as prontuario, lower(trim(p.esposa_nome)) esposa_nome, LOWER(TRIM(p.marido_nome)) marido_nome, p.unidade_origem,
+               'prontuario_marido_ba' as match_type
+        FROM diario_extract d
+        INNER JOIN clinisys_all.silver.view_pacientes p 
+            ON d."Cliente" = p.prontuario_marido_ba
+    ),
+
+    -- CTE 17: UNION matches
+    all_matches AS (
+        SELECT * FROM matches_1
+        UNION
+        SELECT * FROM matches_2
+        UNION
+        SELECT * FROM matches_3
+        UNION 
+        SELECT * FROM matches_4
+        UNION
+        SELECT * FROM matches_5
+        UNION
+        SELECT * FROM matches_6
+        UNION
+        SELECT * FROM matches_7
+        UNION
+        SELECT * FROM matches_8
+        UNION
+        SELECT * FROM matches_9
+        UNION
+        SELECT * FROM matches_10
+        UNION
+        SELECT * FROM matches_11
+        UNION
+        SELECT * FROM matches_12
+        UNION
+        SELECT * FROM matches_13
+        UNION
+        SELECT * FROM matches_14
+        UNION
+        SELECT * FROM matches_15
+    ),
+    -- CTE 18: Apply name matching criteria and rank
+    ranked_matches AS (
+        SELECT *,
+               ROW_NUMBER() OVER (
+                   PARTITION BY "Cliente" 
+                   ORDER BY 
+                       CASE 
+                           WHEN match_type = 'prontuario_main' THEN 1
+                           WHEN match_type = 'prontuario_esposa' AND nome_first = TRIM(LOWER(esposa_nome)) THEN 2
+                           WHEN match_type = 'prontuario_marido' AND nome_first = TRIM(LOWER(marido_nome)) THEN 3
+                           WHEN match_type = 'prontuario_esposa' AND nom_paciente_first = TRIM(LOWER(esposa_nome)) THEN 4
+                           WHEN match_type = 'prontuario_marido' AND nom_paciente_first = TRIM(LOWER(marido_nome)) THEN 5
+                           ELSE 6
+                       END
+               ) 
+               as rn
+        FROM all_matches
+        WHERE nome_first = TRIM(LOWER(esposa_nome)) OR nome_first = TRIM(LOWER(marido_nome)) OR nom_paciente_first = TRIM(LOWER(esposa_nome))  OR nom_paciente_first = TRIM(LOWER(marido_nome))
+    ),
+
+    -- CTE 19: Select best match per Cliente (lowest rn value)
+    best_matches AS (
+        SELECT * 
+        FROM ranked_matches rm1
+        WHERE rn = (
+            SELECT MIN(rn) 
+            FROM ranked_matches rm2 
+            WHERE rm2."Cliente" = rm1."Cliente"
+        )
+    )
+
+    -- Update prontuario column
+    UPDATE silver.diario_vendas 
+    SET prontuario = COALESCE(bm.prontuario, -1)
+    FROM best_matches bm 
+    WHERE silver.diario_vendas."Cliente" = bm."Cliente"
+    """
+    
+    try:
+        con.execute(update_sql)
+        logger.info("Prontuario column updated successfully with complex matching logic")
+        
+        # Get statistics on the update
+        result = con.execute("""
+            SELECT 
+                COUNT(*) as total_rows,
+                COUNT(CASE WHEN prontuario != -1 THEN 1 END) as matched_rows,
+                COUNT(CASE WHEN prontuario = -1 THEN 1 END) as unmatched_rows
+            FROM silver.diario_vendas
+        """).fetchone()
+        
+        logger.info(f"Prontuario matching results:")
+        logger.info(f"  Total rows: {result[0]:,}")
+        logger.info(f"  Matched rows: {result[1]:,}")
+        logger.info(f"  Unmatched rows: {result[2]:,}")
+        logger.info(f"  Match rate: {(result[1]/result[0]*100):.2f}%")
+        
+    except Exception as e:
+        logger.error(f"Error updating prontuario column: {e}")
+        raise
+
 def process_bronze_to_silver(con):
     """Process bronze table and transform to silver"""
     logger.info(f"Processing {BRONZE_TABLE} to {SILVER_TABLE}")
@@ -175,9 +439,9 @@ def process_bronze_to_silver(con):
         # Transform data types
         df_transformed = transform_data_types(df_bronze_clean)
         
-        # Add prontuario column (using Cliente values directly)
-        logger.info("Adding prontuario column...")
-        df_transformed['prontuario'] = pd.to_numeric(df_transformed['Cliente'], errors='coerce').astype('Int64')
+        # Initialize prontuario column with -1 (unmatched)
+        logger.info("Initializing prontuario column with -1 (unmatched)...")
+        df_transformed['prontuario'] = -1
         
         # Drop existing silver table and recreate
         logger.info("Dropping existing silver table...")
@@ -249,7 +513,7 @@ def process_bronze_to_silver(con):
 
 def main():
     """Main function to transform diario_vendas to silver"""
-    logger.info("Starting Diario Vendas silver transformation (simplified)")
+    logger.info("Starting Diario Vendas silver transformation (with complex prontuario matching)")
     logger.info(f"DuckDB path: {DUCKDB_PATH}")
     
     try:
@@ -260,6 +524,9 @@ def main():
         
         # Process bronze to silver
         new_rows = process_bronze_to_silver(con)
+        
+        # Update prontuario column with complex matching logic
+        update_prontuario_column(con)
         
         # Get final table statistics
         result = con.execute(f'SELECT COUNT(*) FROM silver.{SILVER_TABLE}').fetchone()

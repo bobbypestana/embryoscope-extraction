@@ -38,7 +38,7 @@ def create_recent_patients_timeline_view(conn):
         )
         SELECT* 
         FROM clean_data
-        WHERE first_event_date >= '2024-01-01'
+        WHERE first_event_date >= '2023-01-01'
         ORDER BY prontuario, event_date DESC
     """
     

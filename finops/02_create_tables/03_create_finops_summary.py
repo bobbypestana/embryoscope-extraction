@@ -26,59 +26,80 @@ def create_finops_summary_table(conn):
 	# Drop table if it exists
 	conn.execute("DROP TABLE IF EXISTS gold.finops_summary")
 	
-	# Create the table with robust JSON parsing and normalization for Resultado do Tratamento
+	# Create the table with FIV cycle data AND billing data
 	create_table_query = """
 	CREATE TABLE gold.finops_summary AS
-	WITH fiv_events AS (
-		SELECT
-			prontuario,
-			-- Extract possible JSON keys
-			COALESCE(
-				json_extract_string(additional_info, '$."ResultadoTratamento"'),
-				json_extract_string(additional_info, '$."Resultado Tratamento"'),
-				json_extract_string(additional_info, '$."Resultado do Tratamento"')
-			) AS resultado_raw
-		FROM gold.recent_patients_timeline
-		WHERE reference_value = 'Ciclo a Fresco FIV'
-			AND flag_date_estimated = FALSE
-	),
-	normalized AS (
-		SELECT
-			prontuario,
-			-- normalize: trim spaces, lower, collapse multiple spaces
-			LOWER(
-				regexp_replace(
-					COALESCE(resultado_raw, ''),
-					'\\s+',
-					' '
-				)
-			) AS resultado_norm
-		FROM fiv_events
-	),
-	per_patient AS (
+	WITH timeline_summary AS (
 		SELECT
 			prontuario,
 			COUNT(CASE
-				WHEN resultado_norm NOT IN ('no transfer', '') THEN 1
+				WHEN LOWER(COALESCE(resultado_tratamento, '')) NOT IN ('no transfer', '') THEN 1
 			END) AS cycle_with_transfer,
 			COUNT(CASE
-				WHEN resultado_norm IN (
+				WHEN LOWER(COALESCE(resultado_tratamento, '')) IN (
 					'no transfer',
 					'sem transferencia',
 					'sem transferência',
 					'sem transfer',
 					''
 				) THEN 1
-			END) AS cycle_without_transfer
-		FROM normalized
+			END) AS cycle_without_transfer,
+			MIN(event_date) AS timeline_first_date,
+			MAX(event_date) AS timeline_last_date
+		FROM gold.recent_patients_timeline
+		WHERE reference_value IN ('Ciclo a Fresco FIV', 'Ciclo de Congelados')
+			AND flag_date_estimated = FALSE
+		GROUP BY prontuario
+	),
+	billing_summary AS (
+		SELECT
+			prontuario,
+			-- FIV Initial billing
+			COUNT(CASE WHEN "Cta-Ctbl" = '31110100001 - RECEITA DE FIV' THEN 1 END) AS fiv_initial_paid_count,
+			SUM(CASE WHEN "Cta-Ctbl" = '31110100001 - RECEITA DE FIV' THEN "Total" ELSE 0 END) AS fiv_initial_paid_total,
+			-- FIV Extra billing
+			COUNT(CASE WHEN "Descricao" = 'COLETA - DUOSTIM' THEN 1 END) AS fiv_extra_paid_count,
+			SUM(CASE WHEN "Descricao" = 'COLETA - DUOSTIM' THEN "Total" ELSE 0 END) AS fiv_extra_paid_total,
+			-- Date ranges for billing
+			MIN(CASE WHEN "Cta-Ctbl" = '31110100001 - RECEITA DE FIV' OR "Descricao" = 'COLETA - DUOSTIM' THEN "DT Emissao" END) AS billing_first_date,
+			MAX(CASE WHEN "Cta-Ctbl" = '31110100001 - RECEITA DE FIV' OR "Descricao" = 'COLETA - DUOSTIM' THEN "DT Emissao" END) AS billing_last_date
+		FROM silver.diario_vendas
+		WHERE prontuario IS NOT NULL
 		GROUP BY prontuario
 	)
 	SELECT 
-		prontuario,
-		cycle_with_transfer,
-		cycle_without_transfer
-	FROM per_patient
-	ORDER BY prontuario
+		COALESCE(t.prontuario, b.prontuario) AS prontuario,
+		COALESCE(t.cycle_with_transfer, 0) AS cycle_with_transfer,
+		COALESCE(t.cycle_without_transfer, 0) AS cycle_without_transfer,
+		COALESCE(t.cycle_with_transfer, 0) + COALESCE(t.cycle_without_transfer, 0) AS cycle_total,
+		COALESCE(b.fiv_initial_paid_count, 0) AS fiv_initial_paid_count,
+		COALESCE(b.fiv_initial_paid_total, 0) AS fiv_initial_paid_total,
+		COALESCE(b.fiv_extra_paid_count, 0) AS fiv_extra_paid_count,
+		COALESCE(b.fiv_extra_paid_total, 0) AS fiv_extra_paid_total,
+		-- Combined totals
+		COALESCE(b.fiv_initial_paid_count, 0) + COALESCE(b.fiv_extra_paid_count, 0) AS fiv_paid_count,
+		COALESCE(b.fiv_initial_paid_total, 0) + COALESCE(b.fiv_extra_paid_total, 0) AS fiv_paid_total,
+		-- Date ranges
+		t.timeline_first_date,
+		t.timeline_last_date,
+		b.billing_first_date,
+		b.billing_last_date,
+		-- Flags
+		CASE WHEN (COALESCE(t.cycle_with_transfer, 0) + COALESCE(t.cycle_without_transfer, 0)) > 0 
+		     AND (COALESCE(b.fiv_initial_paid_count, 0) + COALESCE(b.fiv_extra_paid_count, 0)) = 0 
+		     THEN 1 ELSE 0 END AS flag_cycles_no_payments,
+		CASE WHEN (COALESCE(t.cycle_with_transfer, 0) + COALESCE(t.cycle_without_transfer, 0)) > 
+		          (COALESCE(b.fiv_initial_paid_count, 0) + COALESCE(b.fiv_extra_paid_count, 0)) 
+		     THEN 1 ELSE 0 END AS flag_more_cycles_than_payments,
+		CASE WHEN (COALESCE(t.cycle_with_transfer, 0) + COALESCE(t.cycle_without_transfer, 0)) = 0 
+		     AND (COALESCE(b.fiv_initial_paid_count, 0) + COALESCE(b.fiv_extra_paid_count, 0)) > 0 
+		     THEN 1 ELSE 0 END AS flag_no_cycles_but_payments,
+		CASE WHEN (COALESCE(t.cycle_with_transfer, 0) + COALESCE(t.cycle_without_transfer, 0)) < 
+		          (COALESCE(b.fiv_initial_paid_count, 0) + COALESCE(b.fiv_extra_paid_count, 0)) 
+		     THEN 1 ELSE 0 END AS flag_less_cycles_than_payments
+	FROM timeline_summary t
+	FULL OUTER JOIN billing_summary b ON t.prontuario = b.prontuario
+	ORDER BY COALESCE(t.prontuario, b.prontuario)
 	"""
 	
 	conn.execute(create_table_query)
@@ -89,18 +110,25 @@ def create_finops_summary_table(conn):
 			COUNT(*) as total_patients,
 			SUM(cycle_with_transfer) as total_cycles_with_transfer,
 			SUM(cycle_without_transfer) as total_cycles_without_transfer,
-			COUNT(CASE WHEN cycle_with_transfer > 0 THEN 1 END) as patients_with_transfer,
-			COUNT(CASE WHEN cycle_without_transfer > 0 THEN 1 END) as patients_without_transfer
+			SUM(fiv_initial_paid_count) as total_fiv_initial_paid_count,
+			SUM(fiv_initial_paid_total) as total_fiv_initial_paid_total,
+			SUM(fiv_extra_paid_count) as total_fiv_extra_paid_count,
+			SUM(fiv_extra_paid_total) as total_fiv_extra_paid_total,
+			SUM(fiv_paid_count) as total_fiv_paid_count,
+			SUM(fiv_paid_total) as total_fiv_paid_total,
+			COUNT(CASE WHEN cycle_with_transfer > 0 OR cycle_without_transfer > 0 THEN 1 END) as patients_with_timeline,
+			COUNT(CASE WHEN fiv_paid_count > 0 THEN 1 END) as patients_with_billing
 		FROM gold.finops_summary
 	""").fetchdf()
 	
 	print("Table created successfully.")
 	print("Table Statistics:")
 	print(f"   - Total patients: {table_stats['total_patients'].iloc[0]:,}")
-	print(f"   - Total cycles with transfer: {table_stats['total_cycles_with_transfer'].iloc[0]:,}")
-	print(f"   - Total cycles without transfer: {table_stats['total_cycles_without_transfer'].iloc[0]:,}")
-	print(f"   - Patients with transfer cycles: {table_stats['patients_with_transfer'].iloc[0]:,}")
-	print(f"   - Patients with no-transfer cycles: {table_stats['patients_without_transfer'].iloc[0]:,}")
+	print(f"   - Patients with timeline data: {table_stats['patients_with_timeline'].iloc[0]:,}")
+	print(f"   - Patients with billing data: {table_stats['patients_with_billing'].iloc[0]:,}")
+	print(f"   - Total FIV cycles (timeline): {table_stats['total_cycles_with_transfer'].iloc[0] + table_stats['total_cycles_without_transfer'].iloc[0]:,}")
+	print(f"   - Total FIV billing items: {table_stats['total_fiv_paid_count'].iloc[0]:,}")
+	print(f"   - Total FIV billing amount: R$ {table_stats['total_fiv_paid_total'].iloc[0]:,.2f}")
 	
 	return table_stats
 
@@ -113,38 +141,40 @@ def analyze_finops_summary_data(conn):
 	sample_data = conn.execute("""
 		SELECT *
 		FROM gold.finops_summary
-		WHERE cycle_with_transfer > 0 OR cycle_without_transfer > 0
-		ORDER BY (cycle_with_transfer + cycle_without_transfer) DESC
+		WHERE (cycle_with_transfer > 0 OR cycle_without_transfer > 0) OR (fiv_paid_count > 0)
+		ORDER BY (cycle_with_transfer + cycle_without_transfer + fiv_paid_count) DESC
 		LIMIT 10
 	""").fetchdf()
 	
-	print("\nSample Data (Top 10 patients by total cycles):")
+	print("\nSample Data (Top 10 patients by total activity):")
 	print(sample_data.to_string(index=False))
 	
 	# Distribution analysis
 	distribution = conn.execute("""
 		SELECT 
 			CASE 
-				WHEN cycle_with_transfer = 0 AND cycle_without_transfer = 0 THEN 'No FIV cycles'
-				WHEN cycle_with_transfer > 0 AND cycle_without_transfer = 0 THEN 'Only transfer cycles'
-				WHEN cycle_with_transfer = 0 AND cycle_without_transfer > 0 THEN 'Only no-transfer cycles'
-				ELSE 'Mixed cycles'
+				WHEN (cycle_with_transfer > 0 OR cycle_without_transfer > 0) AND fiv_paid_count > 0 THEN 'Timeline + Billing'
+				WHEN cycle_with_transfer > 0 OR cycle_without_transfer > 0 THEN 'Timeline only'
+				WHEN fiv_paid_count > 0 THEN 'Billing only'
+				ELSE 'No activity'
 			END as patient_type,
 			COUNT(*) as patient_count,
 			SUM(cycle_with_transfer) as total_transfer_cycles,
-			SUM(cycle_without_transfer) as total_no_transfer_cycles
+			SUM(cycle_without_transfer) as total_no_transfer_cycles,
+			SUM(fiv_paid_count) as total_billing_items,
+			SUM(fiv_paid_total) as total_billing_amount
 		FROM gold.finops_summary
 		GROUP BY 
 			CASE 
-				WHEN cycle_with_transfer = 0 AND cycle_without_transfer = 0 THEN 'No FIV cycles'
-				WHEN cycle_with_transfer > 0 AND cycle_without_transfer = 0 THEN 'Only transfer cycles'
-				WHEN cycle_with_transfer = 0 AND cycle_without_transfer > 0 THEN 'Only no-transfer cycles'
-				ELSE 'Mixed cycles'
+				WHEN (cycle_with_transfer > 0 OR cycle_without_transfer > 0) AND fiv_paid_count > 0 THEN 'Timeline + Billing'
+				WHEN cycle_with_transfer > 0 OR cycle_without_transfer > 0 THEN 'Timeline only'
+				WHEN fiv_paid_count > 0 THEN 'Billing only'
+				ELSE 'No activity'
 			END
 		ORDER BY patient_count DESC
 	""").fetchdf()
 	
-	print("\nPatient Distribution by Cycle Type:")
+	print("\nPatient Distribution by Data Type:")
 	print(distribution.to_string(index=False))
 
 def main():
@@ -170,9 +200,10 @@ def main():
 			print("\nCheck prontuario 175583:")
 			print(row.to_string(index=False))
 		
-		print(f"\nSuccessfully created gold.finops_summary table")
+		print(f"\nSuccessfully created gold.finops_summary table with billing data")
 		print(f"Table contains {table_stats['total_patients'].iloc[0]:,} patients")
 		print(f"Total FIV cycles: {table_stats['total_cycles_with_transfer'].iloc[0] + table_stats['total_cycles_without_transfer'].iloc[0]:,}")
+		print(f"Total FIV billing: R$ {table_stats['total_fiv_paid_total'].iloc[0]:,.2f}")
 		
 	except Exception as e:
 		print(f"Error: {e}")
