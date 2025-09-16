@@ -44,28 +44,62 @@ def create_finops_summary_table(conn):
 					''
 				) THEN 1
 			END) AS cycle_without_transfer,
-			MIN(event_date) AS timeline_first_date,
-			MAX(event_date) AS timeline_last_date
+					MIN(event_date) AS timeline_first_date,
+		MAX(event_date) AS timeline_last_date,
+		-- Unidade for timeline events
+		unidade AS timeline_unidade
 		FROM gold.recent_patients_timeline
 		WHERE reference_value IN ('Ciclo a Fresco FIV', 'Ciclo de Congelados')
 			AND flag_date_estimated = FALSE
-		GROUP BY prontuario
+		GROUP BY prontuario, unidade
+	),
+	-- Define payment conditions in a flexible way
+	billing_conditions AS (
+		SELECT 
+			prontuario,
+			"Total",
+			"DT Emissao",
+			"Unidade",
+			-- FIV Initial payment conditions
+			CASE WHEN "Cta-Ctbl" LIKE '%RECEITA DE FIV%' THEN 1 ELSE 0 END AS is_fiv_initial,
+			-- FIV Extra payment conditions  
+			CASE WHEN "Descricao" = 'COLETA - DUOSTIM' THEN 1 ELSE 0 END AS is_fiv_extra,
+			-- Egg Reception payment conditions
+			CASE WHEN "Cta-Ctbl" LIKE '%RECEITA DE DOE%' THEN 1 ELSE 0 END AS is_cycle_egg_reception,
+			-- Transfer Receipt payment conditions
+			CASE WHEN "Cta-Ctbl" LIKE '%RECEITA DE TRANSFERENCIA - FET/FOT (EXCEDENTE)%' THEN 1 ELSE 0 END AS is_transfer_receipt,
+			-- Add more payment categories here as needed
+			-- CASE WHEN [condition] THEN 1 ELSE 0 END AS is_new_category,
+			-- Combined FIV payment flag
+			CASE WHEN "Cta-Ctbl" LIKE '%RECEITA DE FIV%' OR "Descricao" = 'COLETA - DUOSTIM' THEN 1 ELSE 0 END AS is_fiv_payment
+		FROM silver.diario_vendas
+		WHERE prontuario IS NOT NULL
 	),
 	billing_summary AS (
 		SELECT
 			prontuario,
 			-- FIV Initial billing
-			COUNT(CASE WHEN "Cta-Ctbl" = '31110100001 - RECEITA DE FIV' THEN 1 END) AS fiv_initial_paid_count,
-			SUM(CASE WHEN "Cta-Ctbl" = '31110100001 - RECEITA DE FIV' THEN "Total" ELSE 0 END) AS fiv_initial_paid_total,
+			SUM(is_fiv_initial) AS fiv_initial_paid_count,
+			SUM(CASE WHEN is_fiv_initial = 1 THEN "Total" ELSE 0 END) AS fiv_initial_paid_total,
 			-- FIV Extra billing
-			COUNT(CASE WHEN "Descricao" = 'COLETA - DUOSTIM' THEN 1 END) AS fiv_extra_paid_count,
-			SUM(CASE WHEN "Descricao" = 'COLETA - DUOSTIM' THEN "Total" ELSE 0 END) AS fiv_extra_paid_total,
-			-- Date ranges for billing
-			MIN(CASE WHEN "Cta-Ctbl" = '31110100001 - RECEITA DE FIV' OR "Descricao" = 'COLETA - DUOSTIM' THEN "DT Emissao" END) AS billing_first_date,
-			MAX(CASE WHEN "Cta-Ctbl" = '31110100001 - RECEITA DE FIV' OR "Descricao" = 'COLETA - DUOSTIM' THEN "DT Emissao" END) AS billing_last_date
-		FROM silver.diario_vendas
-		WHERE prontuario IS NOT NULL
-		GROUP BY prontuario
+			SUM(is_fiv_extra) AS fiv_extra_paid_count,
+			SUM(CASE WHEN is_fiv_extra = 1 THEN "Total" ELSE 0 END) AS fiv_extra_paid_total,
+			-- Egg Reception billing
+			SUM(is_cycle_egg_reception) AS cycle_egg_reception_paid_count,
+			SUM(CASE WHEN is_cycle_egg_reception = 1 THEN "Total" ELSE 0 END) AS cycle_egg_reception_paid_total,
+			-- Transfer Receipt billing
+			SUM(is_transfer_receipt) AS transfer_receipt_paid_count,
+			SUM(CASE WHEN is_transfer_receipt = 1 THEN "Total" ELSE 0 END) AS transfer_receipt_paid_total,
+			-- Add more payment categories here as needed
+			-- SUM(is_new_category) AS new_category_paid_count,
+			-- SUM(CASE WHEN is_new_category = 1 THEN "Total" ELSE 0 END) AS new_category_paid_total,
+					-- Date ranges for billing (all FIV payments)
+		MIN(CASE WHEN is_fiv_payment = 1 OR is_cycle_egg_reception = 1 OR is_transfer_receipt = 1 THEN "DT Emissao" END) AS billing_first_date,
+		MAX(CASE WHEN is_fiv_payment = 1 OR is_cycle_egg_reception = 1 OR is_transfer_receipt = 1 THEN "DT Emissao" END) AS billing_last_date,
+		-- Unidade for FIV payments
+		"Unidade" AS billing_unidade
+		FROM billing_conditions
+		GROUP BY prontuario, "Unidade"
 	)
 	SELECT 
 		COALESCE(t.prontuario, b.prontuario) AS prontuario,
@@ -76,26 +110,33 @@ def create_finops_summary_table(conn):
 		COALESCE(b.fiv_initial_paid_total, 0) AS fiv_initial_paid_total,
 		COALESCE(b.fiv_extra_paid_count, 0) AS fiv_extra_paid_count,
 		COALESCE(b.fiv_extra_paid_total, 0) AS fiv_extra_paid_total,
+		COALESCE(b.cycle_egg_reception_paid_count, 0) AS cycle_egg_reception_paid_count,
+		COALESCE(b.cycle_egg_reception_paid_total, 0) AS cycle_egg_reception_paid_total,
+		COALESCE(b.transfer_receipt_paid_count, 0) AS transfer_receipt_paid_count,
+		COALESCE(b.transfer_receipt_paid_total, 0) AS transfer_receipt_paid_total,
 		-- Combined totals
-		COALESCE(b.fiv_initial_paid_count, 0) + COALESCE(b.fiv_extra_paid_count, 0) AS fiv_paid_count,
-		COALESCE(b.fiv_initial_paid_total, 0) + COALESCE(b.fiv_extra_paid_total, 0) AS fiv_paid_total,
+		COALESCE(b.fiv_initial_paid_count, 0) + COALESCE(b.fiv_extra_paid_count, 0) + COALESCE(b.cycle_egg_reception_paid_count, 0) + COALESCE(b.transfer_receipt_paid_count, 0) AS fiv_paid_count,
+		COALESCE(b.fiv_initial_paid_total, 0) + COALESCE(b.fiv_extra_paid_total, 0) + COALESCE(b.cycle_egg_reception_paid_total, 0) + COALESCE(b.transfer_receipt_paid_total, 0) AS fiv_paid_total,
 		-- Date ranges
 		t.timeline_first_date,
 		t.timeline_last_date,
 		b.billing_first_date,
 		b.billing_last_date,
+		-- Unidade information
+		t.timeline_unidade,
+		b.billing_unidade,
 		-- Flags
 		CASE WHEN (COALESCE(t.cycle_with_transfer, 0) + COALESCE(t.cycle_without_transfer, 0)) > 0 
-		     AND (COALESCE(b.fiv_initial_paid_count, 0) + COALESCE(b.fiv_extra_paid_count, 0)) = 0 
+		     AND (COALESCE(b.fiv_initial_paid_count, 0) + COALESCE(b.fiv_extra_paid_count, 0) + COALESCE(b.cycle_egg_reception_paid_count, 0) + COALESCE(b.transfer_receipt_paid_count, 0)) = 0 
 		     THEN 1 ELSE 0 END AS flag_cycles_no_payments,
 		CASE WHEN (COALESCE(t.cycle_with_transfer, 0) + COALESCE(t.cycle_without_transfer, 0)) > 
-		          (COALESCE(b.fiv_initial_paid_count, 0) + COALESCE(b.fiv_extra_paid_count, 0)) 
+		          (COALESCE(b.fiv_initial_paid_count, 0) + COALESCE(b.fiv_extra_paid_count, 0) + COALESCE(b.cycle_egg_reception_paid_count, 0) + COALESCE(b.transfer_receipt_paid_count, 0)) 
 		     THEN 1 ELSE 0 END AS flag_more_cycles_than_payments,
 		CASE WHEN (COALESCE(t.cycle_with_transfer, 0) + COALESCE(t.cycle_without_transfer, 0)) = 0 
-		     AND (COALESCE(b.fiv_initial_paid_count, 0) + COALESCE(b.fiv_extra_paid_count, 0)) > 0 
+		     AND (COALESCE(b.fiv_initial_paid_count, 0) + COALESCE(b.fiv_extra_paid_count, 0) + COALESCE(b.cycle_egg_reception_paid_count, 0) + COALESCE(b.transfer_receipt_paid_count, 0)) > 0 
 		     THEN 1 ELSE 0 END AS flag_no_cycles_but_payments,
 		CASE WHEN (COALESCE(t.cycle_with_transfer, 0) + COALESCE(t.cycle_without_transfer, 0)) < 
-		          (COALESCE(b.fiv_initial_paid_count, 0) + COALESCE(b.fiv_extra_paid_count, 0)) 
+		          (COALESCE(b.fiv_initial_paid_count, 0) + COALESCE(b.fiv_extra_paid_count, 0) + COALESCE(b.cycle_egg_reception_paid_count, 0) + COALESCE(b.transfer_receipt_paid_count, 0)) 
 		     THEN 1 ELSE 0 END AS flag_less_cycles_than_payments
 	FROM timeline_summary t
 	FULL OUTER JOIN billing_summary b ON t.prontuario = b.prontuario
@@ -114,6 +155,10 @@ def create_finops_summary_table(conn):
 			SUM(fiv_initial_paid_total) as total_fiv_initial_paid_total,
 			SUM(fiv_extra_paid_count) as total_fiv_extra_paid_count,
 			SUM(fiv_extra_paid_total) as total_fiv_extra_paid_total,
+			SUM(cycle_egg_reception_paid_count) as total_cycle_egg_reception_paid_count,
+			SUM(cycle_egg_reception_paid_total) as total_cycle_egg_reception_paid_total,
+					SUM(transfer_receipt_paid_count) as total_transfer_receipt_paid_count,
+		SUM(transfer_receipt_paid_total) as total_transfer_receipt_paid_total,
 			SUM(fiv_paid_count) as total_fiv_paid_count,
 			SUM(fiv_paid_total) as total_fiv_paid_total,
 			COUNT(CASE WHEN cycle_with_transfer > 0 OR cycle_without_transfer > 0 THEN 1 END) as patients_with_timeline,

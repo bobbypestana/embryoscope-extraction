@@ -25,9 +25,10 @@ logger = logging.getLogger(__name__)
 
 def get_database_path():
     """Get the path to the DuckDB database."""
-    # Go up one level from finops to get to the root, then to database
+    # Go up two levels from 02_create_tables to get to the root, then to database
     current_dir = os.path.dirname(os.path.abspath(__file__))
-    root_dir = os.path.dirname(current_dir)
+    finops_dir = os.path.dirname(current_dir)
+    root_dir = os.path.dirname(finops_dir)
     db_path = os.path.join(root_dir, 'database', 'huntington_data_lake.duckdb')
     return db_path
 
@@ -40,7 +41,7 @@ def list_available_tables():
         return
     
     try:
-        with duckdb.connect(db_path) as conn:
+        with duckdb.connect(db_path, read_only=True) as conn:
             # Get all schemas
             schemas = conn.execute("SELECT schema_name FROM information_schema.schemata").fetchall()
             
@@ -83,7 +84,10 @@ def export_table_to_csv(schema, table_name, output_filename=None):
         return False
     
     # Create output directory if it doesn't exist
-    output_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'data_export')
+    # Go up one level from 02_create_tables to finops, then to data_export
+    current_dir = os.path.dirname(os.path.abspath(__file__))
+    finops_dir = os.path.dirname(current_dir)
+    output_dir = os.path.join(finops_dir, 'data_export')
     os.makedirs(output_dir, exist_ok=True)
     
     # Generate output filename if not provided
@@ -98,7 +102,7 @@ def export_table_to_csv(schema, table_name, output_filename=None):
     
     try:
         logger.info(f"Connecting to database: {db_path}")
-        with duckdb.connect(db_path) as conn:
+        with duckdb.connect(db_path, read_only=True) as conn:
             # Check if table exists
             table_exists = conn.execute(
                 "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = ? AND table_name = ?",
@@ -119,8 +123,9 @@ def export_table_to_csv(schema, table_name, output_filename=None):
             # Export to CSV
             logger.info(f"Starting export to: {output_path}")
             
-            # Use COPY TO for better performance with large tables
-            conn.execute(f"COPY \"{schema}\".\"{table_name}\" TO '{output_path}' (FORMAT CSV, HEADER TRUE)")
+            # Use pandas to export with European CSV format: decimal separator as comma, field separator as semicolon, quote all
+            df = conn.execute(f"SELECT * FROM \"{schema}\".\"{table_name}\"").df()
+            df.to_csv(output_path, sep=';', decimal=',', quoting=1, index=False)  # quoting=1 means QUOTE_ALL
             
             # Verify the file was created and has content
             if os.path.exists(output_path):

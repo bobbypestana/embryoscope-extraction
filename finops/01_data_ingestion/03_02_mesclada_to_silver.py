@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """
-Diario Vendas Silver Transformation - Simplified Version
-Transforms bronze.diario_vendas to silver layer with:
+Mesclada Vendas Silver Transformation - Simplified Version
+Transforms bronze.mesclada_vendas to silver layer with:
+- Column mapping from mesclada format to diario format
 - Proper data type casting
 - Remove completely blank lines
 - Complex prontuario matching logic (using clinisys_all.silver.view_pacientes)
@@ -32,8 +33,41 @@ logger = logging.getLogger(__name__)
 
 # Configuration
 DUCKDB_PATH = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), 'database', 'huntington_data_lake.duckdb')
-BRONZE_TABLE = 'diario_vendas'
-SILVER_TABLE = 'diario_vendas'
+BRONZE_TABLE = 'mesclada_vendas'
+SILVER_TABLE = 'mesclada_vendas'
+
+# Column mapping from mesclada to diario format
+COLUMN_MAPPING = {
+    # Mesclada column -> Diario column
+    'Cod Cli': 'Cliente.1',
+    'Filial': 'Loja', 
+    'Nom Cliente': 'Nome',
+    'Paciente': 'Nom Paciente',
+    'Data': 'DT Emissao',
+    'TES': 'Tipo da nota',
+    'Doc': 'Numero',
+    'Serie': 'Serie Docto.',
+    'NFSe': 'NF Eletr.',
+    'Medico': 'Cod. Medicco',
+    'Nom Medico': 'Médico',
+    'MedSof Cli': 'Cliente',
+    'MedSof Pac.': 'Paciente',
+    'Produto': 'Produto',
+    'Descr.Prod.': 'Descricao',
+    'Qtde': 'Qntd.',
+    'Vlr Venda': 'Total',
+    'Vlr Desconto': 'Desconto',
+    'Cta.Contab.': 'Cta-Ctbl',
+    'Descrição Mapping Actividad': 'Descrição Mapping Actividad',
+    'Descrição Gerencial': 'Descrição Gerencial',
+    'Ciclos': 'Ciclos',
+    # Additional mesclada columns (keeping their current names)
+    'Grp': 'Grp',
+    'Descr.TES': 'Descr.TES',
+    'Lead Time': 'Lead Time',
+    'Data do Ciclo': 'Data do Ciclo',
+    'Fez Ciclo?': 'Fez Ciclo?'
+}
 
 def get_duckdb_connection():
     """Create DuckDB connection"""
@@ -46,6 +80,39 @@ def get_duckdb_connection():
         logger.error(f"Failed to connect to DuckDB: {e}")
         raise
 
+def map_columns(df):
+    """Map mesclada columns to diario format"""
+    logger.info("Mapping mesclada columns to diario format...")
+    
+    # Create a copy to avoid modifying original
+    df_mapped = df.copy()
+    
+    # Rename columns according to mapping
+    df_mapped = df_mapped.rename(columns=COLUMN_MAPPING)
+    
+    # Add missing columns that exist in diario but not in mesclada
+    missing_columns = {
+        'Valor Mercadoria': 0.0,
+        'Total': 0.0,
+        'Custo': 0.0,
+        'Custo Unit': 0.0,
+        'Unidade': '',
+        'Mês': 0,
+        'Ano': 0,
+        'Cta-Ctbl Eugin': '',
+        'Interno/Externo': '',
+        'Qnt Cons.': 0,
+        'Operador': ''
+    }
+    
+    for col, default_value in missing_columns.items():
+        if col not in df_mapped.columns:
+            df_mapped[col] = default_value
+            logger.info(f"Added missing column '{col}' with default value: {default_value}")
+    
+    logger.info(f"Column mapping completed. Final columns: {list(df_mapped.columns)}")
+    return df_mapped
+
 def transform_data_types(df):
     """Transform data types for silver layer using vectorized operations"""
     logger.info("Transforming data types...")
@@ -55,6 +122,7 @@ def transform_data_types(df):
     
     # Date columns - use pandas to_datetime for vectorized operation
     df_transformed['DT Emissao'] = pd.to_datetime(df_transformed['DT Emissao'], errors='coerce')
+    df_transformed['Data do Ciclo'] = pd.to_datetime(df_transformed['Data do Ciclo'], errors='coerce')
     
     # Numeric columns - use pandas to_numeric for vectorized operations
     # For nullable integers (Cliente)
@@ -70,9 +138,8 @@ def transform_data_types(df):
     
     # For decimal columns
     df_transformed['Qntd.'] = pd.to_numeric(df_transformed['Qntd.'], errors='coerce').fillna(0.0)
-    df_transformed['Valor Unitario'] = pd.to_numeric(df_transformed['Valor Unitario'], errors='coerce').fillna(0.0)
-    df_transformed['Valor Mercadoria'] = pd.to_numeric(df_transformed['Valor Mercadoria'], errors='coerce').fillna(0.0)
     df_transformed['Total'] = pd.to_numeric(df_transformed['Total'], errors='coerce').fillna(0.0)
+    df_transformed['Valor Mercadoria'] = pd.to_numeric(df_transformed['Valor Mercadoria'], errors='coerce').fillna(0.0)
     df_transformed['Custo'] = pd.to_numeric(df_transformed['Custo'], errors='coerce').fillna(0.0)
     df_transformed['Custo Unit'] = pd.to_numeric(df_transformed['Custo Unit'], errors='coerce').fillna(0.0)
     df_transformed['Desconto'] = pd.to_numeric(df_transformed['Desconto'], errors='coerce').fillna(0.0)
@@ -87,13 +154,19 @@ def create_silver_table(con, df):
     # Create silver schema if it doesn't exist
     con.execute("CREATE SCHEMA IF NOT EXISTS silver")
     
-    # Define column types based on transformed data
+    # Define column types based on transformed data (ordered as requested)
     column_definitions = [
         '"Cliente" INTEGER',
-        '"Loja" INTEGER',
         '"Nome" VARCHAR',
+        '"Paciente" VARCHAR',
         '"Nom Paciente" VARCHAR',
+        'prontuario INTEGER',
         '"DT Emissao" TIMESTAMP',
+        '"Descricao" VARCHAR',
+        '"Qntd." DOUBLE',
+        '"Total" DOUBLE',
+        '"Descrição Gerencial" VARCHAR',
+        '"Loja" INTEGER',
         '"Tipo da nota" VARCHAR',
         '"Numero" INTEGER',
         '"Serie Docto." VARCHAR',
@@ -101,14 +174,9 @@ def create_silver_table(con, df):
         '"Vend. 1" VARCHAR',
         '"Médico" VARCHAR',
         '"Cliente.1" VARCHAR',
-        '"Opr " VARCHAR',
         '"Operador" VARCHAR',
         '"Produto" VARCHAR',
-        '"Descricao" VARCHAR',
-        '"Qntd." DOUBLE',
-        '"Valor Unitario" DOUBLE',
         '"Valor Mercadoria" DOUBLE',
-        '"Total" DOUBLE',
         '"Custo" DOUBLE',
         '"Custo Unit" DOUBLE',
         '"Desconto" DOUBLE',
@@ -118,11 +186,14 @@ def create_silver_table(con, df):
         '"Cta-Ctbl" VARCHAR',
         '"Cta-Ctbl Eugin" VARCHAR',
         '"Interno/Externo" VARCHAR',
-        '"Descrição Gerencial" VARCHAR',
         '"Descrição Mapping Actividad" VARCHAR',
         '"Ciclos" INTEGER',
         '"Qnt Cons." INTEGER',
-        'prontuario INTEGER',
+        '"Grp" VARCHAR',
+        '"Descr.TES" VARCHAR',
+        '"Lead Time" VARCHAR',
+        '"Data do Ciclo" TIMESTAMP',
+        '"Fez Ciclo?" VARCHAR',
         'line_number INTEGER',
         'extraction_timestamp VARCHAR',
         'file_name VARCHAR'
@@ -147,13 +218,13 @@ def update_prontuario_column(con):
     con.execute(f"ATTACH '{clinisys_db_path}' AS clinisys_all")
     logger.info("clinisys_all database attached successfully")
     
-    # Complex matching SQL query
+    # Complex matching SQL query (same as diario version)
     update_sql = """
     WITH 
-    -- CTE 1: Extract and process diario_vendas data with accent normalization
-    diario_extract AS (
+    -- CTE 1: Extract and process mesclada_vendas data with accent normalization
+    mesclada_extract AS (
         SELECT DISTINCT 
-            "Cliente" as "Cliente", 
+            "Paciente", 
             CASE 
                 WHEN "Nome" IS NOT NULL THEN strip_accents(TRIM(LOWER(SPLIT_PART("Nome", ' ', 1))))
                 ELSE NULL 
@@ -162,16 +233,8 @@ def update_prontuario_column(con):
                 WHEN "Nom Paciente" IS NOT NULL THEN strip_accents(TRIM(LOWER(SPLIT_PART("Nom Paciente", ' ', 1))))
                 ELSE NULL 
             END as nom_paciente_first
---            CASE 
---                WHEN "Nom Cliente" IS NOT NULL THEN strip_accents(TRIM(LOWER("Nom Cliente")))
---                ELSE NULL 
---            END as nome_first,
---            CASE 
---                WHEN "Paciente" IS NOT NULL THEN strip_accents(TRIM(LOWER("Paciente")))
---                ELSE NULL 
---            END as nom_paciente_first
-        FROM silver.diario_vendas
-        WHERE "Cliente" IS NOT NULL
+        FROM silver.mesclada_vendas
+        WHERE "Paciente" IS NOT NULL
         
     ),
 
@@ -193,8 +256,6 @@ def update_prontuario_column(con):
             prontuario_marido_fc,
             prontuario_esposa_ba,
             prontuario_marido_ba,
---            strip_accents(LOWER(TRIM(esposa_nome))) as esposa_nome,
---            strip_accents(LOWER(TRIM(marido_nome))) as marido_nome,
             strip_accents(LOWER(TRIM(SPLIT_PART(esposa_nome, ' ', 1)))) as esposa_nome,
     		strip_accents(LOWER(TRIM(SPLIT_PART(marido_nome, ' ', 1)))) as marido_nome,
             unidade_origem
@@ -202,146 +263,146 @@ def update_prontuario_column(con):
         where inativo = 0
     ),
 
-    -- CTE 2: Cliente ↔ prontuario (main/codigo)
+    -- CTE 2: Paciente ↔ prontuario (main/codigo)
     matches_1 AS (
         SELECT d.*,
                p.codigo as prontuario, p.esposa_nome, p.marido_nome, p.unidade_origem,
                'prontuario_main' as match_type
-        FROM diario_extract d
+        FROM mesclada_extract d
         INNER JOIN clinisys_processed p 
-            ON d."Cliente" = p.codigo
+            ON d."Paciente" = p.codigo
     ),
 
-    -- CTE 3: Cliente ↔ prontuario_esposa
+    -- CTE 3: Paciente ↔ prontuario_esposa
     matches_2 AS (
         SELECT d.*, 
                p.codigo as prontuario, p.esposa_nome, p.marido_nome, p.unidade_origem,
                'prontuario_esposa' as match_type
-        FROM diario_extract d
+        FROM mesclada_extract d
         INNER JOIN clinisys_processed p 
-            ON d."Cliente" = p.prontuario_esposa
+            ON d."Paciente" = p.prontuario_esposa
     ),
 
-    -- CTE 4: Cliente ↔ prontuario_marido
+    -- CTE 4: Paciente ↔ prontuario_marido
     matches_3 AS (
         SELECT d.*,
               p.codigo as prontuario, p.esposa_nome, p.marido_nome, p.unidade_origem,
                'prontuario_marido' as match_type
-        FROM diario_extract d
+        FROM mesclada_extract d
         INNER JOIN clinisys_processed p 
-            ON d."Cliente" = p.prontuario_marido
+            ON d."Paciente" = p.prontuario_marido
     ),
 
-    -- CTE 5: Cliente ↔ prontuario_responsavel1
+    -- CTE 5: Paciente ↔ prontuario_responsavel1
     matches_4 AS (
         SELECT d.*,
               p.codigo as prontuario, p.esposa_nome, p.marido_nome, p.unidade_origem,
                'prontuario_responsavel1' as match_type
-        FROM diario_extract d
+        FROM mesclada_extract d
         INNER JOIN clinisys_processed p 
-            ON d."Cliente" = p.prontuario_responsavel1
+            ON d."Paciente" = p.prontuario_responsavel1
     ),
 
-    -- CTE 6: Cliente ↔ prontuario_responsavel2
+    -- CTE 6: Paciente ↔ prontuario_responsavel2
     matches_5 AS (
         SELECT d.*,
                p.codigo as prontuario, p.esposa_nome, p.marido_nome, p.unidade_origem,
                'prontuario_responsavel2' as match_type
-        FROM diario_extract d
+        FROM mesclada_extract d
         INNER JOIN clinisys_processed p 
-            ON d."Cliente" = p.prontuario_responsavel2
+            ON d."Paciente" = p.prontuario_responsavel2
     ),
 
-    -- CTE 7: Cliente ↔ prontuario_esposa_pel
+    -- CTE 7: Paciente ↔ prontuario_esposa_pel
     matches_6 AS (
         SELECT d.*,
                p.codigo as prontuario, p.esposa_nome, p.marido_nome, p.unidade_origem,
                'prontuario_esposa_pel' as match_type
-        FROM diario_extract d
+        FROM mesclada_extract d
         INNER JOIN clinisys_processed p 
-            ON d."Cliente" = p.prontuario_esposa_pel
+            ON d."Paciente" = p.prontuario_esposa_pel
     ),
 
-    -- CTE 8: Cliente ↔ prontuario_marido_pel
+    -- CTE 8: Paciente ↔ prontuario_marido_pel
     matches_7 AS (
         SELECT d.*,
                p.codigo as prontuario, p.esposa_nome, p.marido_nome, p.unidade_origem,
                'prontuario_marido_pel' as match_type
-        FROM diario_extract d
+        FROM mesclada_extract d
         INNER JOIN clinisys_processed p 
-            ON d."Cliente" = p.prontuario_marido_pel
+            ON d."Paciente" = p.prontuario_marido_pel
     ),
-    -- CTE 9: Cliente ↔ prontuario_esposa_pc
+    -- CTE 9: Paciente ↔ prontuario_esposa_pc
     matches_8 AS (
         SELECT d.*,
                p.codigo as prontuario, p.esposa_nome, p.marido_nome, p.unidade_origem,
                'prontuario_esposa_pc' as match_type
-        FROM diario_extract d
+        FROM mesclada_extract d
         INNER JOIN clinisys_processed p 
-            ON d."Cliente" = p.prontuario_esposa_pc
+            ON d."Paciente" = p.prontuario_esposa_pc
     ),
-    -- CTE 10: Cliente ↔ prontuario_marido_pc
+    -- CTE 10: Paciente ↔ prontuario_marido_pc
     matches_9 AS (
         SELECT d.*,
                p.codigo as prontuario, p.esposa_nome, p.marido_nome, p.unidade_origem,
                'prontuario_marido_pc' as match_type
-        FROM diario_extract d
+        FROM mesclada_extract d
         INNER JOIN clinisys_processed p 
-            ON d."Cliente" = p.prontuario_marido_pc
+            ON d."Paciente" = p.prontuario_marido_pc
     ),
-    -- CTE 11: Cliente ↔ prontuario_responsavel1_pc
+    -- CTE 11: Paciente ↔ prontuario_responsavel1_pc
     matches_10 AS (
         SELECT d.*,
                p.codigo as prontuario, p.esposa_nome, p.marido_nome, p.unidade_origem,
                'prontuario_responsavel1_pc' as match_type
-        FROM diario_extract d
+        FROM mesclada_extract d
         INNER JOIN clinisys_processed p 
-            ON d."Cliente" = p.prontuario_responsavel1_pc
+            ON d."Paciente" = p.prontuario_responsavel1_pc
     ),
-    -- CTE 12: Cliente ↔ prontuario_responsavel2_pc
+    -- CTE 12: Paciente ↔ prontuario_responsavel2_pc
     matches_11 AS (
         SELECT d.*,
                p.codigo as prontuario, p.esposa_nome, p.marido_nome, p.unidade_origem,
                'prontuario_responsavel2_pc' as match_type
-        FROM diario_extract d
+        FROM mesclada_extract d
         INNER JOIN clinisys_processed p 
-            ON d."Cliente" = p.prontuario_responsavel2_pc
+            ON d."Paciente" = p.prontuario_responsavel2_pc
     ),
-    -- CTE 13: Cliente ↔ prontuario_esposa_fc
+    -- CTE 13: Paciente ↔ prontuario_esposa_fc
     matches_12 AS (
         SELECT d.*,
                p.codigo as prontuario, p.esposa_nome, p.marido_nome, p.unidade_origem,
                'prontuario_esposa_fc' as match_type
-        FROM diario_extract d
+        FROM mesclada_extract d
         INNER JOIN clinisys_processed p 
-            ON d."Cliente" = p.prontuario_esposa_fc
+            ON d."Paciente" = p.prontuario_esposa_fc
     ),
-    -- CTE 14: Cliente ↔ prontuario_marido_fc
+    -- CTE 14: Paciente ↔ prontuario_marido_fc
     matches_13 AS (
         SELECT d.*,
                p.codigo as prontuario, p.esposa_nome, p.marido_nome, p.unidade_origem,
                'prontuario_marido_fc' as match_type
-        FROM diario_extract d
+        FROM mesclada_extract d
         INNER JOIN clinisys_processed p 
-            ON d."Cliente" = p.prontuario_marido_fc
+            ON d."Paciente" = p.prontuario_marido_fc
     ),
-    -- CTE 15: Cliente ↔ prontuario_esposa_ba
+    -- CTE 15: Paciente ↔ prontuario_esposa_ba
     matches_14 AS (
         SELECT d.*,
                p.codigo as prontuario, p.esposa_nome, p.marido_nome, p.unidade_origem,
                'prontuario_esposa_ba' as match_type
-        FROM diario_extract d
+        FROM mesclada_extract d
         INNER JOIN clinisys_processed p 
-            ON d."Cliente" = p.prontuario_esposa_ba
+            ON d."Paciente" = p.prontuario_esposa_ba
     ),
-    -- CTE 16: Cliente ↔ prontuario_marido_ba
+    -- CTE 16: Paciente ↔ prontuario_marido_ba
     matches_15 AS (
         SELECT d.*,
                p.codigo as prontuario, p.esposa_nome, p.marido_nome, p.unidade_origem,
                'prontuario_marido_ba' as match_type
-        FROM diario_extract d
+        FROM mesclada_extract d
         INNER JOIN clinisys_processed p 
-            ON d."Cliente" = p.prontuario_marido_ba
+            ON d."Paciente" = p.prontuario_marido_ba
     ),
 
     -- CTE 17: UNION matches
@@ -415,7 +476,7 @@ def update_prontuario_column(con):
         SELECT *,
                (name_match_score + match_type_score) as combined_score,
                ROW_NUMBER() OVER (
-                   PARTITION BY "Cliente" 
+                   PARTITION BY "Paciente" 
                    ORDER BY (name_match_score + match_type_score)
                ) 
                as rn
@@ -429,15 +490,15 @@ def update_prontuario_column(con):
         WHERE rn = (
             SELECT MIN(rn) 
             FROM ranked_matches rm2 
-            WHERE rm2."Cliente" = rm1."Cliente"
+            WHERE rm2."Paciente" = rm1."Paciente"
         )
     )
 
     -- Update prontuario column
-    UPDATE silver.diario_vendas 
+    UPDATE silver.mesclada_vendas 
     SET prontuario = COALESCE(bm.prontuario, -1)
     FROM best_matches bm 
-    WHERE silver.diario_vendas."Cliente" = bm."Cliente"
+    WHERE silver.mesclada_vendas."Paciente" = bm."Paciente"
     """
     
     try:
@@ -450,7 +511,7 @@ def update_prontuario_column(con):
                 COUNT(*) as total_rows,
                 COUNT(CASE WHEN prontuario != -1 THEN 1 END) as matched_rows,
                 COUNT(CASE WHEN prontuario = -1 THEN 1 END) as unmatched_rows
-            FROM silver.diario_vendas
+            FROM silver.mesclada_vendas
         """).fetchone()
         
         logger.info(f"Prontuario matching results:")
@@ -498,8 +559,11 @@ def process_bronze_to_silver(con):
         logger.info(f"Removed {len(df_bronze.dropna(how='all')) - len(df_bronze_clean)} rows with majority of columns blank")
         logger.info(f"Total rows after cleaning: {len(df_bronze_clean):,}")
         
+        # Map columns from mesclada to diario format
+        df_mapped = map_columns(df_bronze_clean)
+        
         # Transform data types
-        df_transformed = transform_data_types(df_bronze_clean)
+        df_transformed = transform_data_types(df_mapped)
         
         # Initialize prontuario column with -1 (unmatched)
         logger.info("Initializing prontuario column with -1 (unmatched)...")
@@ -517,30 +581,31 @@ def process_bronze_to_silver(con):
         # Register DataFrame as temporary table
         con.register('temp_new_rows', df_transformed)
         
-        # Insert new rows with explicit column casting
+        # Insert new rows with explicit column casting (ordered as requested)
         insert_sql = f"""
         INSERT INTO silver.{SILVER_TABLE} 
         SELECT 
             CASE WHEN "Cliente" IS NULL THEN NULL ELSE CAST("Cliente" AS INTEGER) END as "Cliente",
-            CAST("Loja" AS INTEGER) as "Loja",
             CAST("Nome" AS VARCHAR) as "Nome",
+            CAST("Paciente" AS VARCHAR) as "Paciente",
             CAST("Nom Paciente" AS VARCHAR) as "Nom Paciente",
+            CAST(prontuario AS INTEGER) as prontuario,
             CAST("DT Emissao" AS TIMESTAMP) as "DT Emissao",
+            CAST("Descricao" AS VARCHAR) as "Descricao",
+            CAST("Qntd." AS DOUBLE) as "Qntd.",
+            CAST("Total" AS DOUBLE) as "Total",
+            CAST("Descrição Gerencial" AS VARCHAR) as "Descrição Gerencial",
+            CAST("Loja" AS INTEGER) as "Loja",
             CAST("Tipo da nota" AS VARCHAR) as "Tipo da nota",
             CAST("Numero" AS INTEGER) as "Numero",
             CAST("Serie Docto." AS VARCHAR) as "Serie Docto.",
             CAST("NF Eletr." AS VARCHAR) as "NF Eletr.",
-            CAST("Vend. 1" AS VARCHAR) as "Vend. 1",
+            CAST("Cod. Medicco" AS VARCHAR) as "Vend. 1",
             CAST("Médico" AS VARCHAR) as "Médico",
             CAST("Cliente.1" AS VARCHAR) as "Cliente.1",
-            CAST("Opr " AS VARCHAR) as "Opr ",
             CAST("Operador" AS VARCHAR) as "Operador",
             CAST("Produto" AS VARCHAR) as "Produto",
-            CAST("Descricao" AS VARCHAR) as "Descricao",
-            CAST("Qntd." AS DOUBLE) as "Qntd.",
-            CAST("Valor Unitario" AS DOUBLE) as "Valor Unitario",
             CAST("Valor Mercadoria" AS DOUBLE) as "Valor Mercadoria",
-            CAST("Total" AS DOUBLE) as "Total",
             CAST("Custo" AS DOUBLE) as "Custo",
             CAST("Custo Unit" AS DOUBLE) as "Custo Unit",
             CAST("Desconto" AS DOUBLE) as "Desconto",
@@ -550,11 +615,14 @@ def process_bronze_to_silver(con):
             CAST("Cta-Ctbl" AS VARCHAR) as "Cta-Ctbl",
             CAST("Cta-Ctbl Eugin" AS VARCHAR) as "Cta-Ctbl Eugin",
             CAST("Interno/Externo" AS VARCHAR) as "Interno/Externo",
-            CAST("Descrição Gerencial" AS VARCHAR) as "Descrição Gerencial",
             CAST("Descrição Mapping Actividad" AS VARCHAR) as "Descrição Mapping Actividad",
             CAST("Ciclos" AS INTEGER) as "Ciclos",
             CAST("Qnt Cons." AS INTEGER) as "Qnt Cons.",
-            CAST(prontuario AS INTEGER) as prontuario,
+            CAST("Grp" AS VARCHAR) as "Grp",
+            CAST("Descr.TES" AS VARCHAR) as "Descr.TES",
+            CAST("Lead Time" AS VARCHAR) as "Lead Time",
+            CAST("Data do Ciclo" AS TIMESTAMP) as "Data do Ciclo",
+            CAST("Fez Ciclo?" AS VARCHAR) as "Fez Ciclo?",
             CAST(line_number AS INTEGER) as line_number,
             CAST(extraction_timestamp AS VARCHAR) as extraction_timestamp,
             CAST(file_name AS VARCHAR) as file_name
@@ -574,8 +642,8 @@ def process_bronze_to_silver(con):
         raise
 
 def main():
-    """Main function to transform diario_vendas to silver"""
-    logger.info("Starting Diario Vendas silver transformation (with complex prontuario matching)")
+    """Main function to transform mesclada_vendas to silver"""
+    logger.info("Starting Mesclada Vendas silver transformation (with column mapping and complex prontuario matching)")
     logger.info(f"DuckDB path: {DUCKDB_PATH}")
     
     try:
@@ -604,11 +672,11 @@ def main():
         
         # Close connection
         con.close()
-        logger.info("Diario Vendas silver transformation completed")
+        logger.info("Mesclada Vendas silver transformation completed")
         
     except Exception as e:
         logger.error(f"Error in main function: {e}")
         raise
 
 if __name__ == "__main__":
-    main() 
+    main()
