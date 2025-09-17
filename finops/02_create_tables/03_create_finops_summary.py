@@ -43,7 +43,7 @@ def create_finops_summary_table(conn):
 			prontuario,
 			unidade,
 			COUNT(*) as unit_count
-		FROM gold.recent_patients_timeline
+		FROM gold.all_patients_timeline
 		WHERE unidade IS NOT NULL
 		GROUP BY prontuario, unidade
 	),
@@ -72,15 +72,13 @@ def create_finops_summary_table(conn):
 	-- 			WHEN timeline_unidade LIKE '%HTT SP - Campinas%' THEN 'Campinas'
 	-- 			WHEN timeline_unidade LIKE '%HTT SP - ProFIV%' THEN 'Santa Joana'
 	-- 			WHEN timeline_unidade LIKE '%HTT Brasília%' OR timeline_unidade LIKE '%HTT Brasilia%' THEN 'FIV Brasilia'
-	-- 			WHEN timeline_unidade LIKE '%HTT SP - DOE%' THEN 'Santa Joana'
+	-- 			WHEN timeline_unidade LIKE '%HTT SP - DOE%' THEN 'Vila Mariana'
 	-- 			WHEN timeline_unidade LIKE '%HTT Belo Horizonte%' THEN 'Belo Horizonte'
 	-- 			WHEN timeline_unidade LIKE '%Unidade Salvador%' AND timeline_unidade NOT LIKE '%Insemina%' AND timeline_unidade NOT LIKE '%Camaçari%' AND timeline_unidade NOT LIKE '%Feira de Santana%' THEN 'Salvador - Cenafert'
 	-- 			WHEN timeline_unidade LIKE '%Unidade Salvador Insemina%' THEN 'Salvador - Cenafert'
 	-- 			WHEN timeline_unidade LIKE '%HTT SP - Alphaville%' THEN 'Santa Joana'
 	-- 			WHEN timeline_unidade LIKE '%HTT Goiânia%' THEN 'Santa Joana'
 	-- 			WHEN timeline_unidade LIKE '%HTT SP - Bauru%' THEN 'Santa Joana'
-	-- 			WHEN timeline_unidade LIKE '%Unidade Salvador Camaçari%' THEN 'Salvador - Cenafert'
-	-- 			WHEN timeline_unidade LIKE '%Unidade Salvador Feira de Santana%' THEN 'Salvador - Cenafert'
 	-- 			ELSE timeline_unidade
 	-- 		END as timeline_unidade_mapped
 	-- 	FROM patient_primary_units
@@ -102,7 +100,7 @@ def create_finops_summary_table(conn):
 			END) AS cycle_without_transfer,
 			MIN(event_date) AS timeline_first_date,
 			MAX(event_date) AS timeline_last_date
-		FROM gold.recent_patients_timeline
+		FROM gold.all_patients_timeline
 		WHERE reference_value IN ('Ciclo a Fresco FIV', 'Ciclo de Congelados', 'Ciclo a Fresco Vitrificação')
 			AND flag_date_estimated = FALSE
 		GROUP BY prontuario

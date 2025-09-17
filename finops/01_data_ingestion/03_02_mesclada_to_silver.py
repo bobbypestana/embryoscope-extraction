@@ -39,7 +39,7 @@ SILVER_TABLE = 'mesclada_vendas'
 # Column mapping from mesclada to diario format
 COLUMN_MAPPING = {
     # Mesclada column -> Diario column
-    'Cod Cli': 'Cliente.1',
+    'Cod Cli': 'Cliente_totvs',
     'Filial': 'Loja', 
     'Nom Cliente': 'Nome',
     'Paciente': 'Nom Paciente',
@@ -217,7 +217,7 @@ def create_silver_table(con, df):
         '"NF Eletr." VARCHAR',
         '"Vend. 1" VARCHAR',
         '"Médico" VARCHAR',
-        '"Cliente.1" VARCHAR',
+        '"Cliente_totvs" VARCHAR',
         '"Operador" VARCHAR',
         '"Produto" VARCHAR',
         '"Valor Mercadoria" DOUBLE',
@@ -253,8 +253,8 @@ def create_silver_table(con, df):
     logger.info(f"Table silver.{SILVER_TABLE} created/verified")
 
 def update_prontuario_column(con):
-    """Update prontuario column using complex matching logic with clinisys_all.silver.view_pacientes"""
-    logger.info("Updating prontuario column using complex matching logic...")
+    """Update prontuario column using two-step matching logic with clinisys_all.silver.view_pacientes"""
+    logger.info("Updating prontuario column using two-step matching logic...")
     
     # Attach clinisys_all database
     clinisys_db_path = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), 'database', 'clinisys_all.duckdb')
@@ -262,7 +262,23 @@ def update_prontuario_column(con):
     con.execute(f"ATTACH '{clinisys_db_path}' AS clinisys_all")
     logger.info("clinisys_all database attached successfully")
     
-    # Complex matching SQL query (same as diario version)
+    # Step 1: Match using Paciente
+    logger.info("Step 1: Matching using Paciente...")
+    update_prontuario_with_paciente(con)
+    
+    # Step 2: Match remaining unmatched records using Cliente
+    logger.info("Step 2: Matching remaining records using Cliente...")
+    update_prontuario_with_cliente(con)
+    
+    # Step 3: Match remaining unmatched records using Cliente_totvs
+    logger.info("Step 3: Matching remaining records using Cliente_totvs...")
+    update_prontuario_with_cliente_totvs(con)
+
+def update_prontuario_with_paciente(con):
+    """Update prontuario column using Paciente matching logic"""
+    logger.info("Running Paciente-based matching logic...")
+    
+    # Paciente matching SQL query (original logic without Cliente OR clauses)
     update_sql = """
     WITH 
     -- CTE 1: Extract and process mesclada_vendas data with accent normalization
@@ -278,7 +294,7 @@ def update_prontuario_column(con):
                 ELSE NULL 
             END as nom_paciente_first
         FROM silver.mesclada_vendas
-        WHERE "Paciente" IS NOT NULL
+        WHERE "Paciente" IS NOT NULL AND "Paciente" != '0'
         
     ),
 
@@ -520,7 +536,7 @@ def update_prontuario_column(con):
         SELECT *,
                (name_match_score + match_type_score) as combined_score,
                ROW_NUMBER() OVER (
-                   PARTITION BY "Paciente" 
+                   PARTITION BY "Paciente" , "prontuario" 
                    ORDER BY (name_match_score + match_type_score)
                ) 
                as rn
@@ -543,6 +559,7 @@ def update_prontuario_column(con):
     SET prontuario = COALESCE(bm.prontuario, -1)
     FROM best_matches bm 
     WHERE silver.mesclada_vendas."Paciente" = bm."Paciente"
+        AND strip_accents(TRIM(LOWER(SPLIT_PART(silver.mesclada_vendas."Nome", ' ', 1)))) = bm.nome_first
     """
     
     try:
@@ -565,7 +582,636 @@ def update_prontuario_column(con):
         logger.info(f"  Match rate: {(result[1]/result[0]*100):.2f}%")
         
     except Exception as e:
-        logger.error(f"Error updating prontuario column: {e}")
+        logger.error(f"Error updating prontuario column with Paciente: {e}")
+        raise
+
+def update_prontuario_with_cliente(con):
+    """Update prontuario column using Cliente matching logic for unmatched records"""
+    logger.info("Running Cliente-based matching logic for unmatched records...")
+    
+    # Cliente matching SQL query (similar to Paciente but using Cliente)
+    update_sql = """
+    WITH 
+    -- CTE 1: Extract unmatched records using Cliente
+    mesclada_extract AS (
+        SELECT DISTINCT 
+            "Cliente", 
+            CASE 
+                WHEN "Nome" IS NOT NULL THEN strip_accents(TRIM(LOWER(SPLIT_PART("Nome", ' ', 1))))
+                ELSE NULL 
+            END as nome_first,
+            CASE 
+                WHEN "Nom Paciente" IS NOT NULL THEN strip_accents(TRIM(LOWER(SPLIT_PART("Nom Paciente", ' ', 1))))
+                ELSE NULL 
+            END as nom_paciente_first
+        FROM silver.mesclada_vendas
+        WHERE prontuario = -1 
+          AND "Cliente" IS NOT NULL 
+          AND "Cliente" != 0
+        
+    ),
+
+    -- CTE 1B: Pre-process clinisys data with all transformations and accent normalization
+    clinisys_processed AS (
+        SELECT 
+            codigo,
+            prontuario_esposa,
+            prontuario_marido,
+            prontuario_responsavel1,
+            prontuario_responsavel2,
+            prontuario_esposa_pel,
+            prontuario_marido_pel,
+            prontuario_esposa_pc,
+            prontuario_marido_pc,
+            prontuario_responsavel1_pc,
+            prontuario_responsavel2_pc,
+            prontuario_esposa_fc,
+            prontuario_marido_fc,
+            prontuario_esposa_ba,
+            prontuario_marido_ba,
+            strip_accents(LOWER(TRIM(SPLIT_PART(esposa_nome, ' ', 1)))) as esposa_nome,
+    		strip_accents(LOWER(TRIM(SPLIT_PART(marido_nome, ' ', 1)))) as marido_nome,
+            unidade_origem
+        FROM clinisys_all.silver.view_pacientes
+        where inativo = 0
+    ),
+
+    -- CTE 2: Cliente ↔ prontuario (main/codigo)
+    matches_1 AS (
+        SELECT d.*,
+               p.codigo as prontuario, p.esposa_nome, p.marido_nome, p.unidade_origem,
+               'cliente_main' as match_type
+        FROM mesclada_extract d
+        INNER JOIN clinisys_processed p 
+            ON d."Cliente" = p.codigo
+    ),
+
+    -- CTE 3: Cliente ↔ prontuario_esposa
+    matches_2 AS (
+        SELECT d.*, 
+               p.codigo as prontuario, p.esposa_nome, p.marido_nome, p.unidade_origem,
+               'cliente_esposa' as match_type
+        FROM mesclada_extract d
+        INNER JOIN clinisys_processed p 
+            ON d."Cliente" = p.prontuario_esposa
+    ),
+
+    -- CTE 4: Cliente ↔ prontuario_marido
+    matches_3 AS (
+        SELECT d.*,
+              p.codigo as prontuario, p.esposa_nome, p.marido_nome, p.unidade_origem,
+               'cliente_marido' as match_type
+        FROM mesclada_extract d
+        INNER JOIN clinisys_processed p 
+            ON d."Cliente" = p.prontuario_marido
+    ),
+
+    -- CTE 5: Cliente ↔ prontuario_responsavel1
+    matches_4 AS (
+        SELECT d.*,
+              p.codigo as prontuario, p.esposa_nome, p.marido_nome, p.unidade_origem,
+               'cliente_responsavel1' as match_type
+        FROM mesclada_extract d
+        INNER JOIN clinisys_processed p 
+            ON d."Cliente" = p.prontuario_responsavel1
+    ),
+
+    -- CTE 6: Cliente ↔ prontuario_responsavel2
+    matches_5 AS (
+        SELECT d.*,
+               p.codigo as prontuario, p.esposa_nome, p.marido_nome, p.unidade_origem,
+               'cliente_responsavel2' as match_type
+        FROM mesclada_extract d
+        INNER JOIN clinisys_processed p 
+            ON d."Cliente" = p.prontuario_responsavel2
+    ),
+
+    -- CTE 7: Cliente ↔ prontuario_esposa_pel
+    matches_6 AS (
+        SELECT d.*,
+               p.codigo as prontuario, p.esposa_nome, p.marido_nome, p.unidade_origem,
+               'cliente_esposa_pel' as match_type
+        FROM mesclada_extract d
+        INNER JOIN clinisys_processed p 
+            ON d."Cliente" = p.prontuario_esposa_pel
+    ),
+
+    -- CTE 8: Cliente ↔ prontuario_marido_pel
+    matches_7 AS (
+        SELECT d.*,
+               p.codigo as prontuario, p.esposa_nome, p.marido_nome, p.unidade_origem,
+               'cliente_marido_pel' as match_type
+        FROM mesclada_extract d
+        INNER JOIN clinisys_processed p 
+            ON d."Cliente" = p.prontuario_marido_pel
+    ),
+    -- CTE 9: Cliente ↔ prontuario_esposa_pc
+    matches_8 AS (
+        SELECT d.*,
+               p.codigo as prontuario, p.esposa_nome, p.marido_nome, p.unidade_origem,
+               'cliente_esposa_pc' as match_type
+        FROM mesclada_extract d
+        INNER JOIN clinisys_processed p 
+            ON d."Cliente" = p.prontuario_esposa_pc
+    ),
+    -- CTE 10: Cliente ↔ prontuario_marido_pc
+    matches_9 AS (
+        SELECT d.*,
+               p.codigo as prontuario, p.esposa_nome, p.marido_nome, p.unidade_origem,
+               'cliente_marido_pc' as match_type
+        FROM mesclada_extract d
+        INNER JOIN clinisys_processed p 
+            ON d."Cliente" = p.prontuario_marido_pc
+    ),
+    -- CTE 11: Cliente ↔ prontuario_responsavel1_pc
+    matches_10 AS (
+        SELECT d.*,
+               p.codigo as prontuario, p.esposa_nome, p.marido_nome, p.unidade_origem,
+               'cliente_responsavel1_pc' as match_type
+        FROM mesclada_extract d
+        INNER JOIN clinisys_processed p 
+            ON d."Cliente" = p.prontuario_responsavel1_pc
+    ),
+    -- CTE 12: Cliente ↔ prontuario_responsavel2_pc
+    matches_11 AS (
+        SELECT d.*,
+               p.codigo as prontuario, p.esposa_nome, p.marido_nome, p.unidade_origem,
+               'cliente_responsavel2_pc' as match_type
+        FROM mesclada_extract d
+        INNER JOIN clinisys_processed p 
+            ON d."Cliente" = p.prontuario_responsavel2_pc
+    ),
+    -- CTE 13: Cliente ↔ prontuario_esposa_fc
+    matches_12 AS (
+        SELECT d.*,
+               p.codigo as prontuario, p.esposa_nome, p.marido_nome, p.unidade_origem,
+               'cliente_esposa_fc' as match_type
+        FROM mesclada_extract d
+        INNER JOIN clinisys_processed p 
+            ON d."Cliente" = p.prontuario_esposa_fc
+    ),
+    -- CTE 14: Cliente ↔ prontuario_marido_fc
+    matches_13 AS (
+        SELECT d.*,
+               p.codigo as prontuario, p.esposa_nome, p.marido_nome, p.unidade_origem,
+               'cliente_marido_fc' as match_type
+        FROM mesclada_extract d
+        INNER JOIN clinisys_processed p 
+            ON d."Cliente" = p.prontuario_marido_fc
+    ),
+    -- CTE 15: Cliente ↔ prontuario_esposa_ba
+    matches_14 AS (
+        SELECT d.*,
+               p.codigo as prontuario, p.esposa_nome, p.marido_nome, p.unidade_origem,
+               'cliente_esposa_ba' as match_type
+        FROM mesclada_extract d
+        INNER JOIN clinisys_processed p 
+            ON d."Cliente" = p.prontuario_esposa_ba
+    ),
+    -- CTE 16: Cliente ↔ prontuario_marido_ba
+    matches_15 AS (
+        SELECT d.*,
+               p.codigo as prontuario, p.esposa_nome, p.marido_nome, p.unidade_origem,
+               'cliente_marido_ba' as match_type
+        FROM mesclada_extract d
+        INNER JOIN clinisys_processed p 
+            ON d."Cliente" = p.prontuario_marido_ba
+    ),
+
+    -- CTE 17: UNION matches
+    all_matches AS (
+        SELECT * FROM matches_1
+        UNION
+        SELECT * FROM matches_2
+        UNION
+        SELECT * FROM matches_3
+        UNION 
+        SELECT * FROM matches_4
+        UNION
+        SELECT * FROM matches_5
+        UNION
+        SELECT * FROM matches_6
+        UNION
+        SELECT * FROM matches_7
+        UNION
+        SELECT * FROM matches_8
+        UNION
+        SELECT * FROM matches_9
+        UNION
+        SELECT * FROM matches_10
+        UNION
+        SELECT * FROM matches_11
+        UNION
+        SELECT * FROM matches_12
+        UNION
+        SELECT * FROM matches_13
+        UNION
+        SELECT * FROM matches_14
+        UNION
+        SELECT * FROM matches_15
+    ),
+        -- CTE 18: Calculate scores for ranking
+    scored_matches AS (
+        SELECT *,
+               -- Calculate name match score
+               CASE 
+                   WHEN (nome_first = esposa_nome AND nom_paciente_first = marido_nome) 
+                        OR (nom_paciente_first = esposa_nome AND nome_first = marido_nome) THEN 0
+                   WHEN (nome_first = esposa_nome OR nom_paciente_first = marido_nome) 
+                        OR (nom_paciente_first = esposa_nome OR nome_first = marido_nome) THEN 2
+                   ELSE 4
+               END as name_match_score,
+               -- Calculate match type score (odd numbers)
+               CASE 
+                   WHEN match_type = 'cliente_main' THEN 1
+                   WHEN match_type = 'cliente_esposa' THEN 3
+                   WHEN match_type = 'cliente_marido' THEN 5
+                   WHEN match_type = 'cliente_responsavel1' THEN 7
+                   WHEN match_type = 'cliente_responsavel2' THEN 9
+                   WHEN match_type = 'cliente_esposa_pel' THEN 11
+                   WHEN match_type = 'cliente_marido_pel' THEN 13
+                   WHEN match_type = 'cliente_esposa_pc' THEN 15
+                   WHEN match_type = 'cliente_marido_pc' THEN 17
+                   WHEN match_type = 'cliente_responsavel1_pc' THEN 19
+                   WHEN match_type = 'cliente_responsavel2_pc' THEN 21
+                   WHEN match_type = 'cliente_esposa_fc' THEN 23
+                   WHEN match_type = 'cliente_marido_fc' THEN 25
+                   WHEN match_type = 'cliente_esposa_ba' THEN 27
+                   WHEN match_type = 'cliente_marido_ba' THEN 29
+                   ELSE 31
+               END as match_type_score
+        FROM all_matches
+        WHERE nome_first =esposa_nome OR nome_first = marido_nome OR nom_paciente_first = esposa_nome  OR nom_paciente_first = marido_nome 
+    ),
+
+    -- CTE 19: Apply ranking based on combined scores
+    ranked_matches AS (
+        SELECT *,
+               (name_match_score + match_type_score) as combined_score,
+               ROW_NUMBER() OVER (
+                   PARTITION BY "Cliente" , "prontuario" 
+                   ORDER BY (name_match_score + match_type_score)
+               ) 
+               as rn
+        FROM scored_matches
+    ),
+
+    -- CTE 20: Select best match per Cliente (lowest rn value)
+    best_matches AS (
+        SELECT * 
+        FROM ranked_matches rm1
+        WHERE rn = (
+            SELECT MIN(rn) 
+            FROM ranked_matches rm2 
+            WHERE rm2."Cliente" = rm1."Cliente"
+        )
+    )
+
+    -- Update prontuario column for unmatched records using Cliente
+    UPDATE silver.mesclada_vendas 
+    SET prontuario = COALESCE(bm.prontuario, -1)
+    FROM best_matches bm 
+    WHERE silver.mesclada_vendas."Cliente" = bm."Cliente"
+        AND silver.mesclada_vendas.prontuario = -1
+        AND strip_accents(TRIM(LOWER(SPLIT_PART(silver.mesclada_vendas."Nome", ' ', 1)))) = bm.nome_first
+    """
+    
+    try:
+        con.execute(update_sql)
+        logger.info("Prontuario column updated successfully with Cliente matching logic")
+        
+        # Get statistics on the update
+        result = con.execute("""
+            SELECT 
+                COUNT(*) as total_rows,
+                COUNT(CASE WHEN prontuario != -1 THEN 1 END) as matched_rows,
+                COUNT(CASE WHEN prontuario = -1 THEN 1 END) as unmatched_rows
+            FROM silver.mesclada_vendas
+        """).fetchone()
+        
+        logger.info(f"Final prontuario matching results:")
+        logger.info(f"  Total rows: {result[0]:,}")
+        logger.info(f"  Matched rows: {result[1]:,}")
+        logger.info(f"  Unmatched rows: {result[2]:,}")
+        logger.info(f"  Match rate: {(result[1]/result[0]*100):.2f}%")
+        
+    except Exception as e:
+        logger.error(f"Error updating prontuario column with Cliente: {e}")
+        raise
+
+def update_prontuario_with_cliente_totvs(con):
+    """Update prontuario column using Cliente_totvs matching logic for unmatched records"""
+    logger.info("Running Cliente_totvs-based matching logic for unmatched records...")
+    
+    # Cliente_totvs matching SQL query (similar to Cliente but using Cliente_totvs)
+    update_sql = """
+    WITH 
+    -- CTE 1: Extract unmatched records using Cliente_totvs
+    mesclada_extract AS (
+        SELECT DISTINCT 
+            "Cliente_totvs" as Cliente_totvs, 
+            CASE 
+                WHEN "Nome" IS NOT NULL THEN strip_accents(TRIM(LOWER(SPLIT_PART("Nome", ' ', 1))))
+                ELSE NULL 
+            END as nome_first,
+            CASE 
+                WHEN "Nom Paciente" IS NOT NULL THEN strip_accents(TRIM(LOWER(SPLIT_PART("Nom Paciente", ' ', 1))))
+                ELSE NULL 
+            END as nom_paciente_first
+        FROM silver.mesclada_vendas
+        WHERE prontuario = -1 
+          AND "Cliente_totvs" IS NOT NULL 
+          AND "Cliente_totvs" != ''
+          AND TRY_CAST("Cliente_totvs" AS INTEGER) IS NOT NULL
+        
+    ),
+
+    -- CTE 1B: Pre-process clinisys data with all transformations and accent normalization
+    clinisys_processed AS (
+        SELECT 
+            codigo,
+            prontuario_esposa,
+            prontuario_marido,
+            prontuario_responsavel1,
+            prontuario_responsavel2,
+            prontuario_esposa_pel,
+            prontuario_marido_pel,
+            prontuario_esposa_pc,
+            prontuario_marido_pc,
+            prontuario_responsavel1_pc,
+            prontuario_responsavel2_pc,
+            prontuario_esposa_fc,
+            prontuario_marido_fc,
+            prontuario_esposa_ba,
+            prontuario_marido_ba,
+            strip_accents(LOWER(TRIM(SPLIT_PART(esposa_nome, ' ', 1)))) as esposa_nome,
+    		strip_accents(LOWER(TRIM(SPLIT_PART(marido_nome, ' ', 1)))) as marido_nome,
+            unidade_origem
+        FROM clinisys_all.silver.view_pacientes
+        where inativo = 0
+    ),
+
+    -- CTE 2: Cliente_totvs ↔ prontuario (main/codigo)
+    matches_1 AS (
+        SELECT d.*,
+               p.codigo as prontuario, p.esposa_nome, p.marido_nome, p.unidade_origem,
+               'cliente_totvs_main' as match_type
+        FROM mesclada_extract d
+        INNER JOIN clinisys_processed p 
+            ON d.Cliente_totvs = p.codigo
+    ),
+
+    -- CTE 3: Cliente_totvs ↔ prontuario_esposa
+    matches_2 AS (
+        SELECT d.*, 
+               p.codigo as prontuario, p.esposa_nome, p.marido_nome, p.unidade_origem,
+               'cliente_totvs_esposa' as match_type
+        FROM mesclada_extract d
+        INNER JOIN clinisys_processed p 
+            ON d.Cliente_totvs = p.prontuario_esposa
+    ),
+
+    -- CTE 4: Cliente_totvs ↔ prontuario_marido
+    matches_3 AS (
+        SELECT d.*,
+              p.codigo as prontuario, p.esposa_nome, p.marido_nome, p.unidade_origem,
+               'cliente_totvs_marido' as match_type
+        FROM mesclada_extract d
+        INNER JOIN clinisys_processed p 
+            ON d.Cliente_totvs = p.prontuario_marido
+    ),
+
+    -- CTE 5: Cliente_totvs ↔ prontuario_responsavel1
+    matches_4 AS (
+        SELECT d.*,
+              p.codigo as prontuario, p.esposa_nome, p.marido_nome, p.unidade_origem,
+               'cliente_totvs_responsavel1' as match_type
+        FROM mesclada_extract d
+        INNER JOIN clinisys_processed p 
+            ON d.Cliente_totvs = p.prontuario_responsavel1
+    ),
+
+    -- CTE 6: Cliente_totvs ↔ prontuario_responsavel2
+    matches_5 AS (
+        SELECT d.*,
+               p.codigo as prontuario, p.esposa_nome, p.marido_nome, p.unidade_origem,
+               'cliente_totvs_responsavel2' as match_type
+        FROM mesclada_extract d
+        INNER JOIN clinisys_processed p 
+            ON d.Cliente_totvs = p.prontuario_responsavel2
+    ),
+
+    -- CTE 7: Cliente_totvs ↔ prontuario_esposa_pel
+    matches_6 AS (
+        SELECT d.*,
+               p.codigo as prontuario, p.esposa_nome, p.marido_nome, p.unidade_origem,
+               'cliente_totvs_esposa_pel' as match_type
+        FROM mesclada_extract d
+        INNER JOIN clinisys_processed p 
+            ON d.Cliente_totvs = p.prontuario_esposa_pel
+    ),
+
+    -- CTE 8: Cliente_totvs ↔ prontuario_marido_pel
+    matches_7 AS (
+        SELECT d.*,
+               p.codigo as prontuario, p.esposa_nome, p.marido_nome, p.unidade_origem,
+               'cliente_totvs_marido_pel' as match_type
+        FROM mesclada_extract d
+        INNER JOIN clinisys_processed p 
+            ON d.Cliente_totvs = p.prontuario_marido_pel
+    ),
+    -- CTE 9: Cliente_totvs ↔ prontuario_esposa_pc
+    matches_8 AS (
+        SELECT d.*,
+               p.codigo as prontuario, p.esposa_nome, p.marido_nome, p.unidade_origem,
+               'cliente_totvs_esposa_pc' as match_type
+        FROM mesclada_extract d
+        INNER JOIN clinisys_processed p 
+            ON d.Cliente_totvs = p.prontuario_esposa_pc
+    ),
+    -- CTE 10: Cliente_totvs ↔ prontuario_marido_pc
+    matches_9 AS (
+        SELECT d.*,
+               p.codigo as prontuario, p.esposa_nome, p.marido_nome, p.unidade_origem,
+               'cliente_totvs_marido_pc' as match_type
+        FROM mesclada_extract d
+        INNER JOIN clinisys_processed p 
+            ON d.Cliente_totvs = p.prontuario_marido_pc
+    ),
+    -- CTE 11: Cliente_totvs ↔ prontuario_responsavel1_pc
+    matches_10 AS (
+        SELECT d.*,
+               p.codigo as prontuario, p.esposa_nome, p.marido_nome, p.unidade_origem,
+               'cliente_totvs_responsavel1_pc' as match_type
+        FROM mesclada_extract d
+        INNER JOIN clinisys_processed p 
+            ON d.Cliente_totvs = p.prontuario_responsavel1_pc
+    ),
+    -- CTE 12: Cliente_totvs ↔ prontuario_responsavel2_pc
+    matches_11 AS (
+        SELECT d.*,
+               p.codigo as prontuario, p.esposa_nome, p.marido_nome, p.unidade_origem,
+               'cliente_totvs_responsavel2_pc' as match_type
+        FROM mesclada_extract d
+        INNER JOIN clinisys_processed p 
+            ON d.Cliente_totvs = p.prontuario_responsavel2_pc
+    ),
+    -- CTE 13: Cliente_totvs ↔ prontuario_esposa_fc
+    matches_12 AS (
+        SELECT d.*,
+               p.codigo as prontuario, p.esposa_nome, p.marido_nome, p.unidade_origem,
+               'cliente_totvs_esposa_fc' as match_type
+        FROM mesclada_extract d
+        INNER JOIN clinisys_processed p 
+            ON d.Cliente_totvs = p.prontuario_esposa_fc
+    ),
+    -- CTE 14: Cliente_totvs ↔ prontuario_marido_fc
+    matches_13 AS (
+        SELECT d.*,
+               p.codigo as prontuario, p.esposa_nome, p.marido_nome, p.unidade_origem,
+               'cliente_totvs_marido_fc' as match_type
+        FROM mesclada_extract d
+        INNER JOIN clinisys_processed p 
+            ON d.Cliente_totvs = p.prontuario_marido_fc
+    ),
+    -- CTE 15: Cliente_totvs ↔ prontuario_esposa_ba
+    matches_14 AS (
+        SELECT d.*,
+               p.codigo as prontuario, p.esposa_nome, p.marido_nome, p.unidade_origem,
+               'cliente_totvs_esposa_ba' as match_type
+        FROM mesclada_extract d
+        INNER JOIN clinisys_processed p 
+            ON d.Cliente_totvs = p.prontuario_esposa_ba
+    ),
+    -- CTE 16: Cliente_totvs ↔ prontuario_marido_ba
+    matches_15 AS (
+        SELECT d.*,
+               p.codigo as prontuario, p.esposa_nome, p.marido_nome, p.unidade_origem,
+               'cliente_totvs_marido_ba' as match_type
+        FROM mesclada_extract d
+        INNER JOIN clinisys_processed p 
+            ON d.Cliente_totvs = p.prontuario_marido_ba
+    ),
+
+    -- CTE 17: UNION matches
+    all_matches AS (
+        SELECT * FROM matches_1
+        UNION
+        SELECT * FROM matches_2
+        UNION
+        SELECT * FROM matches_3
+        UNION 
+        SELECT * FROM matches_4
+        UNION
+        SELECT * FROM matches_5
+        UNION
+        SELECT * FROM matches_6
+        UNION
+        SELECT * FROM matches_7
+        UNION
+        SELECT * FROM matches_8
+        UNION
+        SELECT * FROM matches_9
+        UNION
+        SELECT * FROM matches_10
+        UNION
+        SELECT * FROM matches_11
+        UNION
+        SELECT * FROM matches_12
+        UNION
+        SELECT * FROM matches_13
+        UNION
+        SELECT * FROM matches_14
+        UNION
+        SELECT * FROM matches_15
+    ),
+        -- CTE 18: Calculate scores for ranking
+    scored_matches AS (
+        SELECT *,
+               -- Calculate name match score
+               CASE 
+                   WHEN (nome_first = esposa_nome AND nom_paciente_first = marido_nome) 
+                        OR (nom_paciente_first = esposa_nome AND nome_first = marido_nome) THEN 0
+                   WHEN (nome_first = esposa_nome OR nom_paciente_first = marido_nome) 
+                        OR (nom_paciente_first = esposa_nome OR nome_first = marido_nome) THEN 2
+                   ELSE 4
+               END as name_match_score,
+               -- Calculate match type score (odd numbers)
+               CASE 
+                   WHEN match_type = 'cliente_totvs_main' THEN 1
+                   WHEN match_type = 'cliente_totvs_esposa' THEN 3
+                   WHEN match_type = 'cliente_totvs_marido' THEN 5
+                   WHEN match_type = 'cliente_totvs_responsavel1' THEN 7
+                   WHEN match_type = 'cliente_totvs_responsavel2' THEN 9
+                   WHEN match_type = 'cliente_totvs_esposa_pel' THEN 11
+                   WHEN match_type = 'cliente_totvs_marido_pel' THEN 13
+                   WHEN match_type = 'cliente_totvs_esposa_pc' THEN 15
+                   WHEN match_type = 'cliente_totvs_marido_pc' THEN 17
+                   WHEN match_type = 'cliente_totvs_responsavel1_pc' THEN 19
+                   WHEN match_type = 'cliente_totvs_responsavel2_pc' THEN 21
+                   WHEN match_type = 'cliente_totvs_esposa_fc' THEN 23
+                   WHEN match_type = 'cliente_totvs_marido_fc' THEN 25
+                   WHEN match_type = 'cliente_totvs_esposa_ba' THEN 27
+                   WHEN match_type = 'cliente_totvs_marido_ba' THEN 29
+                   ELSE 31
+               END as match_type_score
+        FROM all_matches
+        WHERE nome_first =esposa_nome OR nome_first = marido_nome OR nom_paciente_first = esposa_nome  OR nom_paciente_first = marido_nome 
+    ),
+
+    -- CTE 19: Apply ranking based on combined scores
+    ranked_matches AS (
+        SELECT *,
+               (name_match_score + match_type_score) as combined_score,
+               ROW_NUMBER() OVER (
+                   PARTITION BY Cliente_totvs , "prontuario" 
+                   ORDER BY (name_match_score + match_type_score)
+               ) 
+               as rn
+        FROM scored_matches
+    ),
+
+    -- CTE 20: Select best match per Cliente_totvs (lowest rn value)
+    best_matches AS (
+        SELECT * 
+        FROM ranked_matches rm1
+        WHERE rn = (
+            SELECT MIN(rn) 
+            FROM ranked_matches rm2 
+            WHERE rm2.Cliente_totvs = rm1.Cliente_totvs
+        )
+    )
+
+    -- Update prontuario column for unmatched records using Cliente_totvs
+    UPDATE silver.mesclada_vendas 
+    SET prontuario = COALESCE(bm.prontuario, -1)
+    FROM best_matches bm 
+    WHERE silver.mesclada_vendas."Cliente_totvs" = bm.Cliente_totvs
+        AND silver.mesclada_vendas.prontuario = -1
+        AND strip_accents(TRIM(LOWER(SPLIT_PART(silver.mesclada_vendas."Nome", ' ', 1)))) = bm.nome_first
+    """
+    
+    try:
+        con.execute(update_sql)
+        logger.info("Prontuario column updated successfully with Cliente_totvs matching logic")
+        
+        # Get statistics on the update
+        result = con.execute("""
+            SELECT 
+                COUNT(*) as total_rows,
+                COUNT(CASE WHEN prontuario != -1 THEN 1 END) as matched_rows,
+                COUNT(CASE WHEN prontuario = -1 THEN 1 END) as unmatched_rows
+            FROM silver.mesclada_vendas
+        """).fetchone()
+        
+        logger.info(f"Final prontuario matching results after Cliente_totvs:")
+        logger.info(f"  Total rows: {result[0]:,}")
+        logger.info(f"  Matched rows: {result[1]:,}")
+        logger.info(f"  Unmatched rows: {result[2]:,}")
+        logger.info(f"  Match rate: {(result[1]/result[0]*100):.2f}%")
+        
+    except Exception as e:
+        logger.error(f"Error updating prontuario column with Cliente_totvs: {e}")
         raise
 
 def process_bronze_to_silver(con):
@@ -649,7 +1295,7 @@ def process_bronze_to_silver(con):
             CAST("NF Eletr." AS VARCHAR) as "NF Eletr.",
             CAST("Cod. Medicco" AS VARCHAR) as "Vend. 1",
             CAST("Médico" AS VARCHAR) as "Médico",
-            CAST("Cliente.1" AS VARCHAR) as "Cliente.1",
+            CAST("Cliente_totvs" AS VARCHAR) as "Cliente_totvs",
             CAST("Operador" AS VARCHAR) as "Operador",
             CAST("Produto" AS VARCHAR) as "Produto",
             CAST("Valor Mercadoria" AS DOUBLE) as "Valor Mercadoria",
