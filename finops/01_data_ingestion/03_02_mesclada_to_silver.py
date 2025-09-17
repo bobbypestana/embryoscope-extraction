@@ -113,6 +113,46 @@ def map_columns(df):
     logger.info(f"Column mapping completed. Final columns: {list(df_mapped.columns)}")
     return df_mapped
 
+def map_unidade(df):
+    """Map Grp and Filial to Unidade using the unidade_map"""
+    logger.info("Mapping Grp and Filial to Unidade...")
+    
+    # Unidade mapping based on Grp and Filial - using actual data format
+    unidade_map = {
+        ('1', '10101'): 'Ibirapuera',
+        ('1', '10150'): 'Ibirapuera',
+        ('1', '10155'): 'Vila Mariana', 
+        ('1', '10104'): 'Vila Mariana',
+        ('1', '10106'): 'Vila Mariana',
+        ('3', '30101'): 'Campinas',
+        ('6', '60101'): 'Santa Joana',
+        ('5', '101'): 'Belo Horizonte',
+        ('7', '10101'): 'Salvador - Cenafert',
+        ('7', '20101'): 'Salvador - Cenafert',
+        ('7', '30101'): 'FIV Brasilia'
+    }
+    
+    df['Unidade'] = df.apply(lambda row: unidade_map.get((row['Grp'], row['Loja']), ''), axis=1)
+    
+    # Log mapping statistics
+    unidade_counts = df['Unidade'].value_counts()
+    logger.info(f"Unidade mapping completed. Distribution:")
+    for unidade, count in unidade_counts.items():
+        if unidade:  # Only log non-empty values
+            logger.info(f"  {unidade}: {count:,} records")
+    
+    # Log unmapped records
+    unmapped_count = (df['Unidade'] == '').sum()
+    if unmapped_count > 0:
+        logger.warning(f"  Unmapped records: {unmapped_count:,}")
+        # Show some examples of unmapped records
+        unmapped_examples = df[df['Unidade'] == ''][['Grp', 'Loja']].drop_duplicates().head(5)
+        logger.warning(f"  Examples of unmapped Grp/Loja combinations:")
+        for _, row in unmapped_examples.iterrows():
+            logger.warning(f"    Grp: {row['Grp']}, Loja: {row['Loja']}")
+    
+    return df
+
 def transform_data_types(df):
     """Transform data types for silver layer using vectorized operations"""
     logger.info("Transforming data types...")
@@ -128,8 +168,12 @@ def transform_data_types(df):
     # For nullable integers (Cliente)
     df_transformed['Cliente'] = pd.to_numeric(df_transformed['Cliente'], errors='coerce').astype('Int64')
     
+    # String columns for unidade mapping (Grp and Loja need to be strings)
+    # Keep as strings to preserve leading zeros for unidade mapping
+    df_transformed['Grp'] = df_transformed['Grp'].astype(str)
+    df_transformed['Loja'] = df_transformed['Loja'].astype(str)
+    
     # For non-nullable integers
-    df_transformed['Loja'] = pd.to_numeric(df_transformed['Loja'], errors='coerce').fillna(0).astype(int)
     df_transformed['Numero'] = pd.to_numeric(df_transformed['Numero'], errors='coerce').fillna(0).astype(int)
     df_transformed['Ciclos'] = pd.to_numeric(df_transformed['Ciclos'], errors='coerce').fillna(0).astype(int)
     df_transformed['Qnt Cons.'] = pd.to_numeric(df_transformed['Qnt Cons.'], errors='coerce').fillna(0).astype(int)
@@ -166,7 +210,7 @@ def create_silver_table(con, df):
         '"Qntd." DOUBLE',
         '"Total" DOUBLE',
         '"Descrição Gerencial" VARCHAR',
-        '"Loja" INTEGER',
+        '"Loja" VARCHAR',
         '"Tipo da nota" VARCHAR',
         '"Numero" INTEGER',
         '"Serie Docto." VARCHAR',
@@ -561,6 +605,9 @@ def process_bronze_to_silver(con):
         
         # Map columns from mesclada to diario format
         df_mapped = map_columns(df_bronze_clean)
+        
+        # Map Grp and Filial to Unidade
+        df_mapped = map_unidade(df_mapped)
         
         # Transform data types
         df_transformed = transform_data_types(df_mapped)

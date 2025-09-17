@@ -16,7 +16,9 @@ logger = logging.getLogger(__name__)
 
 def get_database_connection():
     """Create and return a connection to the clinisys_all database"""
-    path_to_db = '../database/clinisys_all.duckdb'
+    # Resolve DB path relative to repository root
+    repo_root = os.path.dirname(os.path.dirname(os.path.dirname(__file__)))
+    path_to_db = os.path.join(repo_root, 'database', 'clinisys_all.duckdb')
     conn = db.connect(path_to_db, read_only=True)
     
     logger.info(f"Connected to database: {path_to_db}")
@@ -62,31 +64,32 @@ def create_all_patient_timeline_sql(conn):
     WITH all_timeline_events AS (
         -- 1. Treatments (tratamentos)
         SELECT 
-            prontuario,
+            t.prontuario,
             'tratamentos' as reference,
-            id as event_id,
+            t.id as event_id,
             CASE 
-                WHEN data_procedimento IS NOT NULL THEN data_procedimento
-                WHEN data_inicio_inducao IS NOT NULL THEN 
+                WHEN t.data_procedimento IS NOT NULL THEN t.data_procedimento
+                WHEN t.data_inicio_inducao IS NOT NULL THEN 
                     -- Add 14 days to data_inicio_inducao as fallback
-                    data_inicio_inducao + INTERVAL 14 DAY
+                    t.data_inicio_inducao + INTERVAL 14 DAY
                 ELSE NULL
             END as event_date,
             CASE 
-                WHEN data_procedimento IS NOT NULL THEN FALSE
-                WHEN data_inicio_inducao IS NOT NULL THEN TRUE
+                WHEN t.data_procedimento IS NOT NULL THEN FALSE
+                WHEN t.data_inicio_inducao IS NOT NULL THEN TRUE
                 ELSE FALSE
             END as flag_date_estimated,
-            tipo_procedimento as reference_value,
-            tentativa,
-            unidade,
-            resultado_tratamento,
+            t.tipo_procedimento as reference_value,
+            t.tentativa,
+            COALESCE(u.nome, CAST(t.unidade AS VARCHAR)) as unidade,
+            t.resultado_tratamento,
             '{}' as additional_info
-        FROM silver.view_tratamentos 
-        WHERE prontuario IS NOT NULL
+        FROM silver.view_tratamentos t
+        LEFT JOIN silver.view_unidades u ON t.unidade = u.id
+        WHERE t.prontuario IS NOT NULL
         AND (
-            data_procedimento IS NOT NULL 
-            OR data_inicio_inducao IS NOT NULL
+            t.data_procedimento IS NOT NULL 
+            OR t.data_inicio_inducao IS NOT NULL
         )
         
         UNION ALL
@@ -100,7 +103,7 @@ def create_all_patient_timeline_sql(conn):
             FALSE as flag_date_estimated,
             procedimento_nome as reference_value,
             NULL as tentativa,
-            NULL as unidade,
+            centro_custos_nome as unidade,
             NULL as resultado_tratamento,
             '{}' as additional_info
         FROM (
@@ -204,6 +207,7 @@ def create_all_patient_timeline_sql(conn):
         FROM silver.view_descongelamentos_ovulos 
         WHERE prontuario IS NOT NULL
         AND DataDescongelamento IS NOT NULL
+        
     ),
     
     timeline_with_order AS (
@@ -265,7 +269,8 @@ def save_timeline_to_database(timeline_df):
     
     try:
         # Connect to huntington_data_lake database
-        path_to_db = '../database/huntington_data_lake.duckdb'
+        repo_root = os.path.dirname(os.path.dirname(os.path.dirname(__file__)))
+        path_to_db = os.path.join(repo_root, 'database', 'huntington_data_lake.duckdb')
         conn = db.connect(path_to_db)
         
         logger.info(f"Connected to database: {path_to_db}")

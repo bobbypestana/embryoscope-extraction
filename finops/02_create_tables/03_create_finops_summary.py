@@ -29,7 +29,31 @@ def create_finops_summary_table(conn):
 	# Create the table with FIV cycle data AND billing data
 	create_table_query = """
 	CREATE TABLE gold.finops_summary AS
-	WITH timeline_summary AS (
+	WITH
+	-- Get all patients with their most frequent unit
+	patient_units AS (
+		SELECT 
+			prontuario,
+			unidade,
+			COUNT(*) as unit_count
+		FROM gold.recent_patients_timeline
+		WHERE unidade IS NOT NULL
+		GROUP BY prontuario, unidade
+	),
+	patient_primary_units AS (
+		SELECT 
+			prontuario,
+			unidade as timeline_unidade
+		FROM (
+			SELECT 
+				prontuario,
+				unidade,
+				ROW_NUMBER() OVER (PARTITION BY prontuario ORDER BY unit_count DESC) as rn
+			FROM patient_units
+		) ranked
+		WHERE rn = 1
+	),
+	timeline_summary AS (
 		SELECT
 			prontuario,
 			COUNT(CASE
@@ -44,14 +68,12 @@ def create_finops_summary_table(conn):
 					''
 				) THEN 1
 			END) AS cycle_without_transfer,
-					MIN(event_date) AS timeline_first_date,
-		MAX(event_date) AS timeline_last_date,
-		-- Unidade for timeline events
-		unidade AS timeline_unidade
+			MIN(event_date) AS timeline_first_date,
+			MAX(event_date) AS timeline_last_date
 		FROM gold.recent_patients_timeline
 		WHERE reference_value IN ('Ciclo a Fresco FIV', 'Ciclo de Congelados')
 			AND flag_date_estimated = FALSE
-		GROUP BY prontuario, unidade
+		GROUP BY prontuario
 	),
 	-- Define payment conditions in a flexible way
 	billing_conditions AS (
@@ -72,7 +94,7 @@ def create_finops_summary_table(conn):
 			-- CASE WHEN [condition] THEN 1 ELSE 0 END AS is_new_category,
 			-- Combined FIV payment flag
 			CASE WHEN "Cta-Ctbl" LIKE '%RECEITA DE FIV%' OR "Descricao" = 'COLETA - DUOSTIM' THEN 1 ELSE 0 END AS is_fiv_payment
-		FROM silver.diario_vendas
+		FROM silver.mesclada_vendas
 		WHERE prontuario IS NOT NULL
 	),
 	billing_summary AS (
@@ -123,7 +145,7 @@ def create_finops_summary_table(conn):
 		b.billing_first_date,
 		b.billing_last_date,
 		-- Unidade information
-		t.timeline_unidade,
+		p.timeline_unidade,
 		b.billing_unidade,
 		-- Flags
 		CASE WHEN (COALESCE(t.cycle_with_transfer, 0) + COALESCE(t.cycle_without_transfer, 0)) > 0 
@@ -140,6 +162,7 @@ def create_finops_summary_table(conn):
 		     THEN 1 ELSE 0 END AS flag_less_cycles_than_payments
 	FROM timeline_summary t
 	FULL OUTER JOIN billing_summary b ON t.prontuario = b.prontuario
+	LEFT JOIN patient_primary_units p ON COALESCE(t.prontuario, b.prontuario) = p.prontuario
 	ORDER BY COALESCE(t.prontuario, b.prontuario)
 	"""
 	
