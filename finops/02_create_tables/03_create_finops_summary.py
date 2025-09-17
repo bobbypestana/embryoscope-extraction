@@ -60,6 +60,31 @@ def create_finops_summary_table(conn):
 		) ranked
 		WHERE rn = 1
 	),
+	-- Map timeline units to billing units for proper joining
+	-- patient_units_mapped AS (
+	-- 	SELECT 
+	-- 		prontuario,
+	-- 		timeline_unidade,
+	-- 		-- Map timeline units to billing unit names
+	-- 		CASE 
+	-- 			WHEN timeline_unidade LIKE '%HTT SP - Ibirapuera%' THEN 'Ibirapuera'
+	-- 			WHEN timeline_unidade LIKE '%HTT SP - Vila Mariana%' THEN 'Vila Mariana'
+	-- 			WHEN timeline_unidade LIKE '%HTT SP - Campinas%' THEN 'Campinas'
+	-- 			WHEN timeline_unidade LIKE '%HTT SP - ProFIV%' THEN 'Santa Joana'
+	-- 			WHEN timeline_unidade LIKE '%HTT Brasília%' OR timeline_unidade LIKE '%HTT Brasilia%' THEN 'FIV Brasilia'
+	-- 			WHEN timeline_unidade LIKE '%HTT SP - DOE%' THEN 'Santa Joana'
+	-- 			WHEN timeline_unidade LIKE '%HTT Belo Horizonte%' THEN 'Belo Horizonte'
+	-- 			WHEN timeline_unidade LIKE '%Unidade Salvador%' AND timeline_unidade NOT LIKE '%Insemina%' AND timeline_unidade NOT LIKE '%Camaçari%' AND timeline_unidade NOT LIKE '%Feira de Santana%' THEN 'Salvador - Cenafert'
+	-- 			WHEN timeline_unidade LIKE '%Unidade Salvador Insemina%' THEN 'Salvador - Cenafert'
+	-- 			WHEN timeline_unidade LIKE '%HTT SP - Alphaville%' THEN 'Santa Joana'
+	-- 			WHEN timeline_unidade LIKE '%HTT Goiânia%' THEN 'Santa Joana'
+	-- 			WHEN timeline_unidade LIKE '%HTT SP - Bauru%' THEN 'Santa Joana'
+	-- 			WHEN timeline_unidade LIKE '%Unidade Salvador Camaçari%' THEN 'Salvador - Cenafert'
+	-- 			WHEN timeline_unidade LIKE '%Unidade Salvador Feira de Santana%' THEN 'Salvador - Cenafert'
+	-- 			ELSE timeline_unidade
+	-- 		END as timeline_unidade_mapped
+	-- 	FROM patient_primary_units
+	-- ),
 	timeline_summary AS (
 		SELECT
 			prontuario,
@@ -111,11 +136,11 @@ def create_finops_summary_table(conn):
 			SUM(CASE WHEN is_treatment_payment = 1 THEN "Total" ELSE 0 END) AS treatment_paid_total,
 			-- Date ranges for billing
 			MIN(CASE WHEN is_treatment_payment = 1 THEN "DT Emissao" END) AS billing_first_date,
-			MAX(CASE WHEN is_treatment_payment = 1 THEN "DT Emissao" END) AS billing_last_date,
+			MAX(CASE WHEN is_treatment_payment = 1 THEN "DT Emissao" END) AS billing_last_date
 			-- Unidade for treatment payments
-			"Unidade" AS billing_unidade
+			-- "Unidade" AS billing_unidade
 		FROM billing_conditions
-		GROUP BY prontuario, "Unidade"
+		GROUP BY prontuario
 	)
 	SELECT 
 		COALESCE(t.prontuario, b.prontuario) AS prontuario,
@@ -131,8 +156,8 @@ def create_finops_summary_table(conn):
 		b.billing_first_date,
 		b.billing_last_date,
 		-- Unidade information
-		p.timeline_unidade,
-		b.billing_unidade,
+		-- p.timeline_unidade,
+		-- b.billing_unidade,
 		-- Donor flag
 		CASE WHEN d.prontuario IS NOT NULL THEN 1 ELSE 0 END AS flag_is_donor,
 		-- Flags
@@ -150,12 +175,37 @@ def create_finops_summary_table(conn):
 		     THEN 1 ELSE 0 END AS flag_less_cycles_than_payments
 	FROM timeline_summary t
 	FULL OUTER JOIN billing_summary b ON t.prontuario = b.prontuario
-	LEFT JOIN patient_primary_units p ON COALESCE(t.prontuario, b.prontuario) = p.prontuario
+	-- LEFT JOIN patient_units_mapped p ON COALESCE(t.prontuario, b.prontuario) = p.prontuario
 	LEFT JOIN donor_flags d ON COALESCE(t.prontuario, b.prontuario) = d.prontuario
+	-- WHERE 
+	-- 	-- Only include rows where timeline and billing units match, or where one side is missing
+	-- 	(p.timeline_unidade_mapped = b.billing_unidade OR p.timeline_unidade_mapped IS NULL OR b.billing_unidade IS NULL)
 	ORDER BY COALESCE(t.prontuario, b.prontuario)
 	"""
 	
 	conn.execute(create_table_query)
+	
+	# Add timeline_unidade by joining with view_pacientes and view_unidades
+	print("Adding timeline_unidade from patient data...")
+	add_unidade_query = """
+	ALTER TABLE gold.finops_summary ADD COLUMN timeline_unidade VARCHAR;
+	"""
+	conn.execute(add_unidade_query)
+	
+	# Update the timeline_unidade column with data from view_pacientes and view_unidades
+	update_unidade_query = """
+	UPDATE gold.finops_summary 
+	SET timeline_unidade = patient_units.unidade_nome
+	FROM (
+		SELECT 
+			p.codigo as prontuario,
+			u.nome as unidade_nome
+		FROM clinisys_all.silver.view_pacientes p
+		LEFT JOIN clinisys_all.silver.view_unidades u ON p.unidade_origem = u.id
+	) patient_units
+	WHERE finops_summary.prontuario = patient_units.prontuario
+	"""
+	conn.execute(update_unidade_query)
 	
 	# Verify the table was created
 	table_stats = conn.execute("""
