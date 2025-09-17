@@ -23,6 +23,13 @@ def create_finops_summary_table(conn):
 	
 	print("Creating gold.finops_summary table...")
 	
+	# Attach clinisys_all database
+	import os
+	repo_root = os.path.dirname(os.path.dirname(os.path.dirname(__file__)))
+	clinisys_db_path = os.path.join(repo_root, 'database', 'clinisys_all.duckdb')
+	conn.execute(f"ATTACH '{clinisys_db_path}' AS clinisys_all")
+	print(f"Attached clinisys_all database: {clinisys_db_path}")
+	
 	# Drop table if it exists
 	conn.execute("DROP TABLE IF EXISTS gold.finops_summary")
 	
@@ -71,9 +78,15 @@ def create_finops_summary_table(conn):
 			MIN(event_date) AS timeline_first_date,
 			MAX(event_date) AS timeline_last_date
 		FROM gold.recent_patients_timeline
-		WHERE reference_value IN ('Ciclo a Fresco FIV', 'Ciclo de Congelados')
+		WHERE reference_value IN ('Ciclo a Fresco FIV', 'Ciclo de Congelados', 'Ciclo a Fresco Vitrificação')
 			AND flag_date_estimated = FALSE
 		GROUP BY prontuario
+	),
+	-- Get donor flags from clinisys_all database
+	donor_flags AS (
+		SELECT DISTINCT prontuario_doadora as prontuario
+		FROM clinisys_all.silver.view_tratamentos
+		WHERE prontuario_doadora IS NOT NULL
 	),
 	-- Define payment conditions using Descrição Gerencial field
 	billing_conditions AS (
@@ -120,6 +133,8 @@ def create_finops_summary_table(conn):
 		-- Unidade information
 		p.timeline_unidade,
 		b.billing_unidade,
+		-- Donor flag
+		CASE WHEN d.prontuario IS NOT NULL THEN 1 ELSE 0 END AS flag_is_donor,
 		-- Flags
 		CASE WHEN (COALESCE(t.cycle_with_transfer, 0) + COALESCE(t.cycle_without_transfer, 0)) > 0 
 		     AND COALESCE(b.treatment_paid_count, 0) = 0 
@@ -136,6 +151,7 @@ def create_finops_summary_table(conn):
 	FROM timeline_summary t
 	FULL OUTER JOIN billing_summary b ON t.prontuario = b.prontuario
 	LEFT JOIN patient_primary_units p ON COALESCE(t.prontuario, b.prontuario) = p.prontuario
+	LEFT JOIN donor_flags d ON COALESCE(t.prontuario, b.prontuario) = d.prontuario
 	ORDER BY COALESCE(t.prontuario, b.prontuario)
 	"""
 	
@@ -150,7 +166,8 @@ def create_finops_summary_table(conn):
 			SUM(treatment_paid_count) as total_treatment_paid_count,
 			SUM(treatment_paid_total) as total_treatment_paid_total,
 			COUNT(CASE WHEN cycle_with_transfer > 0 OR cycle_without_transfer > 0 THEN 1 END) as patients_with_timeline,
-			COUNT(CASE WHEN treatment_paid_count > 0 THEN 1 END) as patients_with_billing
+			COUNT(CASE WHEN treatment_paid_count > 0 THEN 1 END) as patients_with_billing,
+			COUNT(CASE WHEN flag_is_donor = 1 THEN 1 END) as patients_donors
 		FROM gold.finops_summary
 	""").fetchdf()
 	
@@ -159,6 +176,7 @@ def create_finops_summary_table(conn):
 	print(f"   - Total patients: {table_stats['total_patients'].iloc[0]:,}")
 	print(f"   - Patients with timeline data: {table_stats['patients_with_timeline'].iloc[0]:,}")
 	print(f"   - Patients with billing data: {table_stats['patients_with_billing'].iloc[0]:,}")
+	print(f"   - Patients who are donors: {table_stats['patients_donors'].iloc[0]:,}")
 	print(f"   - Total FIV cycles (timeline): {table_stats['total_cycles_with_transfer'].iloc[0] + table_stats['total_cycles_without_transfer'].iloc[0]:,}")
 	print(f"   - Total treatment billing items: {table_stats['total_treatment_paid_count'].iloc[0]:,}")
 	print(f"   - Total treatment billing amount: R$ {table_stats['total_treatment_paid_total'].iloc[0]:,.2f}")
@@ -235,6 +253,7 @@ def main():
 		
 		print(f"\nSuccessfully created gold.finops_summary table with billing data")
 		print(f"Table contains {table_stats['total_patients'].iloc[0]:,} patients")
+		print(f"Patients who are donors: {table_stats['patients_donors'].iloc[0]:,}")
 		print(f"Total FIV cycles: {table_stats['total_cycles_with_transfer'].iloc[0] + table_stats['total_cycles_without_transfer'].iloc[0]:,}")
 		print(f"Total treatment billing: R$ {table_stats['total_treatment_paid_total'].iloc[0]:,.2f}")
 		
