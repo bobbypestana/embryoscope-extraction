@@ -111,6 +111,14 @@ def create_finops_summary_table(conn):
 		FROM clinisys_all.silver.view_tratamentos
 		WHERE prontuario_doadora IS NOT NULL
 	),
+	-- Get prontuario_genitores mapping for uterus substitution patients
+	utero_substituicao_mapping AS (
+		SELECT DISTINCT 
+			prontuario,
+			COALESCE(prontuario_genitores, prontuario) as prontuario_genitores
+		FROM clinisys_all.silver.view_tratamentos
+		WHERE utero_substituicao = 'Sim'
+	),
 	-- Define payment conditions using Descrição Gerencial field
 	billing_conditions AS (
 		SELECT 
@@ -128,17 +136,18 @@ def create_finops_summary_table(conn):
 	),
 	billing_summary AS (
 		SELECT
-			prontuario,
+			COALESCE(u.prontuario, b.prontuario) as prontuario,
 			-- Treatment payment totals
-			SUM(is_treatment_payment) AS treatment_paid_count,
-			SUM(CASE WHEN is_treatment_payment = 1 THEN "Total" ELSE 0 END) AS treatment_paid_total,
+			SUM(b.is_treatment_payment) AS treatment_paid_count,
+			SUM(CASE WHEN b.is_treatment_payment = 1 THEN b."Total" ELSE 0 END) AS treatment_paid_total,
 			-- Date ranges for billing
-			MIN(CASE WHEN is_treatment_payment = 1 THEN "DT Emissao" END) AS billing_first_date,
-			MAX(CASE WHEN is_treatment_payment = 1 THEN "DT Emissao" END) AS billing_last_date
+			MIN(CASE WHEN b.is_treatment_payment = 1 THEN b."DT Emissao" END) AS billing_first_date,
+			MAX(CASE WHEN b.is_treatment_payment = 1 THEN b."DT Emissao" END) AS billing_last_date
 			-- Unidade for treatment payments
 			-- "Unidade" AS billing_unidade
-		FROM billing_conditions
-		GROUP BY prontuario
+		FROM billing_conditions b
+		LEFT JOIN utero_substituicao_mapping u ON b.prontuario = u.prontuario_genitores
+		GROUP BY COALESCE(u.prontuario, b.prontuario)
 	)
 	SELECT 
 		COALESCE(t.prontuario, b.prontuario) AS prontuario,
@@ -153,6 +162,8 @@ def create_finops_summary_table(conn):
 		t.timeline_last_date,
 		b.billing_first_date,
 		b.billing_last_date,
+		-- Prontuario genitores for uterus substitution patients
+		COALESCE(u.prontuario_genitores, COALESCE(t.prontuario, b.prontuario)) AS prontuario_genitores,
 		-- Unidade information
 		-- p.timeline_unidade,
 		-- b.billing_unidade,
@@ -175,6 +186,7 @@ def create_finops_summary_table(conn):
 	FULL OUTER JOIN billing_summary b ON t.prontuario = b.prontuario
 	-- LEFT JOIN patient_units_mapped p ON COALESCE(t.prontuario, b.prontuario) = p.prontuario
 	LEFT JOIN donor_flags d ON COALESCE(t.prontuario, b.prontuario) = d.prontuario
+	LEFT JOIN utero_substituicao_mapping u ON COALESCE(t.prontuario, b.prontuario) = u.prontuario
 	-- WHERE 
 	-- 	-- Only include rows where timeline and billing units match, or where one side is missing
 	-- 	(p.timeline_unidade_mapped = b.billing_unidade OR p.timeline_unidade_mapped IS NULL OR b.billing_unidade IS NULL)
@@ -285,9 +297,11 @@ def main():
 	
 	try:
 		# Connect to database
+		print("Connecting to database...")
 		conn = get_database_connection()
 		
 		# Create the table
+		print("Creating finops summary table...")
 		table_stats = create_finops_summary_table(conn)
 		
 		# Analyze the data
@@ -307,6 +321,8 @@ def main():
 		
 	except Exception as e:
 		print(f"Error: {e}")
+		import traceback
+		traceback.print_exc()
 		raise
 	finally:
 		if 'conn' in locals():

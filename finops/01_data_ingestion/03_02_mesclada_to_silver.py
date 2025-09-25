@@ -267,35 +267,50 @@ def update_prontuario_column(con):
         {
             "name": "Paciente",
             "column": "Paciente",
+            "name_field": "Nom Paciente",
             "filter_condition": 'AND "Paciente" IS NOT NULL AND "Paciente" != \'\'',
             "numeric_filter": False
         },
         {
             "name": "Cliente", 
             "column": "Cliente",
+            "name_field": "Nome",
             "filter_condition": 'AND "Cliente" IS NOT NULL',
             "numeric_filter": False
         },
         {
             "name": "Cliente_totvs",
-            "column": "Cliente_totvs", 
+            "column": "Cliente_totvs",
+            "name_field": "Nom Paciente",  # Default to Nom Paciente, but could be made more flexible
             "filter_condition": 'AND "Cliente_totvs" IS NOT NULL AND "Cliente_totvs" != \'\' AND TRY_CAST("Cliente_totvs" AS INTEGER) IS NOT NULL',
             "numeric_filter": True
         }
     ]
     
-    # Execute each matching step
+    # First pass: Active patients only (inativo = 0)
+    logger.info("=== FIRST PASS: Active patients only (inativo = 0) ===")
     for i, step in enumerate(matching_steps, 1):
-        logger.info(f"Step {i}: Matching using {step['name']}...")
-        update_prontuario_with_column(con, step, i == len(matching_steps))
+        logger.info(f"Step {i}: Matching using {step['name']} (active patients only)...")
+        update_prontuario_with_column(con, step, i == len(matching_steps), include_inactive=False)
+    
+    # Second pass: Inactive patients only (inativo = 1) - only for unmatched records
+    logger.info("=== SECOND PASS: Inactive patients only (inativo = 1) ===")
+    for i, step in enumerate(matching_steps, 1):
+        logger.info(f"Step {i}: Matching using {step['name']} (inactive patients only)...")
+        update_prontuario_with_column(con, step, i == len(matching_steps), include_inactive=True)
 
-def update_prontuario_with_column(con, step_config, is_final_step=False):
+def update_prontuario_with_column(con, step_config, is_final_step=False, include_inactive=False):
     """Update prontuario column using parameterized matching logic"""
     column_name = step_config["name"]
     column_field = step_config["column"]
+    name_field = step_config["name_field"]
     filter_condition = step_config["filter_condition"]
     
-    logger.info(f"Running {column_name}-based matching logic...")
+    # Determine inactive filter condition
+    inactive_condition = "inativo = 1" if include_inactive else "inativo = 0"
+    
+    patient_type = "inactive" if include_inactive else "active"
+    logger.info(f"Running {column_name}-based matching logic ({patient_type} patients)...")
     
     # Generate match type prefix
     match_type_prefix = column_name.lower().replace('_', '_')
@@ -343,7 +358,7 @@ def update_prontuario_with_column(con, step_config, is_final_step=False):
     		strip_accents(LOWER(TRIM(SPLIT_PART(marido_nome, ' ', 1)))) as marido_nome,
             unidade_origem
         FROM clinisys_all.silver.view_pacientes
-        where inativo = 0
+        where {inactive_condition}
     ),
 
     -- CTE 2: {column_name} ↔ prontuario (main/codigo)
@@ -583,7 +598,8 @@ def update_prontuario_with_column(con, step_config, is_final_step=False):
     FROM best_matches bm 
     WHERE silver.mesclada_vendas."{column_field}" = bm.{column_field}
         AND silver.mesclada_vendas.prontuario = -1
-        AND strip_accents(TRIM(LOWER(SPLIT_PART(silver.mesclada_vendas."Nome", ' ', 1)))) = bm.nome_first
+        AND (strip_accents(TRIM(LOWER(SPLIT_PART(silver.mesclada_vendas."{name_field}", ' ', 1)))) = bm.nome_first
+        OR strip_accents(TRIM(LOWER(SPLIT_PART(silver.mesclada_vendas."{name_field}", ' ', 1)))) = bm.nom_paciente_first)
     """
     
     try:
