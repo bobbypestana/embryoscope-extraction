@@ -323,11 +323,11 @@ def update_prontuario_with_column(con, step_config, is_final_step=False, include
         SELECT DISTINCT 
             "{column_field}" as {column_field}, 
             CASE 
-                WHEN "Nome" IS NOT NULL THEN strip_accents(TRIM(LOWER(SPLIT_PART("Nome", ' ', 1))))
+                WHEN "Nome" IS NOT NULL THEN strip_accents(LOWER(SPLIT_PART(TRIM("Nome"), ' ', 1)))
                 ELSE NULL 
             END as nome_first,
             CASE 
-                WHEN "Nom Paciente" IS NOT NULL THEN strip_accents(TRIM(LOWER(SPLIT_PART("Nom Paciente", ' ', 1))))
+                WHEN "Nom Paciente" IS NOT NULL THEN strip_accents(LOWER(SPLIT_PART(TRIM("Nom Paciente"), ' ', 1)))
                 ELSE NULL 
             END as nom_paciente_first
         FROM silver.mesclada_vendas
@@ -354,8 +354,8 @@ def update_prontuario_with_column(con, step_config, is_final_step=False, include
             prontuario_marido_fc,
             prontuario_esposa_ba,
             prontuario_marido_ba,
-            strip_accents(LOWER(TRIM(SPLIT_PART(esposa_nome, ' ', 1)))) as esposa_nome,
-    		strip_accents(LOWER(TRIM(SPLIT_PART(marido_nome, ' ', 1)))) as marido_nome,
+            strip_accents(LOWER(SPLIT_PART(TRIM(esposa_nome), ' ', 1))) as esposa_nome,
+    		strip_accents(LOWER(SPLIT_PART(TRIM(marido_nome), ' ', 1))) as marido_nome,
             unidade_origem
         FROM clinisys_all.silver.view_pacientes
         where {inactive_condition}

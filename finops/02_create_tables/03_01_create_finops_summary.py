@@ -107,9 +107,17 @@ def create_finops_summary_table(conn):
 	),
 	-- Get donor flags from clinisys_all database
 	donor_flags AS (
+		-- Get patients who are embryo donors (prontuario_doadora)
 		SELECT DISTINCT prontuario_doadora as prontuario
 		FROM clinisys_all.silver.view_tratamentos
 		WHERE prontuario_doadora IS NOT NULL
+		
+		UNION
+		
+		-- Get patients who are egg donors (doacao_ovulos = 'Sim')
+		SELECT DISTINCT prontuario
+		FROM clinisys_all.silver.view_tratamentos
+		WHERE doacao_ovulos = 'Sim'
 	),
 	-- Get prontuario_genitores mapping for uterus substitution patients
 	utero_substituicao_mapping AS (
@@ -118,6 +126,23 @@ def create_finops_summary_table(conn):
 			COALESCE(prontuario_genitores, prontuario) as prontuario_genitores
 		FROM clinisys_all.silver.view_tratamentos
 		WHERE utero_substituicao = 'Sim'
+	),
+	-- Get medico names by joining responsavel_informacoes with view_medicos
+	-- Use the most recent doctor for each patient to avoid duplicates
+	medico_mapping AS (
+		SELECT 
+			prontuario,
+			COALESCE(m.nome, 'Não informado') as medico_nome
+		FROM (
+			SELECT 
+				prontuario,
+				responsavel_informacoes,
+				ROW_NUMBER() OVER (PARTITION BY prontuario ORDER BY id DESC) as rn
+			FROM clinisys_all.silver.view_tratamentos
+			WHERE responsavel_informacoes IS NOT NULL
+		) latest_treatment
+		LEFT JOIN clinisys_all.silver.view_medicos m ON latest_treatment.responsavel_informacoes = m.id
+		WHERE latest_treatment.rn = 1
 	),
 	-- Define payment conditions using Descrição Gerencial field
 	billing_conditions AS (
@@ -164,6 +189,8 @@ def create_finops_summary_table(conn):
 		b.billing_last_date,
 		-- Prontuario genitores for uterus substitution patients
 		COALESCE(u.prontuario_genitores, COALESCE(t.prontuario, b.prontuario)) AS prontuario_genitores,
+		-- Medico information
+		med.medico_nome,
 		-- Unidade information
 		-- p.timeline_unidade,
 		-- b.billing_unidade,
@@ -187,6 +214,7 @@ def create_finops_summary_table(conn):
 	-- LEFT JOIN patient_units_mapped p ON COALESCE(t.prontuario, b.prontuario) = p.prontuario
 	LEFT JOIN donor_flags d ON COALESCE(t.prontuario, b.prontuario) = d.prontuario
 	LEFT JOIN utero_substituicao_mapping u ON COALESCE(t.prontuario, b.prontuario) = u.prontuario
+	LEFT JOIN medico_mapping med ON COALESCE(t.prontuario, b.prontuario) = med.prontuario
 	-- WHERE 
 	-- 	-- Only include rows where timeline and billing units match, or where one side is missing
 	-- 	(p.timeline_unidade_mapped = b.billing_unidade OR p.timeline_unidade_mapped IS NULL OR b.billing_unidade IS NULL)
