@@ -32,7 +32,7 @@ logger = logging.getLogger(__name__)
 # Configuration
 DUCKDB_PATH = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), 'database', 'huntington_data_lake.duckdb')
 DATA_INPUT_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'data_input', 'mesclada')
-SHEET_NAME = 'BD HT'
+SHEET_NAME = 'Sheet1'
 TABLE_NAME = 'mesclada_vendas'
 
 def get_duckdb_connection():
