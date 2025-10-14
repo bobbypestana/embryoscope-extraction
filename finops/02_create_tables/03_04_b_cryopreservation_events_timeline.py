@@ -249,8 +249,76 @@ def analyze_cryopreservation_timeline_data(conn):
     print(f"\nMonthly Activity Summary (Last 12 months, aggregated):")
     print(monthly_summary.to_string(index=False))
 
+def create_resumed_cryopreservation_events_timeline_table(conn):
+    """Create the gold.resumed_cryopreservation_events_timeline table with only the most recent record per patient"""
+    
+    print("\nCreating gold.resumed_cryopreservation_events_timeline table...")
+    
+    # Drop table if it exists
+    conn.execute("DROP TABLE IF EXISTS gold.resumed_cryopreservation_events_timeline")
+    
+    # Create the resumed table with only the latest record per patient
+    create_table_query = """
+    CREATE TABLE gold.resumed_cryopreservation_events_timeline AS
+    WITH latest_records AS (
+        SELECT 
+            prontuario,
+            MAX(period_month) as latest_month
+        FROM gold.cryopreservation_events_timeline
+        GROUP BY prontuario
+    )
+    SELECT 
+        ct.*
+    FROM gold.cryopreservation_events_timeline ct
+    INNER JOIN latest_records lr ON ct.prontuario = lr.prontuario AND ct.period_month = lr.latest_month
+    ORDER BY ct.prontuario
+    """
+    
+    conn.execute(create_table_query)
+    
+    # Get statistics
+    table_stats = conn.execute("""
+        SELECT 
+            COUNT(*) as total_records,
+            COUNT(DISTINCT prontuario) as unique_patients,
+            MIN(period_month) as earliest_month,
+            MAX(period_month) as latest_month,
+            SUM(cumulative_freezing_events) as total_cumulative_freezing_events,
+            SUM(cumulative_billing_events) as total_cumulative_billing_events,
+            SUM(cumulative_billing_amount) as total_cumulative_billing_amount,
+            MAX(events_missing_payment) as max_events_missing_payment,
+            MIN(events_missing_payment) as min_events_missing_payment,
+            AVG(events_missing_payment) as avg_events_missing_payment
+        FROM gold.resumed_cryopreservation_events_timeline
+    """).fetchdf()
+    
+    print("Resumed table created successfully.")
+    print("Resumed Table Statistics:")
+    print(f"   - Total records (one per patient): {table_stats['total_records'].iloc[0]:,}")
+    print(f"   - Unique patients: {table_stats['unique_patients'].iloc[0]:,}")
+    print(f"   - Period range: {table_stats['earliest_month'].iloc[0]} to {table_stats['latest_month'].iloc[0]}")
+    print(f"   - Total cumulative freezing events: {table_stats['total_cumulative_freezing_events'].iloc[0]:,.0f}")
+    print(f"   - Total cumulative billing events: {table_stats['total_cumulative_billing_events'].iloc[0]:,.0f} (includes assumed historical)")
+    print(f"   - Total cumulative billing amount: R$ {table_stats['total_cumulative_billing_amount'].iloc[0]:,.2f}")
+    print(f"   - Max events missing payment: {table_stats['max_events_missing_payment'].iloc[0]:,.0f}")
+    print(f"   - Min events missing payment: {table_stats['min_events_missing_payment'].iloc[0]:,.0f}")
+    print(f"   - Avg events missing payment: {table_stats['avg_events_missing_payment'].iloc[0]:,.2f}")
+    
+    # Show sample data
+    sample_data = conn.execute("""
+        SELECT *
+        FROM gold.resumed_cryopreservation_events_timeline
+        ORDER BY events_missing_payment DESC
+        LIMIT 10
+    """).fetchdf()
+    
+    print(f"\nSample Data (Top 10 patients by events_missing_payment):")
+    print(sample_data.to_string(index=False))
+    
+    return table_stats
+
 def main():
-    print("=== CREATING CRYOPRESERVATION EVENTS TIMELINE TABLE ===")
+    print("=== CREATING CRYOPRESERVATION EVENTS TIMELINE TABLES ===")
     print(f'Timestamp: {datetime.now()}')
     
     conn = get_database_connection()
@@ -262,7 +330,10 @@ def main():
         # Analyze the data
         analyze_cryopreservation_timeline_data(conn)
         
-        print("\n=== CRYOPRESERVATION EVENTS TIMELINE TABLE COMPLETED ===")
+        # Create the resumed table (most recent record per patient)
+        resumed_stats = create_resumed_cryopreservation_events_timeline_table(conn)
+        
+        print("\n=== CRYOPRESERVATION EVENTS TIMELINE TABLES COMPLETED ===")
         
     except Exception as e:
         print(f"Error: {e}")

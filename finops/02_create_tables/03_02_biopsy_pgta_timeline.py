@@ -37,7 +37,7 @@ def create_biopsy_pgta_timeline_table(conn):
     CREATE TABLE gold.biopsy_pgta_timeline AS
     WITH
     -- Get biopsy data by month and prontuario
-    -- Count distinct id where PDG = SIM in view_micromanipulacao_oocitos
+    -- Count distinct id where PGD = 'Sim' in view_micromanipulacao_oocitos
     biopsy_events AS (
         SELECT 
             m.prontuario,
@@ -49,12 +49,12 @@ def create_biopsy_pgta_timeline_table(conn):
         WHERE m.prontuario IS NOT NULL 
             AND m.Data_DL IS NOT NULL
             AND CAST(m.Data_DL AS VARCHAR)::DATE <= CURRENT_DATE
-            AND o.PGD is NOT NULL
+            AND o.PGD = 'Sim'
         GROUP BY m.prontuario, STRFTIME(CAST(m.Data_DL AS VARCHAR)::DATE, '%Y-%m')
     ),
     
     -- Get PGT-A test data by month and prontuario
-    -- Count where IdentificacaoPGD = PGT-A
+    -- Count where IdentificacaoPGD LIKE 'PGT%'
     pgta_events AS (
         SELECT 
             m.prontuario,
@@ -66,7 +66,9 @@ def create_biopsy_pgta_timeline_table(conn):
         WHERE m.prontuario IS NOT NULL 
             AND m.Data_DL IS NOT NULL
             AND CAST(m.Data_DL AS VARCHAR)::DATE <= CURRENT_DATE
-            AND o.IdentificacaoPGD = 'PGT-A'
+            AND o.IdentificacaoPGD LIKE 'PGT%'
+            AND o.ResultadoPGD IS NOT NULL
+            AND o.ResultadoPGD NOT IN ('Não analisado', 'Sem leitura', 'Não detectado')
         GROUP BY m.prontuario, STRFTIME(CAST(m.Data_DL AS VARCHAR)::DATE, '%Y-%m')
     ),
     
@@ -259,7 +261,7 @@ def create_billing_timeline_table(conn):
             AND prontuario != -1
             AND "DT Emissao" IS NOT NULL
             AND "DT Emissao" <= CURRENT_DATE
-            AND "Descrição Gerencial" = 'PGT-A'
+            AND "Descrição Gerencial" LIKE '%PGT-%'
         GROUP BY prontuario, STRFTIME("DT Emissao", '%Y-%m')
     ),
     

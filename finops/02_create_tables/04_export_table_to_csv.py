@@ -12,15 +12,7 @@ from datetime import datetime
 import argparse
 import logging
 
-# Setup logging
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(levelname)s - %(message)s',
-    handlers=[
-        logging.FileHandler(f'logs/export_table_to_csv_{datetime.now().strftime("%Y%m%d_%H%M%S")}.log'),
-        logging.StreamHandler()
-    ]
-)
+# Setup logging - will be configured in main() after creating logs directory
 logger = logging.getLogger(__name__)
 
 def get_database_path():
@@ -68,7 +60,7 @@ def list_available_tables():
     except Exception as e:
         logger.error(f"Error connecting to database: {e}")
 
-def export_table_to_csv(schema, table_name, output_filename=None):
+def export_table_to_csv(schema, table_name, output_filename=None, prefix=None):
     """
     Export a table from DuckDB to CSV.
     
@@ -76,6 +68,7 @@ def export_table_to_csv(schema, table_name, output_filename=None):
         schema (str): Database schema name
         table_name (str): Table name
         output_filename (str, optional): Output filename. If None, will use schema_table_timestamp.csv
+        prefix (str, optional): Prefix to add to the filename (e.g., "01_", "02_")
     """
     db_path = get_database_path()
     
@@ -92,11 +85,19 @@ def export_table_to_csv(schema, table_name, output_filename=None):
     
     # Generate output filename if not provided
     if output_filename is None:
-        output_filename = f"{schema}_{table_name}.csv"
+        base_filename = f"{schema}_{table_name}.csv"
+    else:
+        base_filename = output_filename
     
     # Ensure .csv extension
-    if not output_filename.endswith('.csv'):
-        output_filename += '.csv'
+    if not base_filename.endswith('.csv'):
+        base_filename += '.csv'
+    
+    # Add prefix if provided
+    if prefix:
+        output_filename = f"{prefix}{base_filename}"
+    else:
+        output_filename = base_filename
     
     output_path = os.path.join(output_dir, output_filename)
     
@@ -152,17 +153,28 @@ def export_table_to_csv(schema, table_name, output_filename=None):
         return False
 
 def main():
+    # Create logs directory if it doesn't exist
+    logs_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'logs')
+    os.makedirs(logs_dir, exist_ok=True)
+    
+    # Setup logging after creating logs directory
+    logging.basicConfig(
+        level=logging.INFO,
+        format='%(asctime)s - %(levelname)s - %(message)s',
+        handlers=[
+            logging.FileHandler(os.path.join(logs_dir, f'export_table_to_csv_{datetime.now().strftime("%Y%m%d_%H%M%S")}.log')),
+            logging.StreamHandler()
+        ]
+    )
+    
     parser = argparse.ArgumentParser(description='Export tables from DuckDB to CSV')
     parser.add_argument('--list', action='store_true', help='List all available schemas and tables')
     parser.add_argument('--schema', type=str, help='Schema name')
     parser.add_argument('--table', type=str, help='Table name')
     parser.add_argument('--output', type=str, help='Output filename (optional)')
+    parser.add_argument('--prefix', type=str, help='Prefix for output filename (e.g., "01_", "02_")')
     
     args = parser.parse_args()
-    
-    # Create logs directory if it doesn't exist
-    logs_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'logs')
-    os.makedirs(logs_dir, exist_ok=True)
     
     if args.list:
         list_available_tables()
@@ -173,7 +185,7 @@ def main():
         parser.print_help()
         return
     
-    success = export_table_to_csv(args.schema, args.table, args.output)
+    success = export_table_to_csv(args.schema, args.table, args.output, args.prefix)
     
     if success:
         logger.info("Export completed successfully!")

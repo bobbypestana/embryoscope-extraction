@@ -1,0 +1,131 @@
+=== COMPLETE LIST OF CONSULTATION PROCEDURES ===
+Total distinct procedures: 125
+Total appointments: 93,950
+Total unique patients: 65,487
+
+  1. 1ª Consulta de Reprodução Humana                             | Count: 13,058 | Patients: 10,375 | First: 2024-02-05 00:00:00 | Last: 2025-10-08 00:00:00
+  2. 1ª Consulta Infertilidade ***                                | Count: 10,426 | Patients: 6,790 | First: 2020-03-19 00:00:00 | Last: 2024-03-25 00:00:00
+  3. Consulta Infertilidade ***                                   | Count:  7,790 | Patients: 3,691 | First: 2020-06-29 00:00:00 | Last: 2024-06-04 00:00:00
+  4. Consulta de Reprodução Humana                                | Count:  7,184 | Patients: 4,399 | First: 2024-01-11 00:00:00 | Last: 2025-10-08 00:00:00
+  5. Consulta Psicologia ***                                      | Count:  5,182 | Patients: 2,042 | First: 2020-06-29 00:00:00 | Last: 2025-02-04 00:00:00
+  6. Consulta Reprodução Humana ***                               | Count:  2,392 | Patients: 1,759 | First: 2022-06-18 00:00:00 | Last: 2025-08-29 00:00:00
+  7. Consulta Pré Anestésica                                      | Count:  2,383 | Patients: 1,916 | First: 2024-02-06 00:00:00 | Last: 2025-10-07 00:00:00
+  8. 1ª Consulta Psicologia ***                                   | Count:  2,328 | Patients: 2,087 | First: 2020-06-26 00:00:00 | Last: 2025-03-31 00:00:00
+  9. Consulta DOE: Receptora                                      | Count:  2,302 | Patients: 1,113 | First: 2024-02-06 00:00:00 | Last: 2025-10-06 00:00:00
+ 10. Consulta de Reavaliação de Ciclo                             | Count:  2,271 | Patients: 1,589 | First: 2023-11-29 00:00:00 | Last: 2025-10-07 00:00:00
+ 11. 1ª Consulta Psicologia                                       | Count:  2,250 | Patients: 1,743 | First: 2024-02-05 00:00:00 | Last: 2025-10-03 00:00:00
+ 12. 1ª Consulta Infertilidade ON LINE ***                        | Count:  1,844 | Patients: 1,432 | First: 2020-07-06 00:00:00 | Last: 2024-03-20 00:00:00
+ 13. Consulta infertilidade ON LINE ***                           | Count:  1,738 | Patients: 1,064 | First: 2020-06-29 00:00:00 | Last: 2024-03-05 00:00:00
+ 14. Consulta Avaliação Anestésica ON LINE ***                    | Count:  1,625 | Patients: 1,394 | First: 2020-07-02 00:00:00 | Last: 2024-02-15 00:00:00
+ 15. Consulta Psicologia                                          | Count:  1,584 | Patients: 1,031 | First: 2024-02-05 00:00:00 | Last: 2025-10-02 00:00:00
+ 16. Consulta por Telemedicina terceira Via ***                   | Count:  1,498 | Patients:   735 | First: 2022-06-13 00:00:00 | Last: 2024-02-06 00:00:00
+ 17. 1ª Consulta Reprodução Humana - IB ***                       | Count:  1,461 | Patients: 1,281 | First: 2022-06-13 00:00:00 | Last: 2025-05-16 00:00:00
+ 18. Consulta DOE: Doadora                                        | Count:  1,360 | Patients:   987 | First: 2024-02-06 00:00:00 | Last: 2025-10-01 00:00:00
+ 19. 1ª Consulta Preservação da Fertilidade ***                   | Count:  1,181 | Patients:   910 | First: 2020-07-07 00:00:00 | Last: 2024-03-21 00:00:00
+ 20. Consulta Ginecologia                                         | Count:  1,174 | Patients:   752 | First: 2024-01-16 00:00:00 | Last: 2025-10-08 00:00:00
+ 21. Retorno da 1ª Consulta de Reprodução Humana ***              | Count:  1,071 | Patients:   980 | First: 2022-06-20 00:00:00 | Last: 2025-08-12 00:00:00
+ 22. Consulta via Telemedicina de Reavaliação de Ciclo ***        | Count:  1,022 | Patients:   753 | First: 2022-06-10 00:00:00 | Last: 2024-02-27 00:00:00
+ 23. Consulta por Telemedicina de Reprodução Humana ***           | Count:    983 | Patients:   774 | First: 2022-06-15 00:00:00 | Last: 2024-03-19 00:00:00
+ 24. Consulta de Reavaliação de Ciclo ***                         | Count:    893 | Patients:   686 | First: 2022-06-14 00:00:00 | Last: 2025-05-21 00:00:00
+ 25. 1ª Consulta de Reprodução Humana Telemedicina - IB ***       | Count:    884 | Patients:   805 | First: 2022-06-15 00:00:00 | Last: 2025-06-04 00:00:00
+ 26. Consulta Enfermagem                                          | Count:    850 | Patients:   728 | First: 2024-02-02 00:00:00 | Last: 2025-09-29 00:00:00
+ 27. 1ª Consulta Reprodução Humana - SJ ***                       | Count:    839 | Patients:   651 | First: 2022-06-14 00:00:00 | Last: 2024-04-16 00:00:00
+ 28. Consulta Avaliação Anestésica ***                            | Count:    781 | Patients:   683 | First: 2020-07-03 00:00:00 | Last: 2025-08-29 00:00:00
+ 29. 1ª Consulta Reprodução Humana - BR ***                       | Count:    744 | Patients:   592 | First: 2022-06-20 00:00:00 | Last: 2024-08-09 00:00:00
+ 30. 1ª Consulta Urologia                                         | Count:    629 | Patients:   553 | First: 2024-02-22 00:00:00 | Last: 2025-10-06 00:00:00
+ 31. Consulta Ginecológica ***                                    | Count:    621 | Patients:   390 | First: 2022-06-15 00:00:00 | Last: 2024-03-23 00:00:00
+ 32. 1ª Consulta Reprodução Humana - CENAFERT ***                 | Count:    574 | Patients:   496 | First: 2022-09-27 00:00:00 | Last: 2024-04-01 00:00:00
+ 33. 1ª Consulta Ginecologia                                      | Count:    557 | Patients:   498 | First: 2024-02-10 00:00:00 | Last: 2025-10-07 00:00:00
+ 34. Consulta Pré Anestesica ***                                  | Count:    555 | Patients:   512 | First: 2022-06-14 00:00:00 | Last: 2025-07-18 00:00:00
+ 35. 1ª Consulta Preservação da Fertilidade                       | Count:    508 | Patients:   461 | First: 2024-02-07 00:00:00 | Last: 2025-10-07 00:00:00
+ 36. 1ª Consulta Reprodução Humana - VM ***                       | Count:    468 | Patients:   391 | First: 2022-06-20 00:00:00 | Last: 2024-03-18 00:00:00
+ 37. 1ª Consulta Psicologia ON LINE ***                           | Count:    467 | Patients:   427 | First: 2020-07-13 00:00:00 | Last: 2024-09-02 00:00:00
+ 38. Consulta Obstétrica ***                                      | Count:    426 | Patients:   143 | First: 2022-06-13 00:00:00 | Last: 2024-03-13 00:00:00
+ 39. Consulta Nutricional via Telemedicina ***                    | Count:    424 | Patients:   224 | First: 2022-06-20 00:00:00 | Last: 2024-03-01 00:00:00
+ 40. Consulta Infertilidade Convênio ***                          | Count:    422 | Patients:   246 | First: 2022-07-25 00:00:00 | Last: 2023-09-06 00:00:00
+ 41. 1ª Consulta Reprodução Humana - CP ***                       | Count:    418 | Patients:   342 | First: 2022-06-20 00:00:00 | Last: 2024-03-12 00:00:00
+ 42. Consulta de Enfermagem ***                                   | Count:    401 | Patients:   323 | First: 2020-07-02 00:00:00 | Last: 2024-01-31 00:00:00
+ 43. Consulta de Acompanhamento Psicológico ***                   | Count:    383 | Patients:   209 | First: 2022-09-08 00:00:00 | Last: 2025-09-12 00:00:00
+ 44. Consulta Obstétrica                                          | Count:    363 | Patients:    93 | First: 2024-02-07 00:00:00 | Last: 2025-10-08 00:00:00
+ 45. Consulta Receptora ***                                       | Count:    346 | Patients:   272 | First: 2022-08-01 00:00:00 | Last: 2025-09-09 00:00:00
+ 46. Consulta Psicologia online ***                               | Count:    341 | Patients:   270 | First: 2020-07-08 00:00:00 | Last: 2024-02-05 00:00:00
+ 47. 1ª Consulta Ginecologia ***                                  | Count:    341 | Patients:   309 | First: 2022-06-25 00:00:00 | Last: 2024-03-19 00:00:00
+ 48. Consulta histeroscopia ***                                   | Count:    332 | Patients:   270 | First: 2020-07-09 00:00:00 | Last: 2024-02-20 00:00:00
+ 49. Consulta Enfermagem ***                                      | Count:    309 | Patients:   254 | First: 2022-06-13 00:00:00 | Last: 2024-02-01 00:00:00
+ 50. 1ª Consulta Genética                                         | Count:    303 | Patients:   264 | First: 2024-02-08 00:00:00 | Last: 2025-10-04 00:00:00
+ 51. 1ª Consulta Reprodução Humana - INSEMINA ***                 | Count:    283 | Patients:   270 | First: 2022-09-27 00:00:00 | Last: 2024-02-26 00:00:00
+ 52. 1ª Consulta Ginecológica - Unimed ***                        | Count:    270 | Patients:   238 | First: 2022-08-30 00:00:00 | Last: 2024-02-01 00:00:00
+ 53. 1ª Consulta Nutricionista                                    | Count:    269 | Patients:   204 | First: 2024-02-07 00:00:00 | Last: 2025-10-07 00:00:00
+ 54. 1ª Consulta Urológica ***                                    | Count:    256 | Patients:   219 | First: 2022-07-14 00:00:00 | Last: 2025-07-10 00:00:00
+ 55. Consulta Histeroscopia                                       | Count:    239 | Patients:   206 | First: 2024-02-08 00:00:00 | Last: 2025-10-08 00:00:00
+ 56. 1ª Consulta de Reprodução Humana Telemedicina - SJ ***       | Count:    227 | Patients:   209 | First: 2022-07-04 00:00:00 | Last: 2024-03-05 00:00:00
+ 57. Consulta de Alta                                             | Count:    217 | Patients:   195 | First: 2022-06-29 00:00:00 | Last: 2025-09-30 00:00:00
+ 58. 1ª Consulta de Reprodução Humana Telemedicina - VM ***       | Count:    210 | Patients:   190 | First: 2022-06-13 00:00:00 | Last: 2024-03-21 00:00:00
+ 59. Consulta doadora ***                                         | Count:    204 | Patients:   139 | First: 2020-07-14 00:00:00 | Last: 2024-02-22 00:00:00
+ 60. 1ª Consulta Preservação da Fertilidade ON LINE ***           | Count:    195 | Patients:   168 | First: 2020-06-30 00:00:00 | Last: 2024-02-06 00:00:00
+ 61. Consulta para Apoio Psicológico ***                          | Count:    191 | Patients:   162 | First: 2022-06-24 00:00:00 | Last: 2025-09-08 00:00:00
+ 62. 1ª Consulta Infertilidade Convênio ***                       | Count:    187 | Patients:   182 | First: 2022-07-25 00:00:00 | Last: 2024-10-16 00:00:00
+ 63. Consulta Ginecológica - UNIMED ***                           | Count:    168 | Patients:   112 | First: 2022-07-01 00:00:00 | Last: 2024-03-06 00:00:00
+ 64. 1ª Consulta avaliação genética ***                           | Count:    163 | Patients:   129 | First: 2020-08-31 00:00:00 | Last: 2024-03-14 00:00:00
+ 65. Consulta histeroscopia ON LINE ***                           | Count:    153 | Patients:   135 | First: 2020-07-09 00:00:00 | Last: 2024-02-01 00:00:00
+ 66. Consulta Urologia                                            | Count:    152 | Patients:   127 | First: 2024-02-08 00:00:00 | Last: 2025-10-04 00:00:00
+ 67. 1ª Consulta Urológica por Telemedicina ***                   | Count:    149 | Patients:   126 | First: 2022-07-19 00:00:00 | Last: 2024-02-22 00:00:00
+ 68. Consulta Urológica ***                                       | Count:    142 | Patients:   123 | First: 2022-06-23 00:00:00 | Last: 2025-04-24 00:00:00
+ 69. Consulta Nutricionista                                       | Count:    136 | Patients:    76 | First: 2024-02-21 00:00:00 | Last: 2025-09-30 00:00:00
+ 70. Consulta doadora ON LINE ***                                 | Count:    117 | Patients:   101 | First: 2020-07-01 00:00:00 | Last: 2024-01-19 00:00:00
+ 71. 1ª Consulta de Reprodução Humana Telemedicina - BR ***       | Count:    106 | Patients:    97 | First: 2022-07-05 00:00:00 | Last: 2024-10-09 00:00:00
+ 72. Consulta Enfermagem online ***                               | Count:    105 | Patients:    93 | First: 2021-02-01 00:00:00 | Last: 2024-02-08 00:00:00
+ 73. 1ª Consulta avaliação genética online ***                    | Count:     97 | Patients:    84 | First: 2020-10-05 00:00:00 | Last: 2024-02-02 00:00:00
+ 74. 1ª Consulta de Reprodução Humana Telemedicina - CP ***       | Count:     84 | Patients:    80 | First: 2022-06-28 00:00:00 | Last: 2024-02-21 00:00:00
+ 75. Consulta Reprodução Humana - Unimed ***                      | Count:     77 | Patients:    56 | First: 2022-06-25 00:00:00 | Last: 2024-02-28 00:00:00
+ 76. Consulta Pré-Natal ***                                       | Count:     74 | Patients:    31 | First: 2022-07-20 00:00:00 | Last: 2024-01-10 00:00:00
+ 77. 1ª Consulta de Reprodução Humana Telemedicina - CN ***       | Count:     72 | Patients:    66 | First: 2023-05-05 00:00:00 | Last: 2024-04-08 00:00:00
+ 78. Consulta Preservação da Fertilidade                          | Count:     71 | Patients:    65 | First: 2024-03-01 00:00:00 | Last: 2025-10-02 00:00:00
+ 79. Consulta DOE  ***                                            | Count:     70 | Patients:    60 | First: 2022-06-30 00:00:00 | Last: 2025-09-03 00:00:00
+ 80. Consulta Pós-operatória ***                                  | Count:     64 | Patients:    47 | First: 2022-06-30 00:00:00 | Last: 2024-01-22 00:00:00
+ 81. Consulta por Telemedicina Urológica ***                      | Count:     57 | Patients:    49 | First: 2022-07-25 00:00:00 | Last: 2024-03-08 00:00:00
+ 82. 1ª Consulta de Reprodução Humana Telemedicina - IN ***       | Count:     57 | Patients:    49 | First: 2022-09-28 00:00:00 | Last: 2024-02-21 00:00:00
+ 83. Consulta Via Telemedicina avaliação OD ***                   | Count:     54 | Patients:    44 | First: 2022-10-31 00:00:00 | Last: 2024-02-01 00:00:00
+ 84. Consulta Projeto Realizar 15º ***                            | Count:     53 | Patients:    40 | First: 2022-09-05 00:00:00 | Last: 2023-04-05 00:00:00
+ 85. Consulta Genética                                            | Count:     51 | Patients:    44 | First: 2024-02-08 00:00:00 | Last: 2025-10-04 00:00:00
+ 86. Consulta Preservação da Fertilidade ***                      | Count:     49 | Patients:    42 | First: 2020-07-10 00:00:00 | Last: 2024-01-17 00:00:00
+ 87. Consulta Nutricional ***                                     | Count:     38 | Patients:    31 | First: 2022-06-15 00:00:00 | Last: 2024-02-06 00:00:00
+ 88. Consulta para Apoio Psicológico por Telemedicina ***         | Count:     37 | Patients:    34 | First: 2022-06-24 00:00:00 | Last: 2025-06-18 00:00:00
+ 89. Consulta Pós-operatória                                      | Count:     36 | Patients:    31 | First: 2024-02-15 00:00:00 | Last: 2025-09-25 00:00:00
+ 90. 1ª Consulta Obstétrica ***                                   | Count:     35 | Patients:    34 | First: 2022-07-19 00:00:00 | Last: 2024-01-24 00:00:00
+ 91. 1ª Consulta para Doação Compartilhada (TTO X OD) ***         | Count:     29 | Patients:    25 | First: 2022-08-17 00:00:00 | Last: 2023-11-29 00:00:00
+ 92. 1ª Consulta Obstétrica                                       | Count:     28 | Patients:    27 | First: 2024-04-11 00:00:00 | Last: 2025-09-17 00:00:00
+ 93. Consulta Pré-operatória                                      | Count:     27 | Patients:    25 | First: 2024-03-01 00:00:00 | Last: 2025-09-24 00:00:00
+ 94. Consulta de alta por Telemedicina ***                        | Count:     27 | Patients:    27 | First: 2022-07-01 00:00:00 | Last: 2024-02-01 00:00:00
+ 95. Consulta por Telemedicina ginecológica ***                   | Count:     26 | Patients:    23 | First: 2022-06-14 00:00:00 | Last: 2024-02-05 00:00:00
+ 96. Consulta Pré-operatória ***                                  | Count:     26 | Patients:    23 | First: 2022-08-09 00:00:00 | Last: 2024-02-23 00:00:00
+ 97. Consulta Via Telemedicina ***                                | Count:     21 | Patients:    21 | First: 2022-06-22 00:00:00 | Last: 2025-04-09 00:00:00
+ 98. Consulta Infectologista ***                                  | Count:     20 | Patients:    17 | First: 2022-07-07 00:00:00 | Last: 2023-10-11 00:00:00
+ 99. Consulta Infectologista                                      | Count:     20 | Patients:    17 | First: 2024-02-22 00:00:00 | Last: 2025-09-04 00:00:00
+100. 1ª Consulta Reprodução Humana - ALPHAVILLE ***               | Count:     16 | Patients:    14 | First: 2023-08-01 00:00:00 | Last: 2024-02-01 00:00:00
+101. Consulta Pré-Operatória por Telemedicina ***                 | Count:     16 | Patients:    16 | First: 2022-08-01 00:00:00 | Last: 2024-01-11 00:00:00
+102. Consulta Ginecológica por telemedicina ***                   | Count:     16 | Patients:    14 | First: 2023-06-14 00:00:00 | Last: 2024-01-19 00:00:00
+103. 1ª Consulta Doação Compartilhada por Telemedicina ***        | Count:     15 | Patients:    15 | First: 2022-06-29 00:00:00 | Last: 2023-11-21 00:00:00
+104. Consulta ginecologia ***                                     | Count:     15 | Patients:    14 | First: 2022-03-08 00:00:00 | Last: 2024-01-16 00:00:00
+105. Consulta avaliação genética online ***                       | Count:     14 | Patients:    14 | First: 2022-01-20 00:00:00 | Last: 2023-09-21 00:00:00
+106. Consulta de preservação da fertilidade ***                   | Count:     14 | Patients:    14 | First: 2022-06-24 00:00:00 | Last: 2025-01-08 00:00:00
+107. 1ª Consulta de Reprodução Humana Telemedicina - AL ***       | Count:     13 | Patients:    12 | First: 2023-08-04 00:00:00 | Last: 2024-02-06 00:00:00
+108. Consulta Preservação da Fertilidade online ***               | Count:     13 | Patients:    11 | First: 2020-07-30 00:00:00 | Last: 2022-12-07 00:00:00
+109. Consulta Via Telemedicina obstétrica ***                     | Count:     12 | Patients:    10 | First: 2022-09-16 00:00:00 | Last: 2023-12-20 00:00:00
+110. Retorno de Consulta para Doação Compartilhada ***            | Count:     11 | Patients:     8 | First: 2022-07-11 00:00:00 | Last: 2023-12-11 00:00:00
+111. Consulta de Reprodução Humana - convênios ***                | Count:     10 | Patients:     9 | First: 2022-07-15 00:00:00 | Last: 2023-09-28 00:00:00
+112. Consulta Pós-operatória: retirar pontos ***                  | Count:     10 | Patients:     9 | First: 2022-09-23 00:00:00 | Last: 2023-11-02 00:00:00
+113. Consulta avaliação genética ***                              | Count:      8 | Patients:     6 | First: 2021-03-03 00:00:00 | Last: 2023-08-25 00:00:00
+114. 1º Consulta Pré-Natal ***                                    | Count:      7 | Patients:     7 | First: 2022-10-03 00:00:00 | Last: 2023-08-16 00:00:00
+115. Consulta Projeto Preservar Sonhos 3º ***                     | Count:      7 | Patients:     5 | First: 2022-09-12 00:00:00 | Last: 2022-10-19 00:00:00
+116. 1ª Consulta Nutricionista ***                                | Count:      6 | Patients:     5 | First: 2020-10-09 00:00:00 | Last: 2020-12-11 00:00:00
+117. Consulta Reprodução Humana telemedicina - Unimed ***         | Count:      4 | Patients:     4 | First: 2023-09-28 00:00:00 | Last: 2023-11-30 00:00:00
+118. Consulta por Telefone ***                                    | Count:      3 | Patients:     3 | First: 2023-05-24 00:00:00 | Last: 2023-11-30 00:00:00
+119. Consulta de Doação Compartilhada por Telemedicina ***        | Count:      3 | Patients:     3 | First: 2022-11-21 00:00:00 | Last: 2023-03-01 00:00:00
+120. Consulta de Doação Compartilhada (presencial) ***            | Count:      3 | Patients:     3 | First: 2023-05-23 00:00:00 | Last: 2023-09-18 00:00:00
+121. Consulta pós Operatória por Telemedicina ***                 | Count:      3 | Patients:     3 | First: 2022-06-15 00:00:00 | Last: 2024-01-08 00:00:00
+122. Consulta de Reprodução Humana - Palestra ***                 | Count:      2 | Patients:     2 | First: 2023-07-19 00:00:00 | Last: 2023-10-25 00:00:00
+123. 1ª Consulta Reprodução Humana - FERTILCARE ***               | Count:      2 | Patients:     2 | First: 2022-08-31 00:00:00 | Last: 2024-02-21 00:00:00
+124. 1ª Consulta Obstétrica por telemedicina ***                  | Count:      1 | Patients:     1 | First: 2023-08-24 00:00:00 | Last: 2023-08-24 00:00:00
+125. Consulta Projeto Realizar 14º ***                            | Count:      1 | Patients:     1 | First: 2022-09-19 00:00:00 | Last: 2022-09-19 00:00:00
+

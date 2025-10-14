@@ -214,6 +214,10 @@ def process_database(db_path):
         # Clean PatientID column
         patients_df = clean_patient_id(patients_df, 'patients', db_name)
         
+        # Initialize prontuario column with -1 (unmatched)
+        logger.info(f"[{db_name}] Initializing prontuario column with -1 (unmatched)...")
+        patients_df['prontuario'] = -1
+        
         # Ensure all metadata columns exist
         for col in meta_cols:
             if col not in patients_df.columns:
@@ -224,9 +228,14 @@ def process_database(db_path):
         con.register('patients_df', patients_df)
         con.execute('CREATE TABLE silver.patients AS SELECT * FROM patients_df')
         con.unregister('patients_df')
-        con.close()
         logger.info(f"[{db_name}] silver.patients creation complete.")
         logger.debug(f"[{db_name}] silver.patients written for {db_path}")
+        
+        # Update prontuario column using PatientID matching logic
+        update_prontuario_column(con, db_name)
+        
+        con.close()
+        
     except Exception as e:
         logger.error(f"[{db_name}] Failed to process patients: {e}")
 
@@ -489,6 +498,341 @@ def create_embryo_number_feature(con, db_name):
         
     except Exception as e:
         logger.error(f"[{db_name}] Error adding embryo_number feature: {e}")
+        raise
+
+def update_prontuario_column(con, db_name):
+    """Update prontuario column using PatientID matching logic with clinisys_all.silver.view_pacientes"""
+    logger.info(f"[{db_name}] Updating prontuario column using PatientID matching logic...")
+    
+    try:
+        # Attach clinisys_all database
+        clinisys_db_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'database', 'clinisys_all.duckdb')
+        logger.info(f"[{db_name}] Attaching clinisys_all database from: {clinisys_db_path}")
+        con.execute(f"ATTACH '{clinisys_db_path}' AS clinisys_all")
+        logger.info(f"[{db_name}] clinisys_all database attached successfully")
+        
+        # Build the SQL query for PatientID matching
+        update_sql = f"""
+        WITH 
+        -- CTE 1: Extract unmatched records using PatientID
+        embryoscope_extract AS (
+            SELECT DISTINCT 
+                "PatientID" as patient_id,
+                CASE 
+                    WHEN "FirstName" IS NOT NULL THEN 
+                        CASE 
+                            -- Handle "LastName, FirstName Middle Names" format
+                            WHEN POSITION(',' IN "FirstName") > 0 THEN 
+                                strip_accents(LOWER(SPLIT_PART(TRIM(SPLIT_PART("FirstName", ',', 2)), ' ', 1)))
+                            -- Handle "FirstName Middle Names" format
+                            ELSE strip_accents(LOWER(SPLIT_PART(TRIM("FirstName"), ' ', 1)))
+                        END
+                    ELSE NULL 
+                END as name_first
+            FROM silver.patients
+            WHERE prontuario = -1 
+              AND "PatientID" IS NOT NULL
+        ),
+
+        -- CTE 2: Pre-process clinisys data with all transformations and accent normalization
+        clinisys_processed AS (
+            SELECT 
+                codigo,
+                prontuario_esposa,
+                prontuario_marido,
+                prontuario_responsavel1,
+                prontuario_responsavel2,
+                prontuario_esposa_pel,
+                prontuario_marido_pel,
+                prontuario_esposa_pc,
+                prontuario_marido_pc,
+                prontuario_responsavel1_pc,
+                prontuario_responsavel2_pc,
+                prontuario_esposa_fc,
+                prontuario_marido_fc,
+                prontuario_esposa_ba,
+                prontuario_marido_ba,
+                strip_accents(LOWER(SPLIT_PART(TRIM(esposa_nome), ' ', 1))) as esposa_nome,
+                strip_accents(LOWER(SPLIT_PART(TRIM(marido_nome), ' ', 1))) as marido_nome,
+                unidade_origem
+            FROM clinisys_all.silver.view_pacientes
+            WHERE inativo = 0
+        ),
+
+        -- CTE 3: PatientID ↔ prontuario (main/codigo)
+        matches_1 AS (
+            SELECT d.*,
+                   p.codigo as prontuario, p.esposa_nome, p.marido_nome, p.unidade_origem,
+                   'patientid_main' as match_type
+            FROM embryoscope_extract d
+            INNER JOIN clinisys_processed p 
+                ON d.patient_id = p.codigo
+        ),
+
+        -- CTE 4: PatientID ↔ prontuario_esposa
+        matches_2 AS (
+            SELECT d.*, 
+                   p.codigo as prontuario, p.esposa_nome, p.marido_nome, p.unidade_origem,
+                   'patientid_esposa' as match_type
+            FROM embryoscope_extract d
+            INNER JOIN clinisys_processed p 
+                ON d.patient_id = p.prontuario_esposa
+        ),
+
+        -- CTE 5: PatientID ↔ prontuario_marido
+        matches_3 AS (
+            SELECT d.*,
+                  p.codigo as prontuario, p.esposa_nome, p.marido_nome, p.unidade_origem,
+                   'patientid_marido' as match_type
+            FROM embryoscope_extract d
+            INNER JOIN clinisys_processed p 
+                ON d.patient_id = p.prontuario_marido
+        ),
+
+        -- CTE 6: PatientID ↔ prontuario_responsavel1
+        matches_4 AS (
+            SELECT d.*,
+                  p.codigo as prontuario, p.esposa_nome, p.marido_nome, p.unidade_origem,
+                   'patientid_responsavel1' as match_type
+            FROM embryoscope_extract d
+            INNER JOIN clinisys_processed p 
+                ON d.patient_id = p.prontuario_responsavel1
+        ),
+
+        -- CTE 7: PatientID ↔ prontuario_responsavel2
+        matches_5 AS (
+            SELECT d.*,
+                   p.codigo as prontuario, p.esposa_nome, p.marido_nome, p.unidade_origem,
+                   'patientid_responsavel2' as match_type
+            FROM embryoscope_extract d
+            INNER JOIN clinisys_processed p 
+                ON d.patient_id = p.prontuario_responsavel2
+        ),
+
+        -- CTE 8: PatientID ↔ prontuario_esposa_pel
+        matches_6 AS (
+            SELECT d.*,
+                   p.codigo as prontuario, p.esposa_nome, p.marido_nome, p.unidade_origem,
+                   'patientid_esposa_pel' as match_type
+            FROM embryoscope_extract d
+            INNER JOIN clinisys_processed p 
+                ON d.patient_id = p.prontuario_esposa_pel
+        ),
+
+        -- CTE 9: PatientID ↔ prontuario_marido_pel
+        matches_7 AS (
+            SELECT d.*,
+                   p.codigo as prontuario, p.esposa_nome, p.marido_nome, p.unidade_origem,
+                   'patientid_marido_pel' as match_type
+            FROM embryoscope_extract d
+            INNER JOIN clinisys_processed p 
+                ON d.patient_id = p.prontuario_marido_pel
+        ),
+
+        -- CTE 10: PatientID ↔ prontuario_esposa_pc
+        matches_8 AS (
+            SELECT d.*,
+                   p.codigo as prontuario, p.esposa_nome, p.marido_nome, p.unidade_origem,
+                   'patientid_esposa_pc' as match_type
+            FROM embryoscope_extract d
+            INNER JOIN clinisys_processed p 
+                ON d.patient_id = p.prontuario_esposa_pc
+        ),
+
+        -- CTE 11: PatientID ↔ prontuario_marido_pc
+        matches_9 AS (
+            SELECT d.*,
+                   p.codigo as prontuario, p.esposa_nome, p.marido_nome, p.unidade_origem,
+                   'patientid_marido_pc' as match_type
+            FROM embryoscope_extract d
+            INNER JOIN clinisys_processed p 
+                ON d.patient_id = p.prontuario_marido_pc
+        ),
+
+        -- CTE 12: PatientID ↔ prontuario_responsavel1_pc
+        matches_10 AS (
+            SELECT d.*,
+                   p.codigo as prontuario, p.esposa_nome, p.marido_nome, p.unidade_origem,
+                   'patientid_responsavel1_pc' as match_type
+            FROM embryoscope_extract d
+            INNER JOIN clinisys_processed p 
+                ON d.patient_id = p.prontuario_responsavel1_pc
+        ),
+
+        -- CTE 13: PatientID ↔ prontuario_responsavel2_pc
+        matches_11 AS (
+            SELECT d.*,
+                   p.codigo as prontuario, p.esposa_nome, p.marido_nome, p.unidade_origem,
+                   'patientid_responsavel2_pc' as match_type
+            FROM embryoscope_extract d
+            INNER JOIN clinisys_processed p 
+                ON d.patient_id = p.prontuario_responsavel2_pc
+        ),
+
+        -- CTE 14: PatientID ↔ prontuario_esposa_fc
+        matches_12 AS (
+            SELECT d.*,
+                   p.codigo as prontuario, p.esposa_nome, p.marido_nome, p.unidade_origem,
+                   'patientid_esposa_fc' as match_type
+            FROM embryoscope_extract d
+            INNER JOIN clinisys_processed p 
+                ON d.patient_id = p.prontuario_esposa_fc
+        ),
+
+        -- CTE 15: PatientID ↔ prontuario_marido_fc
+        matches_13 AS (
+            SELECT d.*,
+                   p.codigo as prontuario, p.esposa_nome, p.marido_nome, p.unidade_origem,
+                   'patientid_marido_fc' as match_type
+            FROM embryoscope_extract d
+            INNER JOIN clinisys_processed p 
+                ON d.patient_id = p.prontuario_marido_fc
+        ),
+
+        -- CTE 16: PatientID ↔ prontuario_esposa_ba
+        matches_14 AS (
+            SELECT d.*,
+                   p.codigo as prontuario, p.esposa_nome, p.marido_nome, p.unidade_origem,
+                   'patientid_esposa_ba' as match_type
+            FROM embryoscope_extract d
+            INNER JOIN clinisys_processed p 
+                ON d.patient_id = p.prontuario_esposa_ba
+        ),
+
+        -- CTE 17: PatientID ↔ prontuario_marido_ba
+        matches_15 AS (
+            SELECT d.*,
+                   p.codigo as prontuario, p.esposa_nome, p.marido_nome, p.unidade_origem,
+                   'patientid_marido_ba' as match_type
+            FROM embryoscope_extract d
+            INNER JOIN clinisys_processed p 
+                ON d.patient_id = p.prontuario_marido_ba
+        ),
+
+        -- CTE 18: UNION matches
+        all_matches AS (
+            SELECT * FROM matches_1
+            UNION
+            SELECT * FROM matches_2
+            UNION
+            SELECT * FROM matches_3
+            UNION 
+            SELECT * FROM matches_4
+            UNION
+            SELECT * FROM matches_5
+            UNION
+            SELECT * FROM matches_6
+            UNION
+            SELECT * FROM matches_7
+            UNION
+            SELECT * FROM matches_8
+            UNION
+            SELECT * FROM matches_9
+            UNION
+            SELECT * FROM matches_10
+            UNION
+            SELECT * FROM matches_11
+            UNION
+            SELECT * FROM matches_12
+            UNION
+            SELECT * FROM matches_13
+            UNION
+            SELECT * FROM matches_14
+            UNION
+            SELECT * FROM matches_15
+        ),
+
+        -- CTE 19: Calculate scores for ranking
+        scored_matches AS (
+            SELECT *,
+                   -- Calculate name match score
+                   CASE 
+                       WHEN name_first = esposa_nome OR name_first = marido_nome THEN 0
+                       ELSE 4
+                   END as name_match_score,
+                   -- Calculate match type score (odd numbers)
+                   CASE 
+                       WHEN match_type = 'patientid_main' THEN 1
+                       WHEN match_type = 'patientid_esposa' THEN 3
+                       WHEN match_type = 'patientid_marido' THEN 5
+                       WHEN match_type = 'patientid_responsavel1' THEN 7
+                       WHEN match_type = 'patientid_responsavel2' THEN 9
+                       WHEN match_type = 'patientid_esposa_pel' THEN 11
+                       WHEN match_type = 'patientid_marido_pel' THEN 13
+                       WHEN match_type = 'patientid_esposa_pc' THEN 15
+                       WHEN match_type = 'patientid_marido_pc' THEN 17
+                       WHEN match_type = 'patientid_responsavel1_pc' THEN 19
+                       WHEN match_type = 'patientid_responsavel2_pc' THEN 21
+                       WHEN match_type = 'patientid_esposa_fc' THEN 23
+                       WHEN match_type = 'patientid_marido_fc' THEN 25
+                       WHEN match_type = 'patientid_esposa_ba' THEN 27
+                       WHEN match_type = 'patientid_marido_ba' THEN 29
+                       ELSE 31
+                   END as match_type_score
+            FROM all_matches
+            WHERE name_first = esposa_nome OR name_first = marido_nome
+        ),
+
+        -- CTE 20: Apply ranking based on combined scores
+        ranked_matches AS (
+            SELECT *,
+                   (name_match_score + match_type_score) as combined_score,
+                   ROW_NUMBER() OVER (
+                       PARTITION BY patient_id, prontuario 
+                       ORDER BY (name_match_score + match_type_score)
+                   ) 
+                   as rn
+            FROM scored_matches
+        ),
+
+        -- CTE 21: Select best match per PatientID (lowest rn value)
+        best_matches AS (
+            SELECT * 
+            FROM ranked_matches rm1
+            WHERE rn = (
+                SELECT MIN(rn) 
+                FROM ranked_matches rm2 
+                WHERE rm2.patient_id = rm1.patient_id
+            )
+        )
+
+        -- Update prontuario column for unmatched records using PatientID
+        UPDATE silver.patients 
+        SET prontuario = COALESCE(bm.prontuario, -1)
+        FROM best_matches bm 
+        WHERE silver.patients."PatientID" = bm.patient_id
+            AND silver.patients.prontuario = -1
+            AND (
+                CASE 
+                    -- Handle "LastName, FirstName Middle Names" format
+                    WHEN POSITION(',' IN silver.patients."FirstName") > 0 THEN 
+                        strip_accents(LOWER(SPLIT_PART(TRIM(SPLIT_PART(silver.patients."FirstName", ',', 2)), ' ', 1)))
+                    -- Handle "FirstName Middle Names" format
+                    ELSE strip_accents(LOWER(SPLIT_PART(TRIM(silver.patients."FirstName"), ' ', 1)))
+                END
+            ) = bm.name_first
+        """
+        
+        con.execute(update_sql)
+        logger.info(f"[{db_name}] Prontuario column updated successfully with PatientID matching logic")
+        
+        # Get statistics on the update
+        result = con.execute("""
+            SELECT 
+                COUNT(*) as total_rows,
+                COUNT(CASE WHEN prontuario != -1 THEN 1 END) as matched_rows,
+                COUNT(CASE WHEN prontuario = -1 THEN 1 END) as unmatched_rows
+            FROM silver.patients
+        """).fetchone()
+        
+        logger.info(f"[{db_name}] Prontuario matching results:")
+        logger.info(f"[{db_name}]   Total rows: {result[0]:,}")
+        logger.info(f"[{db_name}]   Matched rows: {result[1]:,}")
+        logger.info(f"[{db_name}]   Unmatched rows: {result[2]:,}")
+        logger.info(f"[{db_name}]   Match rate: {(result[1]/result[0]*100):.2f}%")
+        
+    except Exception as e:
+        logger.error(f"[{db_name}] Error updating prontuario column: {e}")
         raise
 
 def main():

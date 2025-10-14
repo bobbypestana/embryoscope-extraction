@@ -39,7 +39,7 @@ REM Check if required packages are installed
 python -c "import pandas, requests, pyyaml, duckdb, urllib3, tqdm" >nul 2>&1
 if errorlevel 1 (
     echo Installing required packages...
-    pip install -r requirements.txt
+    pip install -r ../requirements.txt
     if errorlevel 1 (
         echo ERROR: Failed to install required packages
         pause

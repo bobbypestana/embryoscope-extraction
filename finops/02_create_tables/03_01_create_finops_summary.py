@@ -151,6 +151,7 @@ def create_finops_summary_table(conn):
 			"Total",
 			"DT Emissao",
 			"Unidade",
+			"NF Eletr.",
 			-- All treatment categories as one unified category
 			CASE WHEN "Descrição Gerencial" IN (
 				'Coleta - Adicional', 'Coleta - Crio', 'FET / FOT', 
@@ -162,8 +163,8 @@ def create_finops_summary_table(conn):
 	billing_summary AS (
 		SELECT
 			COALESCE(u.prontuario, b.prontuario) as prontuario,
-			-- Treatment payment totals
-			SUM(b.is_treatment_payment) AS treatment_paid_count,
+			-- Treatment payment totals - count distinct NF Eletr instead of summing flags
+			COUNT(DISTINCT CASE WHEN b.is_treatment_payment = 1 THEN b."NF Eletr." END) AS treatment_paid_count,
 			SUM(CASE WHEN b.is_treatment_payment = 1 THEN b."Total" ELSE 0 END) AS treatment_paid_total,
 			-- Date ranges for billing
 			MIN(CASE WHEN b.is_treatment_payment = 1 THEN b."DT Emissao" END) AS billing_first_date,
