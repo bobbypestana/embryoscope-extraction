@@ -36,19 +36,55 @@ def create_cryopreservation_events_timeline_table(conn):
     create_table_query = """
     CREATE TABLE gold.cryopreservation_events_timeline AS
     WITH
-    -- Get all freezing events by month and prontuario (excluding problem patients)
+    -- Get all freezing events by month and prontuario (embryos, eggs, and semen)
     freezing_events AS (
         SELECT 
             prontuario,
-            STRFTIME(Data, '%Y-%m') as period_month,
-            COUNT(*) as freezing_events_count
-        FROM clinisys_all.silver.view_congelamentos_embrioes
-        WHERE prontuario IS NOT NULL 
-            AND Data IS NOT NULL
-            AND Data <= CURRENT_DATE
-            AND NEmbrioes IS NOT NULL
-            AND NEmbrioes > 0
-        GROUP BY prontuario, STRFTIME(Data, '%Y-%m')
+            period_month,
+            SUM(freezing_events_count) as freezing_events_count
+        FROM (
+            -- Embryo freezing events
+            SELECT 
+                prontuario,
+                STRFTIME(Data, '%Y-%m') as period_month,
+                COUNT(DISTINCT CodCongelamento) as freezing_events_count
+            FROM clinisys_all.silver.view_congelamentos_embrioes
+            WHERE prontuario IS NOT NULL 
+                AND Data IS NOT NULL
+                AND Data <= CURRENT_DATE
+                AND NEmbrioes IS NOT NULL
+                AND NEmbrioes > 0
+            GROUP BY prontuario, STRFTIME(Data, '%Y-%m')
+            
+            UNION ALL
+            
+            -- Egg freezing events
+            SELECT 
+                prontuario,
+                STRFTIME(Data, '%Y-%m') as period_month,
+                COUNT(DISTINCT CodCongelamento) as freezing_events_count
+            FROM clinisys_all.silver.view_congelamentos_ovulos
+            WHERE prontuario IS NOT NULL 
+                AND Data IS NOT NULL
+                AND Data <= CURRENT_DATE
+                AND NOvulos IS NOT NULL
+                AND NOvulos > 0
+            GROUP BY prontuario, STRFTIME(Data, '%Y-%m')
+            
+            UNION ALL
+            
+            -- Semen freezing events
+            SELECT 
+                prontuario,
+                STRFTIME(Data, '%Y-%m') as period_month,
+                COUNT(DISTINCT CodCongelamento) as freezing_events_count
+            FROM clinisys_all.silver.view_congelamentos_semen
+            WHERE prontuario IS NOT NULL 
+                AND Data IS NOT NULL
+                AND Data <= CURRENT_DATE
+            GROUP BY prontuario, STRFTIME(Data, '%Y-%m')
+        ) all_freezing_events
+        GROUP BY prontuario, period_month
     ),
     
     -- Get actual billing events for cryopreservation services by month and prontuario
@@ -71,18 +107,56 @@ def create_cryopreservation_events_timeline_table(conn):
     historical_billing AS (
         SELECT 
             prontuario,
-            STRFTIME(Data, '%Y-%m') as period_month,
-            COUNT(*) as billing_events_count,
+            period_month,
+            SUM(freezing_events_count) as billing_events_count,
             -- Assume average billing amount for historical events (can be adjusted)
-            2500.0 as total_billing_amount
-        FROM clinisys_all.silver.view_congelamentos_embrioes
-        WHERE prontuario IS NOT NULL 
-            AND Data IS NOT NULL
-            AND Data < '2022-01-01'
-            AND Data <= CURRENT_DATE
-            AND NEmbrioes IS NOT NULL
-            AND NEmbrioes > 0
-        GROUP BY prontuario, STRFTIME(Data, '%Y-%m')
+            SUM(freezing_events_count) * 2500.0 as total_billing_amount
+        FROM (
+            -- Historical embryo freezing events
+            SELECT 
+                prontuario,
+                STRFTIME(Data, '%Y-%m') as period_month,
+                COUNT(DISTINCT CodCongelamento) as freezing_events_count
+            FROM clinisys_all.silver.view_congelamentos_embrioes
+            WHERE prontuario IS NOT NULL 
+                AND Data IS NOT NULL
+                AND Data < '2022-01-01'
+                AND Data <= CURRENT_DATE
+                AND NEmbrioes IS NOT NULL
+                AND NEmbrioes > 0
+            GROUP BY prontuario, STRFTIME(Data, '%Y-%m')
+            
+            UNION ALL
+            
+            -- Historical egg freezing events
+            SELECT 
+                prontuario,
+                STRFTIME(Data, '%Y-%m') as period_month,
+                COUNT(DISTINCT CodCongelamento) as freezing_events_count
+            FROM clinisys_all.silver.view_congelamentos_ovulos
+            WHERE prontuario IS NOT NULL 
+                AND Data IS NOT NULL
+                AND Data < '2022-01-01'
+                AND Data <= CURRENT_DATE
+                AND NOvulos IS NOT NULL
+                AND NOvulos > 0
+            GROUP BY prontuario, STRFTIME(Data, '%Y-%m')
+            
+            UNION ALL
+            
+            -- Historical semen freezing events
+            SELECT 
+                prontuario,
+                STRFTIME(Data, '%Y-%m') as period_month,
+                COUNT(DISTINCT CodCongelamento) as freezing_events_count
+            FROM clinisys_all.silver.view_congelamentos_semen
+            WHERE prontuario IS NOT NULL 
+                AND Data IS NOT NULL
+                AND Data < '2022-01-01'
+                AND Data <= CURRENT_DATE
+            GROUP BY prontuario, STRFTIME(Data, '%Y-%m')
+        ) all_historical_freezing_events
+        GROUP BY prontuario, period_month
     ),
     
     -- Combine actual and historical billing events
