@@ -36,6 +36,100 @@ if not logger.hasHandlers():
 
 logger.info(f"Logging to: {log_file}")
 
+def calculate_column_filling_rates(df):
+    """
+    Calculate filling rate (non-null percentage) for each column in a DataFrame.
+    
+    Args:
+        df: pandas DataFrame
+        
+    Returns:
+        Dictionary mapping column names to their filling rates (0-100)
+    """
+    filling_rates = {}
+    
+    if df.empty:
+        logger.warning("DataFrame is empty, all columns will have 0% filling rate")
+        return {col: 0.0 for col in df.columns}
+    
+    total_count = len(df)
+    
+    for column in df.columns:
+        try:
+            # Count non-null and non-empty values
+            # Convert to string to handle different types, then check for empty strings
+            non_null_count = df[column].notna().sum()
+            
+            # Also exclude empty strings and 'NULL'/'null' strings
+            if df[column].dtype == 'object':
+                non_empty_mask = df[column].notna() & (df[column].astype(str).str.strip() != '') & (~df[column].astype(str).str.strip().isin(['NULL', 'null', 'None', 'none']))
+                non_null_count = non_empty_mask.sum()
+            
+            filling_rate = (non_null_count / total_count) * 100
+            filling_rates[column] = filling_rate
+            
+        except Exception as e:
+            logger.warning(f"Error calculating filling rate for column {column}: {e}")
+            filling_rates[column] = 0.0
+    
+    return filling_rates
+
+def filter_columns_by_null_rate(df, table_name, db_name, null_rate_threshold=90.0):
+    """
+    Filter DataFrame columns based on null rate threshold, excluding columns with null rate > threshold.
+    
+    Args:
+        df: pandas DataFrame
+        table_name: Name of the table being processed
+        db_name: Name of the database being processed
+        null_rate_threshold: Maximum null rate (percentage) allowed - columns with null rate > this will be excluded (default: 90.0)
+        
+    Returns:
+        Tuple of (filtered_dataframe, excluded_columns_dict) where excluded_columns_dict maps
+        column names to their null rates
+    """
+    if df.empty:
+        logger.warning(f"[{db_name}] DataFrame for {table_name} is empty, no columns to filter")
+        return df, {}
+    
+    logger.info(f"[{db_name}] Processing {len(df.columns)} columns for table {table_name}")
+    
+    # Calculate filling rates for all columns
+    logger.info(f"[{db_name}] Calculating filling rates for columns in {table_name}...")
+    filling_rates = calculate_column_filling_rates(df)
+    
+    # Filter columns based on null rate threshold
+    # Exclude columns with >90% null rate (i.e., keep columns with >=10% filling rate)
+    included_columns = []
+    excluded_columns = {}
+    
+    for column in df.columns:
+        filling_rate = filling_rates.get(column, 0.0)
+        null_rate = 100.0 - filling_rate
+        if null_rate > null_rate_threshold:
+            excluded_columns[column] = null_rate
+        else:
+            included_columns.append(column)
+    
+    # Log excluded columns with their null rates
+    if excluded_columns:
+        logger.info(f"[{db_name}] [{table_name}] Excluded {len(excluded_columns)} columns with null rate > {null_rate_threshold}%:")
+        for col, null_rate in sorted(excluded_columns.items(), key=lambda x: x[1], reverse=True):
+            filling_rate = 100.0 - null_rate
+            logger.info(f"[{db_name}]   - {col}: null_rate={null_rate:.2f}% (filling_rate={filling_rate:.2f}%)")
+    else:
+        logger.info(f"[{db_name}] [{table_name}] All columns have null rate <= {null_rate_threshold}%")
+    
+    logger.info(f"[{db_name}] [{table_name}] Including {len(included_columns)} columns (out of {len(df.columns)} total)")
+    
+    if not included_columns:
+        logger.warning(f"[{db_name}] No columns meet the null rate threshold (all have null rate > {null_rate_threshold}%) for {table_name}")
+        return pd.DataFrame(), excluded_columns
+    
+    # Return filtered DataFrame with only included columns
+    filtered_df = df[included_columns].copy()
+    return filtered_df, excluded_columns
+
 def flatten_patients_json(raw_json_str):
     try:
         data = json.loads(raw_json_str)
@@ -214,6 +308,14 @@ def process_database(db_path):
         # Clean PatientID column
         patients_df = clean_patient_id(patients_df, 'patients', db_name)
         
+        # Filter columns by null rate (exclude columns with >90% null rate)
+        patients_df, excluded_columns = filter_columns_by_null_rate(patients_df, 'patients', db_name, null_rate_threshold=90.0)
+        
+        if patients_df.empty:
+            logger.warning(f"[{db_name}] No columns remain after filtering for patients table")
+            con.close()
+            return
+        
         # Initialize prontuario column with -1 (unmatched)
         logger.info(f"[{db_name}] Initializing prontuario column with -1 (unmatched)...")
         patients_df['prontuario'] = -1
@@ -270,6 +372,14 @@ def process_treatments_database(db_path):
         
         # Clean PatientID column
         treatments_df = clean_patient_id(treatments_df, 'treatments', db_name)
+        
+        # Filter columns by null rate (exclude columns with >90% null rate)
+        treatments_df, excluded_columns = filter_columns_by_null_rate(treatments_df, 'treatments', db_name, null_rate_threshold=90.0)
+        
+        if treatments_df.empty:
+            logger.warning(f"[{db_name}] No columns remain after filtering for treatments table")
+            con.close()
+            return
         
         # Ensure all metadata columns exist
         for col in meta_cols:
@@ -339,6 +449,15 @@ def process_idascore_database(db_path):
         idascore_df = pd.DataFrame(all_idascore)
         for col in idascore_df.columns:
             idascore_df[col] = idascore_df[col].astype(str)
+        
+        # Filter columns by null rate (exclude columns with >90% null rate)
+        idascore_df, excluded_columns = filter_columns_by_null_rate(idascore_df, 'idascore', db_name, null_rate_threshold=90.0)
+        
+        if idascore_df.empty:
+            logger.warning(f"[{db_name}] No columns remain after filtering for idascore table")
+            con.close()
+            return
+        
         logger.info(f"[{db_name}] Saving idascore to table: silver.idascore.")
         con.execute('DROP TABLE IF EXISTS silver.idascore')
         con.register('idascore_df', idascore_df)
@@ -408,7 +527,7 @@ def process_embryo_data_database(db_path):
             logger.info(f"[{db_name}] Empty silver.embryo_data table created.")
             return
         embryo_df = pd.DataFrame(all_embryos)
-        # Cast types
+        # Cast types - ensure proper DATE type for JOIN performance
         for col in embryo_df.columns:
             if col.startswith('Time_'):
                 try:
@@ -417,7 +536,12 @@ def process_embryo_data_database(db_path):
                     logger.error(f"[{db_name}] Error casting {col} to numeric: {e}")
             elif col.endswith('Date') or col.endswith('Time') or col.endswith('Timestamp'):
                 try:
-                    embryo_df[col] = pd.to_datetime(embryo_df[col], errors='coerce')
+                    # Special handling for FertilizationTime - ensure it's properly typed for JOINs
+                    if col == 'FertilizationTime':
+                        embryo_df[col] = pd.to_datetime(embryo_df[col], errors='coerce')
+                        logger.info(f"[{db_name}] Cast {col} to datetime for JOIN performance")
+                    else:
+                        embryo_df[col] = pd.to_datetime(embryo_df[col], errors='coerce')
                 except Exception as e:
                     logger.error(f"[{db_name}] Error casting {col} to datetime: {e}")
         # Map Evaluation_Evaluation -> KIDScore, Evaluation_EvaluationDate -> KIDDate
@@ -435,6 +559,18 @@ def process_embryo_data_database(db_path):
             embryo_df = embryo_df.drop(columns=['Evaluation_User'])
         # Remove EmbryoDetails_ prefix
         embryo_df = embryo_df.rename(columns={col: col.replace('EmbryoDetails_', '') for col in embryo_df.columns if col.startswith('EmbryoDetails_')})
+        
+        # Clean PatientID column (before filtering to ensure PatientID is properly cleaned)
+        embryo_df = clean_patient_id(embryo_df, 'embryo_data', db_name)
+        
+        # Filter columns by null rate (exclude columns with >90% null rate)
+        embryo_df, excluded_columns = filter_columns_by_null_rate(embryo_df, 'embryo_data', db_name, null_rate_threshold=90.0)
+        
+        if embryo_df.empty:
+            logger.warning(f"[{db_name}] No columns remain after filtering for embryo_data table")
+            con.close()
+            return
+        
         # Order columns: EmbryoID, PatientIDx, TreatmentName, all KID*, all IDA*, then the rest
         cols = list(embryo_df.columns)
         main_cols = ['EmbryoID', 'PatientIDx', 'TreatmentName']
@@ -442,10 +578,9 @@ def process_embryo_data_database(db_path):
         ida_cols = sorted([c for c in cols if c.startswith('IDA')])
         other_cols = sorted([c for c in cols if c not in main_cols + kid_cols + ida_cols])
         ordered_cols = main_cols + kid_cols + ida_cols + other_cols
+        # Only reindex with columns that exist in the filtered DataFrame
+        ordered_cols = [c for c in ordered_cols if c in embryo_df.columns]
         embryo_df = embryo_df.reindex(columns=ordered_cols)
-        
-        # Clean PatientID column
-        embryo_df = clean_patient_id(embryo_df, 'embryo_data', db_name)
         
         # Ensure all metadata columns exist
         for col in meta_cols:
@@ -457,48 +592,16 @@ def process_embryo_data_database(db_path):
         con.execute('CREATE TABLE silver.embryo_data AS SELECT * FROM embryo_df')
         con.unregister('embryo_df')
         
-        # Add embryo_number feature
-        create_embryo_number_feature(con, db_name)
+        # NOTE: embryo_number is now calculated after deduplication in consolidation step
+        # (removed create_embryo_number_feature call)
         
         con.close()
         logger.info(f"[{db_name}] silver.embryo_data creation complete.")
     except Exception as e:
         logger.error(f"[{db_name}] Failed to process embryo_data: {e}")
 
-def create_embryo_number_feature(con, db_name):
-    """Add embryo_number column to silver.embryo_data with proper sorting logic for EmbryoDescriptionID.
-    
-    The embryo_number is assigned sequentially within each patient-treatment combination,
-    ensuring unique numbering per patient even when multiple patients share the same treatment name.
-    """
-    logger.info(f"[{db_name}] Adding embryo_number feature to silver.embryo_data")
-    
-    try:
-        # Add embryo_number directly using a window function with proper sorting
-        # Transform EmbryoDescriptionID inline for sorting: AA1 -> AA01, AA2 -> AA02, etc.
-        # FIXED: Partition by both PatientIDx and TreatmentName to ensure unique numbering per patient-treatment
-        con.execute("""
-            CREATE OR REPLACE TABLE silver.embryo_data AS
-            SELECT *,
-                   ROW_NUMBER() OVER (
-                       PARTITION BY PatientIDx, TreatmentName 
-                       ORDER BY 
-                           CASE 
-                               WHEN EmbryoDescriptionID IS NULL THEN NULL
-                               WHEN regexp_matches(EmbryoDescriptionID, '^[A-Z]+[0-9]+$') THEN
-                                   regexp_replace(EmbryoDescriptionID, '^([A-Z]+)([0-9]+)$', 
-                                                 '\\1' || lpad(regexp_extract(EmbryoDescriptionID, '([0-9]+)$', 1), 2, '0'))
-                               ELSE EmbryoDescriptionID
-                           END
-                   ) AS embryo_number
-            FROM silver.embryo_data
-        """)
-        
-        logger.info(f"[{db_name}] embryo_number feature added successfully")
-        
-    except Exception as e:
-        logger.error(f"[{db_name}] Error adding embryo_number feature: {e}")
-        raise
+# NOTE: create_embryo_number_feature function has been moved to 02_03_consolidate_embryoscope_dbs.py
+# to ensure embryo_number is calculated AFTER deduplication, preventing gaps in numbering
 
 def update_prontuario_column(con, db_name):
     """Update prontuario column using PatientID matching logic with clinisys_all.silver.view_pacientes"""
@@ -511,53 +614,132 @@ def update_prontuario_column(con, db_name):
         con.execute(f"ATTACH '{clinisys_db_path}' AS clinisys_all")
         logger.info(f"[{db_name}] clinisys_all database attached successfully")
         
-        # Build the SQL query for PatientID matching
-        update_sql = f"""
-        WITH 
-        -- CTE 1: Extract unmatched records using PatientID
-        embryoscope_extract AS (
-            SELECT DISTINCT 
-                "PatientID" as patient_id,
-                CASE 
-                    WHEN "FirstName" IS NOT NULL THEN 
-                        CASE 
-                            -- Handle "LastName, FirstName Middle Names" format
-                            WHEN POSITION(',' IN "FirstName") > 0 THEN 
-                                strip_accents(LOWER(SPLIT_PART(TRIM(SPLIT_PART("FirstName", ',', 2)), ' ', 1)))
-                            -- Handle "FirstName Middle Names" format
-                            ELSE strip_accents(LOWER(SPLIT_PART(TRIM("FirstName"), ' ', 1)))
-                        END
-                    ELSE NULL 
-                END as name_first
-            FROM silver.patients
-            WHERE prontuario = -1 
-              AND "PatientID" IS NOT NULL
-        ),
-
-        -- CTE 2: Pre-process clinisys data with all transformations and accent normalization
-        clinisys_processed AS (
+        # First pass: Active patients only (inativo = 0)
+        logger.info(f"[{db_name}] === FIRST PASS: Active patients only (inativo = 0) ===")
+        update_prontuario_with_inativo(con, db_name, include_inactive=False)
+        
+        # Second pass: Inactive patients only (inativo = 1) - only for unmatched records
+        logger.info(f"[{db_name}] === SECOND PASS: Inactive patients only (inativo = 1) ===")
+        update_prontuario_with_inativo(con, db_name, include_inactive=True)
+        
+        # Third pass: LastName condition (when LastName doesn't contain date pattern)
+        logger.info(f"[{db_name}] === THIRD PASS: LastName condition (when FirstName is in LastName) ===")
+        update_prontuario_with_lastname(con, db_name)
+        
+        # Final quality summary after all passes
+        logger.info(f"[{db_name}] === FINAL PRONTUARIO MATCHING QUALITY SUMMARY ===")
+        result = con.execute("""
             SELECT 
-                codigo,
-                prontuario_esposa,
-                prontuario_marido,
-                prontuario_responsavel1,
-                prontuario_responsavel2,
-                prontuario_esposa_pel,
-                prontuario_marido_pel,
-                prontuario_esposa_pc,
-                prontuario_marido_pc,
-                prontuario_responsavel1_pc,
-                prontuario_responsavel2_pc,
-                prontuario_esposa_fc,
-                prontuario_marido_fc,
-                prontuario_esposa_ba,
-                prontuario_marido_ba,
-                strip_accents(LOWER(SPLIT_PART(TRIM(esposa_nome), ' ', 1))) as esposa_nome,
-                strip_accents(LOWER(SPLIT_PART(TRIM(marido_nome), ' ', 1))) as marido_nome,
-                unidade_origem
-            FROM clinisys_all.silver.view_pacientes
-            WHERE inativo = 0
-        ),
+                COUNT(*) as total_rows,
+                COUNT(CASE WHEN prontuario != -1 THEN 1 END) as matched_rows,
+                COUNT(CASE WHEN prontuario = -1 THEN 1 END) as unmatched_rows
+            FROM silver.patients
+        """).fetchone()
+        
+        if result[0] > 0:
+            match_rate = (result[1]/result[0]*100)
+            logger.info(f"[{db_name}] Final prontuario matching results:")
+            logger.info(f"[{db_name}]   Total rows: {result[0]:,}")
+            logger.info(f"[{db_name}]   Matched rows: {result[1]:,}")
+            logger.info(f"[{db_name}]   Unmatched rows: {result[2]:,}")
+            logger.info(f"[{db_name}]   Match rate: {match_rate:.2f}%")
+            
+            # Quality assessment
+            if match_rate >= 95:
+                logger.info(f"[{db_name}]   Quality: EXCELLENT (>=95%)")
+            elif match_rate >= 85:
+                logger.info(f"[{db_name}]   Quality: GOOD (>=85%)")
+            elif match_rate >= 70:
+                logger.info(f"[{db_name}]   Quality: ACCEPTABLE (>=70%)")
+            else:
+                logger.warning(f"[{db_name}]   Quality: NEEDS ATTENTION (<70%)")
+        else:
+            logger.warning(f"[{db_name}] No rows found in silver.patients table")
+        
+        logger.info(f"[{db_name}] === END PRONTUARIO MATCHING QUALITY SUMMARY ===")
+        
+    except Exception as e:
+        logger.error(f"[{db_name}] Error updating prontuario column: {e}")
+        raise
+
+def update_prontuario_with_inativo(con, db_name, include_inactive=False):
+    """Update prontuario column using PatientID matching logic with specific inativo filter"""
+    # Determine inactive filter condition
+    inactive_condition = "inativo = 1" if include_inactive else "inativo = 0"
+    patient_type = "inactive" if include_inactive else "active"
+    logger.info(f"[{db_name}] Running PatientID-based matching logic ({patient_type} patients)...")
+    
+    # Build the SQL query for PatientID matching
+    update_sql = f"""
+    WITH 
+    -- CTE 1: Extract name_first from patients (original logic - FirstName only)
+    patient_name_extract AS (
+        SELECT 
+            "PatientID",
+            prontuario,
+            "FirstName",
+            "LastName",
+            CASE 
+                -- Use FirstName as normal
+                WHEN "FirstName" IS NOT NULL THEN 
+                    CASE 
+                        -- Handle "LastName, FirstName Middle Names" format (e.g., "VALADARES, FLAVIA.F.N." or "GIANNINI, LIVIA.")
+                        WHEN POSITION(',' IN "FirstName") > 0 THEN 
+                            -- Extract part after comma, normalize, then extract first sequence of letters only
+                            -- Handles: "VALADARES, FLAVIA.F.N." -> "flavia", "GIANNINI, LIVIA." -> "livia"
+                            REGEXP_REPLACE(
+                                strip_accents(LOWER(TRIM(SPLIT_PART("FirstName", ',', 2)))),
+                                '^[^a-z]*([a-z]+).*',
+                                '\\1'
+                            )
+                        -- Handle "FirstName Middle Names" format
+                        ELSE 
+                            -- Extract first sequence of letters, handling cases with dots (e.g., "FLAVIA.F.N.")
+                            REGEXP_REPLACE(
+                                strip_accents(LOWER(TRIM("FirstName"))),
+                                '^[^a-z]*([a-z]+).*',
+                                '\\1'
+                            )
+                    END
+                ELSE NULL 
+            END as name_first
+        FROM silver.patients
+    ),
+    
+    -- CTE 2: Extract unmatched records using PatientID
+    embryoscope_extract AS (
+        SELECT DISTINCT 
+            "PatientID" as patient_id,
+            name_first
+        FROM patient_name_extract
+        WHERE prontuario = -1 
+          AND "PatientID" IS NOT NULL
+    ),
+
+    -- CTE 2: Pre-process clinisys data with all transformations and accent normalization
+    clinisys_processed AS (
+        SELECT 
+            codigo,
+            prontuario_esposa,
+            prontuario_marido,
+            prontuario_responsavel1,
+            prontuario_responsavel2,
+            prontuario_esposa_pel,
+            prontuario_marido_pel,
+            prontuario_esposa_pc,
+            prontuario_marido_pc,
+            prontuario_responsavel1_pc,
+            prontuario_responsavel2_pc,
+            prontuario_esposa_fc,
+            prontuario_marido_fc,
+            prontuario_esposa_ba,
+            prontuario_marido_ba,
+            strip_accents(LOWER(SPLIT_PART(TRIM(esposa_nome), ' ', 1))) as esposa_nome,
+            strip_accents(LOWER(SPLIT_PART(TRIM(marido_nome), ' ', 1))) as marido_nome,
+            unidade_origem
+        FROM clinisys_all.silver.view_pacientes
+        WHERE {inactive_condition}
+    ),
 
         -- CTE 3: PatientID ↔ prontuario (main/codigo)
         matches_1 AS (
@@ -794,27 +976,31 @@ def update_prontuario_column(con, db_name):
                 FROM ranked_matches rm2 
                 WHERE rm2.patient_id = rm1.patient_id
             )
+        ),
+        
+        -- CTE 22: Join best_matches with patient_name_extract for final update
+        update_matches AS (
+            SELECT 
+                pne."PatientID",
+                COALESCE(bm.prontuario, -1) as new_prontuario
+            FROM patient_name_extract pne
+            INNER JOIN best_matches bm 
+                ON pne."PatientID" = bm.patient_id
+                AND pne.name_first = bm.name_first
+            WHERE pne.prontuario = -1
         )
 
         -- Update prontuario column for unmatched records using PatientID
         UPDATE silver.patients 
-        SET prontuario = COALESCE(bm.prontuario, -1)
-        FROM best_matches bm 
-        WHERE silver.patients."PatientID" = bm.patient_id
+        SET prontuario = um.new_prontuario
+        FROM update_matches um
+        WHERE silver.patients."PatientID" = um."PatientID"
             AND silver.patients.prontuario = -1
-            AND (
-                CASE 
-                    -- Handle "LastName, FirstName Middle Names" format
-                    WHEN POSITION(',' IN silver.patients."FirstName") > 0 THEN 
-                        strip_accents(LOWER(SPLIT_PART(TRIM(SPLIT_PART(silver.patients."FirstName", ',', 2)), ' ', 1)))
-                    -- Handle "FirstName Middle Names" format
-                    ELSE strip_accents(LOWER(SPLIT_PART(TRIM(silver.patients."FirstName"), ' ', 1)))
-                END
-            ) = bm.name_first
         """
         
+    try:
         con.execute(update_sql)
-        logger.info(f"[{db_name}] Prontuario column updated successfully with PatientID matching logic")
+        logger.info(f"[{db_name}] Prontuario column updated successfully with PatientID matching logic ({patient_type} patients)")
         
         # Get statistics on the update
         result = con.execute("""
@@ -825,18 +1011,403 @@ def update_prontuario_column(con, db_name):
             FROM silver.patients
         """).fetchone()
         
-        logger.info(f"[{db_name}] Prontuario matching results:")
-        logger.info(f"[{db_name}]   Total rows: {result[0]:,}")
-        logger.info(f"[{db_name}]   Matched rows: {result[1]:,}")
-        logger.info(f"[{db_name}]   Unmatched rows: {result[2]:,}")
-        logger.info(f"[{db_name}]   Match rate: {(result[1]/result[0]*100):.2f}%")
-        
+        if result[0] > 0:
+            match_rate = (result[1]/result[0]*100)
+            logger.info(f"[{db_name}] Prontuario matching results after {patient_type} patients pass:")
+            logger.info(f"[{db_name}]   Total rows: {result[0]:,}")
+            logger.info(f"[{db_name}]   Matched rows: {result[1]:,}")
+            logger.info(f"[{db_name}]   Unmatched rows: {result[2]:,}")
+            logger.info(f"[{db_name}]   Match rate: {match_rate:.2f}%")
+        else:
+            logger.warning(f"[{db_name}] No rows found in silver.patients table")
+            
     except Exception as e:
-        logger.error(f"[{db_name}] Error updating prontuario column: {e}")
+        logger.error(f"[{db_name}] Error updating prontuario column with {patient_type} patients: {e}")
+        raise
+
+def update_prontuario_with_lastname(con, db_name):
+    """Update prontuario column using PatientID matching logic when FirstName is in LastName (no date pattern)"""
+    logger.info(f"[{db_name}] Running PatientID-based matching logic (LastName condition - FirstName in LastName)...")
+    
+    # Build the SQL query for PatientID matching with LastName condition
+    update_sql = f"""
+    WITH 
+    -- CTE 1: Extract name_first from LastName when it doesn't contain date pattern
+    patient_name_extract_lastname AS (
+        SELECT 
+            "PatientID",
+            prontuario,
+            "FirstName",
+            "LastName",
+            CASE 
+                -- Check if LastName contains a date pattern (dd/mm/yyyy, dd/mm/yy, or similar)
+                -- If LastName doesn't contain a date pattern, FirstName is actually in LastName
+                WHEN "LastName" IS NOT NULL 
+                     AND NOT (
+                         -- Check for date patterns using regex:
+                         -- dd/mm/yyyy or dd/mm/yy (with optional leading zeros)
+                         -- yyyy-mm-dd (ISO format)
+                         -- dd-mm-yyyy or dd-mm-yy
+                         REGEXP_MATCHES("LastName", '.*[0-9]{1,2}/[0-9]{1,2}/[0-9]{2,4}.*')
+                         OR REGEXP_MATCHES("LastName", '.*[0-9]{4}-[0-9]{1,2}-[0-9]{1,2}.*')
+                         OR REGEXP_MATCHES("LastName", '.*[0-9]{1,2}-[0-9]{1,2}-[0-9]{2,4}.*')
+                         -- Fallback: if it has 2+ slashes or dashes and looks like a date structure
+                         OR ((LENGTH("LastName") - LENGTH(REPLACE("LastName", '/', '')) >= 2) 
+                              AND LENGTH("LastName") >= 8 
+                              AND REGEXP_MATCHES("LastName", '.*[0-9].*/.*[0-9].*/.*[0-9].*'))
+                         OR ((LENGTH("LastName") - LENGTH(REPLACE("LastName", '-', '')) >= 2) 
+                              AND LENGTH("LastName") >= 8 
+                              AND REGEXP_MATCHES("LastName", '.*[0-9].*-.*[0-9].*-.*[0-9].*'))
+                     ) THEN
+                    -- LastName doesn't contain date pattern, so it's actually the first name
+                    CASE 
+                        -- Handle "LastName, FirstName Middle Names" format (e.g., "VALADARES, FLAVIA.F.N." or "GIANNINI, LIVIA.")
+                        WHEN POSITION(',' IN "LastName") > 0 THEN 
+                            -- Extract part after comma, normalize, then extract first sequence of letters only
+                            -- Handles: "VALADARES, FLAVIA.F.N." -> "flavia", "GIANNINI, LIVIA." -> "livia"
+                            REGEXP_REPLACE(
+                                strip_accents(LOWER(TRIM(SPLIT_PART("LastName", ',', 2)))),
+                                '^[^a-z]*([a-z]+).*',
+                                '\\1'
+                            )
+                        -- Handle "FirstName Middle Names" format
+                        ELSE 
+                            -- Extract first sequence of letters, handling cases with dots (e.g., "FLAVIA.F.N.")
+                            REGEXP_REPLACE(
+                                strip_accents(LOWER(TRIM("LastName"))),
+                                '^[^a-z]*([a-z]+).*',
+                                '\\1'
+                            )
+                    END
+                ELSE NULL 
+            END as name_first
+        FROM silver.patients
+        WHERE prontuario = -1
+          AND "PatientID" IS NOT NULL
+          AND "LastName" IS NOT NULL
+          AND NOT (
+              -- Only process records where LastName doesn't contain date pattern
+              -- Check for date patterns: dd/mm/yyyy, dd/mm/yy, yyyy-mm-dd, dd-mm-yyyy, dd-mm-yy
+              REGEXP_MATCHES("LastName", '.*[0-9]{1,2}/[0-9]{1,2}/[0-9]{2,4}.*')
+              OR REGEXP_MATCHES("LastName", '.*[0-9]{4}-[0-9]{1,2}-[0-9]{1,2}.*')
+              OR REGEXP_MATCHES("LastName", '.*[0-9]{1,2}-[0-9]{1,2}-[0-9]{2,4}.*')
+              -- Fallback: if it has 2+ slashes or dashes and looks like a date structure
+              OR ((LENGTH("LastName") - LENGTH(REPLACE("LastName", '/', '')) >= 2) 
+                   AND LENGTH("LastName") >= 8 
+                   AND REGEXP_MATCHES("LastName", '.*[0-9].*/.*[0-9].*/.*[0-9].*'))
+              OR ((LENGTH("LastName") - LENGTH(REPLACE("LastName", '-', '')) >= 2) 
+                   AND LENGTH("LastName") >= 8 
+                   AND REGEXP_MATCHES("LastName", '.*[0-9].*-.*[0-9].*-.*[0-9].*'))
+          )
+    ),
+    
+    -- CTE 2: Extract unmatched records using PatientID
+    embryoscope_extract AS (
+        SELECT DISTINCT 
+            "PatientID" as patient_id,
+            name_first
+        FROM patient_name_extract_lastname
+        WHERE name_first IS NOT NULL
+    ),
+
+    -- CTE 3: Pre-process clinisys data with all transformations and accent normalization (active patients)
+    clinisys_processed AS (
+        SELECT 
+            codigo,
+            prontuario_esposa,
+            prontuario_marido,
+            prontuario_responsavel1,
+            prontuario_responsavel2,
+            prontuario_esposa_pel,
+            prontuario_marido_pel,
+            prontuario_esposa_pc,
+            prontuario_marido_pc,
+            prontuario_responsavel1_pc,
+            prontuario_responsavel2_pc,
+            prontuario_esposa_fc,
+            prontuario_marido_fc,
+            prontuario_esposa_ba,
+            prontuario_marido_ba,
+            strip_accents(LOWER(SPLIT_PART(TRIM(esposa_nome), ' ', 1))) as esposa_nome,
+            strip_accents(LOWER(SPLIT_PART(TRIM(marido_nome), ' ', 1))) as marido_nome,
+            unidade_origem
+        FROM clinisys_all.silver.view_pacientes
+        WHERE inativo = 0
+    ),
+
+    -- CTE 4-18: PatientID matching CTEs (same as before)
+    matches_1 AS (
+        SELECT d.*,
+               p.codigo as prontuario, p.esposa_nome, p.marido_nome, p.unidade_origem,
+               'patientid_main' as match_type
+        FROM embryoscope_extract d
+        INNER JOIN clinisys_processed p 
+            ON d.patient_id = p.codigo
+    ),
+
+    matches_2 AS (
+        SELECT d.*, 
+               p.codigo as prontuario, p.esposa_nome, p.marido_nome, p.unidade_origem,
+               'patientid_esposa' as match_type
+        FROM embryoscope_extract d
+        INNER JOIN clinisys_processed p 
+            ON d.patient_id = p.prontuario_esposa
+    ),
+
+    matches_3 AS (
+        SELECT d.*,
+              p.codigo as prontuario, p.esposa_nome, p.marido_nome, p.unidade_origem,
+               'patientid_marido' as match_type
+        FROM embryoscope_extract d
+        INNER JOIN clinisys_processed p 
+            ON d.patient_id = p.prontuario_marido
+    ),
+
+    matches_4 AS (
+        SELECT d.*,
+              p.codigo as prontuario, p.esposa_nome, p.marido_nome, p.unidade_origem,
+               'patientid_responsavel1' as match_type
+        FROM embryoscope_extract d
+        INNER JOIN clinisys_processed p 
+            ON d.patient_id = p.prontuario_responsavel1
+    ),
+
+    matches_5 AS (
+        SELECT d.*,
+               p.codigo as prontuario, p.esposa_nome, p.marido_nome, p.unidade_origem,
+               'patientid_responsavel2' as match_type
+        FROM embryoscope_extract d
+        INNER JOIN clinisys_processed p 
+            ON d.patient_id = p.prontuario_responsavel2
+    ),
+
+    matches_6 AS (
+        SELECT d.*,
+               p.codigo as prontuario, p.esposa_nome, p.marido_nome, p.unidade_origem,
+               'patientid_esposa_pel' as match_type
+        FROM embryoscope_extract d
+        INNER JOIN clinisys_processed p 
+            ON d.patient_id = p.prontuario_esposa_pel
+    ),
+
+    matches_7 AS (
+        SELECT d.*,
+               p.codigo as prontuario, p.esposa_nome, p.marido_nome, p.unidade_origem,
+               'patientid_marido_pel' as match_type
+        FROM embryoscope_extract d
+        INNER JOIN clinisys_processed p 
+            ON d.patient_id = p.prontuario_marido_pel
+    ),
+
+    matches_8 AS (
+        SELECT d.*,
+               p.codigo as prontuario, p.esposa_nome, p.marido_nome, p.unidade_origem,
+               'patientid_esposa_pc' as match_type
+        FROM embryoscope_extract d
+        INNER JOIN clinisys_processed p 
+            ON d.patient_id = p.prontuario_esposa_pc
+    ),
+
+    matches_9 AS (
+        SELECT d.*,
+               p.codigo as prontuario, p.esposa_nome, p.marido_nome, p.unidade_origem,
+               'patientid_marido_pc' as match_type
+        FROM embryoscope_extract d
+        INNER JOIN clinisys_processed p 
+            ON d.patient_id = p.prontuario_marido_pc
+    ),
+
+    matches_10 AS (
+        SELECT d.*,
+               p.codigo as prontuario, p.esposa_nome, p.marido_nome, p.unidade_origem,
+               'patientid_responsavel1_pc' as match_type
+        FROM embryoscope_extract d
+        INNER JOIN clinisys_processed p 
+            ON d.patient_id = p.prontuario_responsavel1_pc
+    ),
+
+    matches_11 AS (
+        SELECT d.*,
+               p.codigo as prontuario, p.esposa_nome, p.marido_nome, p.unidade_origem,
+               'patientid_responsavel2_pc' as match_type
+        FROM embryoscope_extract d
+        INNER JOIN clinisys_processed p 
+            ON d.patient_id = p.prontuario_responsavel2_pc
+    ),
+
+    matches_12 AS (
+        SELECT d.*,
+               p.codigo as prontuario, p.esposa_nome, p.marido_nome, p.unidade_origem,
+               'patientid_esposa_fc' as match_type
+        FROM embryoscope_extract d
+        INNER JOIN clinisys_processed p 
+            ON d.patient_id = p.prontuario_esposa_fc
+    ),
+
+    matches_13 AS (
+        SELECT d.*,
+               p.codigo as prontuario, p.esposa_nome, p.marido_nome, p.unidade_origem,
+               'patientid_marido_fc' as match_type
+        FROM embryoscope_extract d
+        INNER JOIN clinisys_processed p 
+            ON d.patient_id = p.prontuario_marido_fc
+    ),
+
+    matches_14 AS (
+        SELECT d.*,
+               p.codigo as prontuario, p.esposa_nome, p.marido_nome, p.unidade_origem,
+               'patientid_esposa_ba' as match_type
+        FROM embryoscope_extract d
+        INNER JOIN clinisys_processed p 
+            ON d.patient_id = p.prontuario_esposa_ba
+    ),
+
+    matches_15 AS (
+        SELECT d.*,
+               p.codigo as prontuario, p.esposa_nome, p.marido_nome, p.unidade_origem,
+               'patientid_marido_ba' as match_type
+        FROM embryoscope_extract d
+        INNER JOIN clinisys_processed p 
+            ON d.patient_id = p.prontuario_marido_ba
+    ),
+
+    -- CTE 19: UNION matches
+    all_matches AS (
+        SELECT * FROM matches_1
+        UNION
+        SELECT * FROM matches_2
+        UNION
+        SELECT * FROM matches_3
+        UNION 
+        SELECT * FROM matches_4
+        UNION
+        SELECT * FROM matches_5
+        UNION
+        SELECT * FROM matches_6
+        UNION
+        SELECT * FROM matches_7
+        UNION
+        SELECT * FROM matches_8
+        UNION
+        SELECT * FROM matches_9
+        UNION
+        SELECT * FROM matches_10
+        UNION
+        SELECT * FROM matches_11
+        UNION
+        SELECT * FROM matches_12
+        UNION
+        SELECT * FROM matches_13
+        UNION
+        SELECT * FROM matches_14
+        UNION
+        SELECT * FROM matches_15
+    ),
+
+    -- CTE 20: Calculate scores for ranking
+    scored_matches AS (
+        SELECT *,
+               -- Calculate name match score
+               CASE 
+                   WHEN name_first = esposa_nome OR name_first = marido_nome THEN 0
+                   ELSE 4
+               END as name_match_score,
+               -- Calculate match type score (odd numbers)
+               CASE 
+                   WHEN match_type = 'patientid_main' THEN 1
+                   WHEN match_type = 'patientid_esposa' THEN 3
+                   WHEN match_type = 'patientid_marido' THEN 5
+                   WHEN match_type = 'patientid_responsavel1' THEN 7
+                   WHEN match_type = 'patientid_responsavel2' THEN 9
+                   WHEN match_type = 'patientid_esposa_pel' THEN 11
+                   WHEN match_type = 'patientid_marido_pel' THEN 13
+                   WHEN match_type = 'patientid_esposa_pc' THEN 15
+                   WHEN match_type = 'patientid_marido_pc' THEN 17
+                   WHEN match_type = 'patientid_responsavel1_pc' THEN 19
+                   WHEN match_type = 'patientid_responsavel2_pc' THEN 21
+                   WHEN match_type = 'patientid_esposa_fc' THEN 23
+                   WHEN match_type = 'patientid_marido_fc' THEN 25
+                   WHEN match_type = 'patientid_esposa_ba' THEN 27
+                   WHEN match_type = 'patientid_marido_ba' THEN 29
+                   ELSE 31
+               END as match_type_score
+        FROM all_matches
+        WHERE name_first = esposa_nome OR name_first = marido_nome
+    ),
+
+    -- CTE 21: Apply ranking based on combined scores
+    ranked_matches AS (
+        SELECT *,
+               (name_match_score + match_type_score) as combined_score,
+               ROW_NUMBER() OVER (
+                   PARTITION BY patient_id, prontuario 
+                   ORDER BY (name_match_score + match_type_score)
+               ) 
+               as rn
+        FROM scored_matches
+    ),
+
+    -- CTE 22: Select best match per PatientID (lowest rn value)
+    best_matches AS (
+        SELECT * 
+        FROM ranked_matches rm1
+        WHERE rn = (
+            SELECT MIN(rn) 
+            FROM ranked_matches rm2 
+            WHERE rm2.patient_id = rm1.patient_id
+        )
+    ),
+    
+    -- CTE 23: Join best_matches with patient_name_extract_lastname for final update
+    update_matches AS (
+        SELECT 
+            pne."PatientID",
+            COALESCE(bm.prontuario, -1) as new_prontuario
+        FROM patient_name_extract_lastname pne
+        INNER JOIN best_matches bm 
+            ON pne."PatientID" = bm.patient_id
+            AND pne.name_first = bm.name_first
+        WHERE pne.prontuario = -1
+    )
+
+    -- Update prontuario column for unmatched records using PatientID
+    UPDATE silver.patients 
+    SET prontuario = um.new_prontuario
+    FROM update_matches um
+    WHERE silver.patients."PatientID" = um."PatientID"
+        AND silver.patients.prontuario = -1
+    """
+    
+    try:
+        con.execute(update_sql)
+        logger.info(f"[{db_name}] Prontuario column updated successfully with PatientID matching logic (LastName condition)")
+        
+        # Get statistics on the update
+        result = con.execute("""
+            SELECT 
+                COUNT(*) as total_rows,
+                COUNT(CASE WHEN prontuario != -1 THEN 1 END) as matched_rows,
+                COUNT(CASE WHEN prontuario = -1 THEN 1 END) as unmatched_rows
+            FROM silver.patients
+        """).fetchone()
+        
+        if result[0] > 0:
+            match_rate = (result[1]/result[0]*100)
+            logger.info(f"[{db_name}] Prontuario matching results after LastName condition pass:")
+            logger.info(f"[{db_name}]   Total rows: {result[0]:,}")
+            logger.info(f"[{db_name}]   Matched rows: {result[1]:,}")
+            logger.info(f"[{db_name}]   Unmatched rows: {result[2]:,}")
+            logger.info(f"[{db_name}]   Match rate: {match_rate:.2f}%")
+        else:
+            logger.warning(f"[{db_name}] No rows found in silver.patients table")
+            
+    except Exception as e:
+        logger.error(f"[{db_name}] Error updating prontuario column with LastName condition: {e}")
         raise
 
 def main():
     db_dir = r'G:/My Drive/projetos_individuais/Huntington/database'
+    logger.info('Starting embryoscope bronze to silver loader (EXCLUDING COLUMNS WITH >90% NULL RATE)')
     logger.info(f"Looking for DuckDB files in: {db_dir}")
     logger.debug(f"Looking for DuckDB files in: {db_dir}")
     db_paths = glob.glob(os.path.join(db_dir, '*.db'))
@@ -855,6 +1426,31 @@ def main():
         process_embryo_data_database(db_path)
         logger.info(f"Finished processing for {db_path}")
         logger.debug(f"Finished processing for {db_path}")
+    
+    # Create indexes for better JOIN performance in gold layer
+    logger.info('Creating indexes for better JOIN performance...')
+    for db_path in db_paths:
+        db_name = os.path.basename(db_path)
+        try:
+            con = duckdb.connect(db_path)
+            index_queries = [
+                "CREATE INDEX IF NOT EXISTS idx_embryo_fertilization_time ON silver.embryo_data(FertilizationTime)",
+                "CREATE INDEX IF NOT EXISTS idx_embryo_patient_id ON silver.embryo_data(PatientIDx)",
+                "CREATE INDEX IF NOT EXISTS idx_patients_patient_id ON silver.patients(PatientID)"
+            ]
+            
+            for idx_query in index_queries:
+                try:
+                    con.execute(idx_query)
+                except Exception as e:
+                    logger.warning(f'[{db_name}] Index creation failed (may already exist): {e}')
+            
+            con.close()
+            logger.info(f'[{db_name}] Indexes created successfully')
+        except Exception as e:
+            logger.error(f'[{db_name}] Error creating indexes: {e}')
+    
+    logger.info('All embryoscope databases processed successfully')
 
 if __name__ == '__main__':
     main() 

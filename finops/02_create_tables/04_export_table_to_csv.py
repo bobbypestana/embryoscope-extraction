@@ -125,8 +125,9 @@ def export_table_to_csv(schema, table_name, output_filename=None, prefix=None):
             logger.info(f"Starting export to: {output_path}")
             
             # Use pandas to export with European CSV format: decimal separator as comma, field separator as semicolon, quote all
+            # Use utf-8-sig encoding to add BOM (Byte Order Mark) for better compatibility with Excel and other CSV readers
             df = conn.execute(f"SELECT * FROM \"{schema}\".\"{table_name}\"").df()
-            df.to_csv(output_path, sep=';', decimal=',', quoting=1, index=False)  # quoting=1 means QUOTE_ALL
+            df.to_csv(output_path, sep=';', decimal=',', quoting=1, index=False, encoding='utf-8-sig')  # quoting=1 means QUOTE_ALL
             
             # Verify the file was created and has content
             if os.path.exists(output_path):
@@ -137,7 +138,7 @@ def export_table_to_csv(schema, table_name, output_filename=None, prefix=None):
                 
                 # Show first few lines as preview
                 try:
-                    df_preview = pd.read_csv(output_path, nrows=5)
+                    df_preview = pd.read_csv(output_path, nrows=5, sep=';', decimal=',', encoding='utf-8-sig')
                     logger.info(f"Preview of exported data:")
                     logger.info(f"\n{df_preview.to_string()}")
                 except Exception as e:

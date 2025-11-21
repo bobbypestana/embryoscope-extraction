@@ -36,23 +36,16 @@ def test_join_strategies(con):
     logger.info("Testing exact day matching strategy...")
     
     strategy = {
-        'name': 'Exact DATE match with clean PatientID (embryos only)',
+        'name': 'Exact DATE match with prontuario and embryo_number (embryos only)',
         'query': '''
             SELECT COUNT(*) as matches
             FROM gold.clinisys_embrioes c
-            LEFT JOIN (
-                SELECT *,
-                    CASE 
-                        WHEN patient_PatientID IS NULL THEN NULL
-                        ELSE patient_PatientID
-                    END as patient_PatientID_clean
-                FROM gold.embryoscope_embrioes
-            ) e
-                                     ON CAST(c.micro_Data_DL AS DATE) = CAST(e.embryo_FertilizationTime AS DATE)
-                 AND c.oocito_embryo_number = e.embryo_embryo_number
-                 AND c.micro_prontuario = e.patient_PatientID_clean
-                 AND e.patient_PatientID_clean IS NOT NULL
-                 AND c.oocito_flag_embryoscope = 1
+            LEFT JOIN gold.embryoscope_embrioes e
+                ON c.micro_Data_DL = DATE(e.embryo_FertilizationTime)
+                AND c.micro_prontuario = e.prontuario
+                AND e.embryo_embryo_number = c.oocito_embryo_number
+                AND e.prontuario IS NOT NULL
+                AND c.oocito_flag_embryoscope = 1
             WHERE e.embryo_EmbryoID IS NOT NULL
         '''
     }
@@ -80,12 +73,23 @@ def main():
         with duckdb.connect(db_path) as con:
             logger.info('Connected to DuckDB')
             
+            # Indexes should be created in silver layer, not here
+            logger.info('Using pre-created indexes from silver layer for better JOIN performance')
+            
+            # Set DuckDB configuration for better performance
+            logger.info('Setting DuckDB configuration for better performance...')
+            con.execute("SET memory_limit='8GB'")
+            con.execute("SET threads=16")
+            con.execute("SET enable_progress_bar=true")
+            logger.info('DuckDB configuration set successfully')
+            
             # Test exact day matching strategy
             join_results = test_join_strategies(con)
             
-            # Use exact day matching
-            date_condition = "CAST(c.micro_Data_DL AS DATE) = CAST(e.embryo_FertilizationTime AS DATE)"
-            logger.info(f"Using exact day matching strategy")
+            # Use exact day matching with properly typed DATE columns for better performance
+            # Cast embryo_FertilizationTime (TIMESTAMP) to DATE for comparison with micro_Data_DL (DATE)
+            date_condition = "c.micro_Data_DL = DATE(e.embryo_FertilizationTime)"
+            logger.info(f"Using exact day matching strategy with DATE() casting")
             
             # CURRENT LOGIC (COMMENTED OUT) - Selective columns only
             # query = f'''
@@ -114,92 +118,35 @@ def main():
             #     
             # FROM gold.clinisys_embrioes c
             
-            # NEW LOGIC - Optimized column selection
+            # DYNAMIC LOGIC - Select only columns that actually exist
+            # Get all available columns from the gold table
+            available_columns = con.execute("DESCRIBE gold.clinisys_embrioes").df()['column_name'].tolist()
+            logger.info(f'Available columns in gold.clinisys_embrioes: {len(available_columns)}')
+            
+            # Build the SELECT clause dynamically
+            select_columns = []
+            for col in available_columns:
+                select_columns.append(f"c.{col}")
+            
+            # Add all embryoscope columns
+            select_columns.append("e.*")
+            
             query = f'''
             SELECT 
-                -- Selected Clinisys columns:
-                -- 1. All oocito_ columns
-                c.oocito_id,
-                c.oocito_id_micromanipulacao,
-                c.oocito_diaseguinte,
-                c.oocito_Maturidade,
-                c.oocito_RC,
-                c.oocito_ComentariosAntes,
-                c.oocito_Embriologista,
-                c.oocito_PI,
-                c.oocito_TCD,
-                c.oocito_AH,
-                c.oocito_PGD,
-                c.oocito_ResultadoPGD,
-                c.oocito_IdentificacaoPGD,
-                c.oocito_Fertilizacao,
-                c.oocito_CorpusculoPolar,
-                c.oocito_ComentariosDepois,
-                c.oocito_GD1,
-                c.oocito_OocitoDoado,
-                c.oocito_ICSI,
-                c.oocito_OrigemOocito,
-                c.oocito_InseminacaoOocito,
-                c.oocito_NClivou_D2,
-                c.oocito_NCelulas_D2,
-                c.oocito_Frag_D2,
-                c.oocito_Blastomero_D2,
-                c.oocito_NClivou_D3,
-                c.oocito_NCelulas_D3,
-                c.oocito_Frag_D3,
-                c.oocito_Blastomero_D3,
-                c.oocito_GD2,
-                c.oocito_NClivou_D4,
-                c.oocito_NCelulas_D4,
-                c.oocito_Compactando_D4,
-                c.oocito_MassaInterna_D4,
-                c.oocito_Trofoblasto_D4,
-                c.oocito_NClivou_D5,
-                c.oocito_NCelulas_D5,
-                c.oocito_Compactando_D5,
-                c.oocito_MassaInterna_D5,
-                c.oocito_Trofoblasto_D5,
-                c.oocito_NClivou_D6,
-                c.oocito_NCelulas_D6,
-                c.oocito_Compactando_D6,
-                c.oocito_MassaInterna_D6,
-                c.oocito_Trofoblasto_D6,
-                c.oocito_NClivou_D7,
-                c.oocito_NCelulas_D7,
-                c.oocito_Compactando_D7,
-                c.oocito_MassaInterna_D7,
-                c.oocito_Trofoblasto_D7,
-                c.oocito_score_maia,
-                c.oocito_relatorio_ia,
-                c.oocito_flag_embryoscope,
-                c.oocito_embryo_number,
-                
-                -- 2. Specific micro columns
-                c.micro_prontuario,
-                c.micro_Data_DL,
-                c.micro_numero_caso,
-                
-                -- ALL Embryoscope columns (prefixed with 'e.')
-                e.*
-                
+                {', '.join(select_columns)}
             FROM gold.clinisys_embrioes c
             FULL OUTER JOIN (
-                SELECT *,
-                    CASE 
-                        WHEN patient_PatientID IS NULL THEN NULL
-                        ELSE patient_PatientID
-                    END as patient_PatientID_clean
+                SELECT *
                 FROM gold.embryoscope_embrioes
+                WHERE prontuario IS NOT NULL
             ) e
                 ON {date_condition}
-                AND c.oocito_embryo_number = e.embryo_embryo_number
-                AND c.micro_prontuario = e.patient_PatientID_clean
-                AND e.patient_PatientID_clean IS NOT NULL
-                AND c.oocito_flag_embryoscope = 1
+                AND c.micro_prontuario = e.prontuario
+                AND e.embryo_embryo_number = c.oocito_embryo_number
             ORDER BY COALESCE(CAST(c.oocito_id AS VARCHAR), e.embryo_EmbryoID)
             '''
             
-            logger.info(f"Using FULL OUTER JOIN with exact day matching: {date_condition} + PatientID_clean")
+            logger.info(f"Using FULL OUTER JOIN with exact day matching: {date_condition} + prontuario + embryo_number")
             
             # Execute query to get data
             df = con.execute(query).df()

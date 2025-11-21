@@ -82,7 +82,7 @@ def create_all_patient_timeline_sql(conn):
             t.tipo_procedimento as reference_value,
             t.tentativa,
             COALESCE(u.nome, CAST(t.unidade AS VARCHAR)) as unidade,
-            t.resultado_tratamento,
+            CAST(t.resultado_tratamento AS VARCHAR) as resultado_tratamento,
             '{}' as additional_info
         FROM silver.view_tratamentos t
         LEFT JOIN silver.view_unidades u ON t.unidade = u.id
@@ -104,7 +104,7 @@ def create_all_patient_timeline_sql(conn):
             procedimento_nome as reference_value,
             NULL as tentativa,
             centro_custos_nome as unidade,
-            NULL as resultado_tratamento,
+            CAST(NULL AS VARCHAR) as resultado_tratamento,
             '{}' as additional_info
         FROM (
             SELECT *,
@@ -132,7 +132,7 @@ def create_all_patient_timeline_sql(conn):
             Ciclo as reference_value,
             NULL as tentativa,
             NULL as unidade,
-            NULL as resultado_tratamento,
+            CAST(NULL AS VARCHAR) as resultado_tratamento,
             CASE 
                 WHEN NEmbrioes IS NOT NULL OR Unidade IS NOT NULL 
                 THEN '{"NEmbrioes": "' || COALESCE(CAST(NEmbrioes AS VARCHAR), '') || '", "Unidade": "' || COALESCE(CAST(Unidade AS VARCHAR), '') || '"}'
@@ -154,7 +154,7 @@ def create_all_patient_timeline_sql(conn):
             Ciclo as reference_value,
             NULL as tentativa,
             NULL as unidade,
-            NULL as resultado_tratamento,
+            CAST(NULL AS VARCHAR) as resultado_tratamento,
             CASE 
                 WHEN NOvulos IS NOT NULL OR Unidade IS NOT NULL 
                 THEN '{"NOvulos": "' || COALESCE(CAST(NOvulos AS VARCHAR), '') || '", "Unidade": "' || COALESCE(CAST(Unidade AS VARCHAR), '') || '"}'
@@ -176,7 +176,7 @@ def create_all_patient_timeline_sql(conn):
             Ciclo as reference_value,
             NULL as tentativa,
             NULL as unidade,
-            NULL as resultado_tratamento,
+            CAST(NULL AS VARCHAR) as resultado_tratamento,
             CASE 
                 WHEN CodDescongelamento IS NOT NULL OR Unidade IS NOT NULL 
                 THEN '{"CodDescongelamento": "' || COALESCE(CodDescongelamento, '') || '", "Unidade": "' || COALESCE(CAST(Unidade AS VARCHAR), '') || '"}'
@@ -198,7 +198,7 @@ def create_all_patient_timeline_sql(conn):
             Ciclo as reference_value,
             NULL as tentativa,
             NULL as unidade,
-            NULL as resultado_tratamento,
+            CAST(NULL AS VARCHAR) as resultado_tratamento,
             CASE 
                 WHEN CodDescongelamento IS NOT NULL OR Unidade IS NOT NULL 
                 THEN '{"CodDescongelamento": "' || COALESCE(CodDescongelamento, '') || '", "Unidade": "' || COALESCE(CAST(Unidade AS VARCHAR), '') || '"}'
@@ -283,9 +283,21 @@ def save_timeline_to_database(timeline_df):
         logger.info("Dropped existing table (if any)")
         
         # Create new table with current data
+        # Explicitly cast resultado_tratamento to VARCHAR to preserve type
         conn.execute("""
             CREATE TABLE gold.all_patients_timeline AS 
-            SELECT * FROM timeline_df
+            SELECT 
+                prontuario,
+                event_id,
+                event_date,
+                reference,
+                reference_value,
+                tentativa,
+                unidade,
+                CAST(resultado_tratamento AS VARCHAR) as resultado_tratamento,
+                flag_date_estimated,
+                additional_info
+            FROM timeline_df
         """)
         
         # Get row count

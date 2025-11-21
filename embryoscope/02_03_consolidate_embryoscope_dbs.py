@@ -107,12 +107,82 @@ def consolidate_table(table_key, table_info, db_paths):
         return pd.DataFrame()
     df_all = pd.concat(all_dfs, ignore_index=True, sort=False)
     logger.debug(f"Concatenated DataFrame shape for {table_info['table']}: {df_all.shape}")
+    
+    # Filter out records where all data columns are NULL (excluding business keys, metadata, and key embryo columns)
+    if table_key == 'embryo_data':
+        initial_count = len(df_all)
+        
+        # Define columns to exclude from null check (business keys, metadata, and key embryo identification columns)
+        exclude_cols = set(table_info['business_keys'] + [
+            '_extraction_timestamp', '_location', '_run_id', '_row_hash', 
+            'unit_huntington', 'PatientIDx', 'TreatmentName',  # Business keys
+            'EmbryoID', 'EmbryoDescriptionID', 'FertilizationTime', 'EmbryoFate',  # Key embryo identification
+            'InstrumentNumber', 'Position', 'WellNumber'  # Instrument/well identification
+        ])
+        
+        # Get all data columns (exclude business keys and metadata)
+        all_columns = set(df_all.columns)
+        data_columns = all_columns - exclude_cols
+        
+        # Filter out rows where all data columns are NULL
+        # Keep rows where at least one data column is not NULL
+        if len(data_columns) > 0:
+            mask = df_all[list(data_columns)].notna().any(axis=1)
+            df_all = df_all[mask]
+            
+            filtered_count = len(df_all)
+            rows_filtered = initial_count - filtered_count
+            
+            if rows_filtered > 0:
+                logger.info(f"Filtered out {rows_filtered} records where all data columns are NULL from {table_info['table']}")
+                logger.info(f"  Initial count: {initial_count:,}, After filtering: {filtered_count:,}")
+            else:
+                logger.info(f"No records filtered - all {initial_count:,} records have at least one non-null data column")
+        else:
+            logger.warning(f"No data columns found to check for {table_info['table']}")
+    
     sort_cols = table_info['business_keys'] + ['_extraction_timestamp']
     logger.debug(f"Sorting by columns: {sort_cols}")
     df_all = df_all.sort_values(sort_cols, ascending=[True]*len(table_info['business_keys']) + [False])
     df_dedup = df_all.drop_duplicates(subset=table_info['business_keys'], keep='first')
     logger.debug(f"Deduplicated DataFrame shape for {table_info['table']}: {df_dedup.shape}")
     return df_dedup
+
+def create_embryo_number_feature(con, schema, table):
+    """Add embryo_number column to consolidated embryo_data table after deduplication.
+    
+    The embryo_number is assigned sequentially within each patient-treatment combination,
+    ensuring unique numbering per patient even when multiple patients share the same treatment name.
+    """
+    logger.info(f"Adding embryo_number feature to {schema}.{table}")
+    
+    try:
+        # Add embryo_number with proper sorting logic for EmbryoDescriptionID
+        # Transform EmbryoDescriptionID inline for sorting: AA1 -> AA01, AA2 -> AA02, etc.
+        # Partition by both PatientIDx and TreatmentName to ensure unique numbering per patient-treatment
+        con.execute(f"""
+            CREATE OR REPLACE TABLE {schema}.{table} AS
+            SELECT *,
+                   ROW_NUMBER() OVER (
+                       PARTITION BY PatientIDx, TreatmentName 
+                       ORDER BY 
+                           CASE 
+                               WHEN EmbryoDescriptionID IS NULL THEN NULL
+                               WHEN regexp_matches(EmbryoDescriptionID, '^[A-Z]+[0-9]+$') THEN
+                                   regexp_replace(EmbryoDescriptionID, '^([A-Z]+)([0-9]+)$', 
+                                                 '\\1' || lpad(regexp_extract(EmbryoDescriptionID, '([0-9]+)$', 1), 2, '0'))
+                               ELSE EmbryoDescriptionID
+                           END,
+                           EmbryoID
+                   ) AS embryo_number
+            FROM {schema}.{table}
+        """)
+        
+        logger.info(f"embryo_number feature added successfully to {schema}.{table}")
+        
+    except Exception as e:
+        logger.error(f"Error adding embryo_number feature: {e}")
+        raise
 
 def write_table_to_central_db(df, table, schema, central_db):
     logger.debug(f"Writing table {table} to central DB: {central_db}, schema: {schema}")
@@ -128,6 +198,10 @@ def write_table_to_central_db(df, table, schema, central_db):
         logger.debug(f"Creating table: {schema}.{table} from DataFrame")
         con.execute(f"CREATE TABLE {schema}.{table} AS SELECT * FROM df")
         logger.info(f"Wrote {len(df)} rows and {len(df.columns)} columns to {schema}.{table}")
+        
+        # Add embryo_number feature after deduplication for embryo_data table
+        if table == 'embryo_data':
+            create_embryo_number_feature(con, schema, table)
     except Exception as e:
         logger.error(f"Failed to write {table} to central DB: {e}")
     finally:

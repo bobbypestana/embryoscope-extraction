@@ -7,15 +7,15 @@ import duckdb as db
 import pandas as pd
 from datetime import datetime
 
-def get_database_connection():
+def get_database_connection(read_only=False):
 	"""Create and return a connection to the huntington_data_lake database"""
 	# Resolve DB path relative to repository root
 	import os
 	repo_root = os.path.dirname(os.path.dirname(os.path.dirname(__file__)))
 	path_to_db = os.path.join(repo_root, 'database', 'huntington_data_lake.duckdb')
-	conn = db.connect(path_to_db)
+	conn = db.connect(path_to_db, read_only=read_only)
 	
-	print(f"Connected to database: {path_to_db}")
+	print(f"Connected to database: {path_to_db} (read_only={read_only})")
 	return conn
 
 def create_finops_summary_table(conn):
@@ -85,7 +85,7 @@ def create_finops_summary_table(conn):
 	-- ),
 	timeline_summary AS (
 		SELECT
-			prontuario,
+			CAST(CAST(prontuario AS INTEGER) AS VARCHAR) as prontuario,
 			COUNT(CASE
 				WHEN LOWER(COALESCE(resultado_tratamento, '')) NOT IN ('no transfer', '') THEN 1
 			END) AS cycle_with_transfer,
@@ -103,27 +103,27 @@ def create_finops_summary_table(conn):
 		FROM gold.all_patients_timeline
 		WHERE reference_value IN ('Ciclo a Fresco FIV', 'Ciclo de Congelados', 'Ciclo a Fresco Vitrificação')
 			AND flag_date_estimated = FALSE
-		GROUP BY prontuario
+		GROUP BY CAST(CAST(prontuario AS INTEGER) AS VARCHAR)
 	),
 	-- Get donor flags from clinisys_all database
 	donor_flags AS (
 		-- Get patients who are embryo donors (prontuario_doadora)
-		SELECT DISTINCT prontuario_doadora as prontuario
+		SELECT DISTINCT CAST(prontuario_doadora AS VARCHAR) as prontuario
 		FROM clinisys_all.silver.view_tratamentos
 		WHERE prontuario_doadora IS NOT NULL
 		
 		UNION
 		
 		-- Get patients who are egg donors (doacao_ovulos = 'Sim')
-		SELECT DISTINCT prontuario
+		SELECT DISTINCT CAST(prontuario AS VARCHAR) as prontuario
 		FROM clinisys_all.silver.view_tratamentos
 		WHERE doacao_ovulos = 'Sim'
 	),
 	-- Get prontuario_genitores mapping for uterus substitution patients
 	utero_substituicao_mapping AS (
 		SELECT DISTINCT 
-			prontuario,
-			COALESCE(prontuario_genitores, prontuario) as prontuario_genitores
+			CAST(prontuario AS VARCHAR) as prontuario,
+			CAST(COALESCE(prontuario_genitores, prontuario) AS VARCHAR) as prontuario_genitores
 		FROM clinisys_all.silver.view_tratamentos
 		WHERE utero_substituicao = 'Sim'
 	),
@@ -131,7 +131,7 @@ def create_finops_summary_table(conn):
 	-- Use the most recent doctor for each patient to avoid duplicates
 	medico_mapping AS (
 		SELECT 
-			prontuario,
+			CAST(prontuario AS VARCHAR) as prontuario,
 			COALESCE(m.nome, 'Não informado') as medico_nome
 		FROM (
 			SELECT 
@@ -147,7 +147,7 @@ def create_finops_summary_table(conn):
 	-- Define payment conditions using Descrição Gerencial field
 	billing_conditions AS (
 		SELECT 
-			prontuario,
+			CAST(CAST(prontuario AS INTEGER) AS VARCHAR) as prontuario,
 			"Total",
 			"DT Emissao",
 			"Unidade",
@@ -164,7 +164,15 @@ def create_finops_summary_table(conn):
 		SELECT
 			COALESCE(u.prontuario, b.prontuario) as prontuario,
 			-- Treatment payment totals - count distinct NF Eletr instead of summing flags
-			COUNT(DISTINCT CASE WHEN b.is_treatment_payment = 1 THEN b."NF Eletr." END) AS treatment_paid_count,
+			-- Handle NULL NF Eletr by using date + total as surrogate identifier
+			COUNT(DISTINCT CASE 
+				WHEN b.is_treatment_payment = 1 THEN 
+					COALESCE(
+						b."NF Eletr.",
+						CAST(b."DT Emissao" AS VARCHAR) || '|' || CAST(b."Total" AS VARCHAR)
+					)
+				END
+			) AS treatment_paid_count,
 			SUM(CASE WHEN b.is_treatment_payment = 1 THEN b."Total" ELSE 0 END) AS treatment_paid_total,
 			-- Date ranges for billing
 			MIN(CASE WHEN b.is_treatment_payment = 1 THEN b."DT Emissao" END) AS billing_first_date,
@@ -237,7 +245,7 @@ def create_finops_summary_table(conn):
 	SET timeline_unidade = patient_units.unidade_nome
 	FROM (
 		SELECT 
-			p.codigo as prontuario,
+			CAST(CAST(p.codigo AS INTEGER) AS VARCHAR) as prontuario,
 			u.nome as unidade_nome
 		FROM clinisys_all.silver.view_pacientes p
 		LEFT JOIN clinisys_all.silver.view_unidades u ON p.unidade_origem = u.id
@@ -245,6 +253,39 @@ def create_finops_summary_table(conn):
 	WHERE finops_summary.prontuario = patient_units.prontuario
 	"""
 	conn.execute(update_unidade_query)
+	
+	# Consolidate any duplicate prontuario rows (normalize INTEGER vs DOUBLE/VARCHAR format differences)
+	print("Consolidating duplicate prontuario rows...")
+	consolidate_query = """
+	CREATE OR REPLACE TABLE gold.finops_summary AS
+	SELECT 
+		CAST(CAST(prontuario AS INTEGER) AS VARCHAR) as prontuario,
+		SUM(cycle_with_transfer) AS cycle_with_transfer,
+		SUM(cycle_without_transfer) AS cycle_without_transfer,
+		SUM(cycle_with_transfer) + SUM(cycle_without_transfer) AS cycle_total,
+		SUM(treatment_paid_count) AS treatment_paid_count,
+		SUM(treatment_paid_total) AS treatment_paid_total,
+		MIN(timeline_first_date) AS timeline_first_date,
+		MAX(timeline_last_date) AS timeline_last_date,
+		MIN(billing_first_date) AS billing_first_date,
+		MAX(billing_last_date) AS billing_last_date,
+		-- Take the first non-null prontuario_genitores
+		MAX(prontuario_genitores) AS prontuario_genitores,
+		-- Take the first non-null medico_nome
+		MAX(medico_nome) AS medico_nome,
+		-- Take the first non-null timeline_unidade
+		MAX(timeline_unidade) AS timeline_unidade,
+		-- Flags: use MAX to get 1 if any row has the flag
+		MAX(flag_is_donor) AS flag_is_donor,
+		MAX(flag_cycles_no_payments) AS flag_cycles_no_payments,
+		MAX(flag_more_cycles_than_payments) AS flag_more_cycles_than_payments,
+		MAX(flag_no_cycles_but_payments) AS flag_no_cycles_but_payments,
+		MAX(flag_less_cycles_than_payments) AS flag_less_cycles_than_payments
+	FROM gold.finops_summary
+	GROUP BY CAST(CAST(prontuario AS INTEGER) AS VARCHAR)
+	ORDER BY CAST(CAST(prontuario AS INTEGER) AS VARCHAR)
+	"""
+	conn.execute(consolidate_query)
 	
 	# Verify the table was created
 	table_stats = conn.execute("""

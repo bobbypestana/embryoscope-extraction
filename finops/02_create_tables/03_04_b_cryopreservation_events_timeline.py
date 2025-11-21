@@ -99,7 +99,7 @@ def create_cryopreservation_events_timeline_table(conn):
             AND prontuario != -1
             AND "DT Emissao" IS NOT NULL
             AND "DT Emissao" <= CURRENT_DATE
-            AND Descricao LIKE 'CRIOPRESERVACAO%'
+            AND (Descricao LIKE 'CRIOPRESERVACAO%' OR "Descrição Gerencial" = 'Coleta - Crio')
         GROUP BY prontuario, STRFTIME("DT Emissao", '%Y-%m')
     ),
     

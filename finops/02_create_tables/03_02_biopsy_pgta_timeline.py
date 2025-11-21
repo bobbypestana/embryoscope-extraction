@@ -54,7 +54,7 @@ def create_biopsy_pgta_timeline_table(conn):
     ),
     
     -- Get PGT-A test data by month and prontuario
-    -- Count where IdentificacaoPGD LIKE 'PGT%'
+    -- Count where IdentificacaoPGD LIKE 'PGT%' but exclude 'PGT-M + A'
     pgta_events AS (
         SELECT 
             m.prontuario,
@@ -67,6 +67,7 @@ def create_biopsy_pgta_timeline_table(conn):
             AND m.Data_DL IS NOT NULL
             AND CAST(m.Data_DL AS VARCHAR)::DATE <= CURRENT_DATE
             AND o.IdentificacaoPGD LIKE 'PGT%'
+            AND o.IdentificacaoPGD != 'PGT-M + A'
             AND o.ResultadoPGD IS NOT NULL
             AND o.ResultadoPGD NOT IN ('Não analisado', 'Sem leitura', 'Não detectado')
         GROUP BY m.prontuario, STRFTIME(CAST(m.Data_DL AS VARCHAR)::DATE, '%Y-%m')
@@ -248,7 +249,7 @@ def create_billing_timeline_table(conn):
         GROUP BY prontuario, STRFTIME("DT Emissao", '%Y-%m')
     ),
     
-    -- Get PGT-A billing data by month and prontuario
+    -- Get PGT-A billing data by month and prontuario (excluding PGT-M + A)
     pgta_billing AS (
         SELECT 
             prontuario,
@@ -262,6 +263,7 @@ def create_billing_timeline_table(conn):
             AND "DT Emissao" IS NOT NULL
             AND "DT Emissao" <= CURRENT_DATE
             AND "Descrição Gerencial" LIKE '%PGT-%'
+            AND "Descrição Gerencial" NOT LIKE '%PGT-M + A%'
         GROUP BY prontuario, STRFTIME("DT Emissao", '%Y-%m')
     ),
     
@@ -446,13 +448,13 @@ def create_comprehensive_timeline_table(conn):
     create_table_query = """
     CREATE TABLE gold.comprehensive_biopsy_pgta_timeline AS
     WITH
-    -- Get all unique prontuario-month combinations from both timelines (after 2023-01-01)
+    -- Get all unique prontuario-month combinations from both timelines (after 2024-01-01)
     all_periods AS (
         SELECT prontuario, period_month FROM gold.biopsy_pgta_timeline
-        WHERE period_month >= '2023-01'
+        WHERE period_month >= '2024-01'
         UNION
         SELECT prontuario, period_month FROM gold.billing_timeline
-        WHERE period_month >= '2023-01'
+        WHERE period_month >= '2024-01'
     ),
     
     -- Combine biopsy PGT-A and billing data (without cumulative values)
@@ -511,7 +513,7 @@ def create_comprehensive_timeline_table(conn):
             ) as cumulative_pgta_payment_qtd
         FROM combined_data
         WHERE (biopsy_count > 0 OR pgta_test_count > 0 OR biopsy_payment_count > 0 OR pgta_payment_count > 0)
-          AND period_month >= '2023-01'
+          AND period_month >= '2024-01'
     )
     
     SELECT 
@@ -536,7 +538,7 @@ def create_comprehensive_timeline_table(conn):
         -- Missing payment analysis for PGT-A (using quantities)
         cumulative_pgta_test_count - cumulative_pgta_payment_qtd as pgta_missing_payment
     FROM timeline_with_cumulative
-    WHERE period_month >= '2023-01'
+    WHERE period_month >= '2024-01'
     ORDER BY prontuario, period_month DESC
     """
     

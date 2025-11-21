@@ -39,8 +39,12 @@ def get_column_transformation(column_name, column_type, sample_data=None):
         'data', 'data_inicial', 'data_final', 'Data', 'DataCongelamento', 'DataDescongelamento',
         'DataTransferencia', 'data_entrega', 'data_pagamento', 'data_entrega_orcamento',
         'data_ultima_modificacao', 'data_agendamento_original', 'responsavel_recebimento_data',
-        'responsavel_armazenamento_data', 'Data_DL', 'data_procedimento', 'data_dum', 'data_inicio_inducao'
+        'responsavel_armazenamento_data', 'Data_DL', 'data_procedimento', 'data_dum', 'data_inicio_inducao',
+        'data_transferencia', 'data_congelamento', 'data_descongelamento'
     ]
+    
+    # Critical date columns that need proper DATE casting for JOIN performance
+    critical_date_columns = ['Data_DL', 'DataDescongelamento', 'DataTransferencia']
     
     # Special handling for known time columns
     time_columns = ['hora', 'Hora', 'inicio']
@@ -74,17 +78,19 @@ def get_column_transformation(column_name, column_type, sample_data=None):
             ELSE try_strptime({column_name}, '%Y%m%d_%H%M%S')
         END AS {column_name}"""
     
-    # Date columns
+    # Date columns - ensure proper DATE type for JOIN performance
     if column_name.lower() in [col.lower() for col in date_columns]:
         return f"""
-        CASE 
-            WHEN {column_name} IS NULL THEN NULL
-            WHEN {column_name} IN ('00/00/0000', '0000-00-00', '00/00/00', '0000/00/00', 'NULL', 'null', '') THEN NULL
-            WHEN try_strptime({column_name}, '%d/%m/%Y') IS NULL THEN NULL
-            WHEN try_strptime({column_name}, '%d/%m/%Y') > CURRENT_DATE THEN NULL
-            WHEN year(try_strptime({column_name}, '%d/%m/%Y')) < 1900 OR year(try_strptime({column_name}, '%d/%m/%Y')) > 2030 THEN NULL
-            ELSE try_strptime({column_name}, '%d/%m/%Y')
-        END AS {column_name}"""
+        CAST(
+            CASE 
+                WHEN {column_name} IS NULL THEN NULL
+                WHEN {column_name} IN ('00/00/0000', '0000-00-00', '00/00/00', '0000/00/00', 'NULL', 'null', '') THEN NULL
+                WHEN try_strptime({column_name}, '%d/%m/%Y') IS NULL THEN NULL
+                WHEN try_strptime({column_name}, '%d/%m/%Y') > CURRENT_DATE THEN NULL
+                WHEN year(try_strptime({column_name}, '%d/%m/%Y')) < 1900 OR year(try_strptime({column_name}, '%d/%m/%Y')) > 2030 THEN NULL
+                ELSE try_strptime({column_name}, '%d/%m/%Y')
+            END AS DATE
+        ) AS {column_name}"""
     
     # Time columns
     if column_name.lower() in [col.lower() for col in time_columns]:
@@ -112,6 +118,25 @@ def get_column_transformation(column_name, column_type, sample_data=None):
     if column_name.lower() == 'valor':
         return f"try_cast(REPLACE(REPLACE({column_name}, '.', ''), ',', '.') AS DOUBLE) AS {column_name}"
     
+    # Special handling for peso_paciente, altura_paciente, peso_conjuge, altura_conjuge, peso, and altura (may have alpha chars, comma as decimal)
+    if column_name.lower() in ['peso_paciente', 'altura_paciente', 'peso_conjuge', 'altura_conjuge', 'peso', 'altura']:
+        return f"""
+        CASE 
+            WHEN {column_name} IS NULL THEN NULL
+            WHEN TRIM(CAST({column_name} AS VARCHAR)) IN ('', 'NULL', 'null') THEN NULL
+            ELSE 
+                CASE 
+                    WHEN array_length(regexp_extract_all(TRIM(CAST({column_name} AS VARCHAR)), '[0-9,.]')) = 0 THEN NULL
+                    ELSE try_cast(
+                        REPLACE(
+                            array_to_string(regexp_extract_all(TRIM(CAST({column_name} AS VARCHAR)), '[0-9,.]'), ''),
+                            ',',
+                            '.'
+                        ) AS DOUBLE
+                    )
+                END
+        END AS {column_name}"""
+    
     # For all other columns, keep as VARCHAR (safe default)
     return f"CAST({column_name} AS VARCHAR) AS {column_name}"
 
@@ -123,6 +148,55 @@ def get_all_columns_from_bronze(con, table_name):
     except Exception as e:
         logger.error(f"Error getting columns for {table_name}: {e}")
         return []
+
+def calculate_column_filling_rates(con, table_name, columns):
+    """
+    Calculate filling rate (non-null percentage) for each column in a bronze table.
+    
+    Args:
+        con: DuckDB connection
+        table_name: Name of the bronze table
+        columns: List of column names to check
+        
+    Returns:
+        Dictionary mapping column names to their filling rates (0-100)
+    """
+    filling_rates = {}
+    
+    try:
+        # Get total row count
+        total_count_result = con.execute(f"SELECT COUNT(*) as total FROM bronze.{table_name}").df()
+        total_count = total_count_result['total'].iloc[0]
+        
+        if total_count == 0:
+            logger.warning(f"Table {table_name} is empty, all columns will have 0% filling rate")
+            return {col: 0.0 for col in columns}
+        
+        # Calculate filling rate for each column
+        for column in columns:
+            try:
+                # Count non-null and non-empty values
+                # Use try_cast to safely handle different data types
+                non_null_result = con.execute(f"""
+                    SELECT COUNT(*) as non_null_count 
+                    FROM bronze.{table_name} 
+                    WHERE {column} IS NOT NULL 
+                    AND COALESCE(TRIM(try_cast({column} AS VARCHAR)), '') NOT IN ('NULL', 'null', '')
+                """).df()
+                non_null_count = non_null_result['non_null_count'].iloc[0]
+                
+                filling_rate = (non_null_count / total_count) * 100
+                filling_rates[column] = filling_rate
+                
+            except Exception as e:
+                logger.warning(f"Error calculating filling rate for column {column} in {table_name}: {e}")
+                filling_rates[column] = 0.0
+                
+    except Exception as e:
+        logger.error(f"Error calculating filling rates for {table_name}: {e}")
+        return {col: 0.0 for col in columns}
+    
+    return filling_rates
 
 def clean_prontuario_columns(con, table_name):
     """
@@ -255,17 +329,98 @@ def clean_prontuario_columns(con, table_name):
         
         logger.info(f"[{table_name}] prontuario cleaning completed (discarded records with all invalid prontuario values)")
 
-def generate_complete_cast_sql(con, table_name):
-    """Generate complete CAST SQL for all columns in a table"""
+def get_exception_columns(table_name):
+    """
+    Get list of columns that must be kept even if they have low filling rate.
+    
+    Args:
+        table_name: Name of the table
+        
+    Returns:
+        List of column names that are exceptions
+    """
+    exceptions = {
+        'view_tratamentos': ['prontuario_doadora', 'prontuario_genitores'],
+        'view_micromanipulacao_oocitos': ['ResultadoPGD']
+    }
+    return exceptions.get(table_name, [])
+
+def generate_complete_cast_sql(con, table_name, null_rate_threshold=90.0):
+    """
+    Generate complete CAST SQL for columns in a table, excluding columns with null rate above threshold.
+    Columns in the exception list are always kept regardless of filling rate.
+    
+    Args:
+        con: DuckDB connection
+        table_name: Name of the table
+        null_rate_threshold: Maximum null rate (percentage) allowed - columns with null rate > this will be excluded (default: 90.0)
+        
+    Returns:
+        Tuple of (cast_sql_string, excluded_columns_dict) where excluded_columns_dict maps
+        column names to their null rates
+    """
     columns = get_all_columns_from_bronze(con, table_name)
     if not columns:
         logger.error(f"No columns found for table {table_name}")
-        return None
+        return None, {}
     
     logger.info(f"Processing {len(columns)} columns for table {table_name}")
     
-    cast_clauses = []
+    # Get exception columns for this table
+    exception_columns = get_exception_columns(table_name)
+    if exception_columns:
+        logger.info(f"[{table_name}] Exception columns (always kept): {exception_columns}")
+    
+    # Calculate filling rates for all columns
+    logger.info(f"Calculating filling rates for columns in {table_name}...")
+    filling_rates = calculate_column_filling_rates(con, table_name, columns)
+    
+    # Filter columns based on null rate threshold
+    # Exclude columns with >90% null rate (i.e., keep columns with >=10% filling rate)
+    # Exception: columns in exception list are always kept
+    included_columns = []
+    excluded_columns = {}
+    exception_kept_columns = []
+    
     for column in columns:
+        filling_rate = filling_rates.get(column, 0.0)
+        null_rate = 100.0 - filling_rate
+        
+        # Check if column is in exception list
+        if column in exception_columns:
+            included_columns.append(column)
+            if null_rate > null_rate_threshold:
+                exception_kept_columns.append((column, null_rate))
+        elif null_rate > null_rate_threshold:
+            excluded_columns[column] = null_rate
+        else:
+            included_columns.append(column)
+    
+    # Log exception columns kept despite low filling rate
+    if exception_kept_columns:
+        logger.info(f"[{table_name}] Kept {len(exception_kept_columns)} exception columns despite null rate > {null_rate_threshold}%:")
+        for col, null_rate in sorted(exception_kept_columns, key=lambda x: x[1], reverse=True):
+            filling_rate = 100.0 - null_rate
+            logger.info(f"  - {col}: null_rate={null_rate:.2f}% (filling_rate={filling_rate:.2f}%) [EXCEPTION - always kept]")
+    
+    # Log excluded columns with their null rates
+    if excluded_columns:
+        logger.info(f"[{table_name}] Excluded {len(excluded_columns)} columns with null rate > {null_rate_threshold}%:")
+        for col, null_rate in sorted(excluded_columns.items(), key=lambda x: x[1], reverse=True):
+            filling_rate = 100.0 - null_rate
+            logger.info(f"  - {col}: null_rate={null_rate:.2f}% (filling_rate={filling_rate:.2f}%)")
+    else:
+        logger.info(f"[{table_name}] All columns have null rate <= {null_rate_threshold}%")
+    
+    logger.info(f"[{table_name}] Including {len(included_columns)} columns (out of {len(columns)} total)")
+    
+    if not included_columns:
+        logger.warning(f"No columns meet the null rate threshold (all have null rate > {null_rate_threshold}%) for {table_name}")
+        return None, excluded_columns
+    
+    # Generate CAST clauses for included columns only
+    cast_clauses = []
+    for column in included_columns:
         try:
             # Get sample data to help determine type
             sample_result = con.execute(f"SELECT {column} FROM bronze.{table_name} WHERE {column} IS NOT NULL LIMIT 1").df()
@@ -284,7 +439,7 @@ def generate_complete_cast_sql(con, table_name):
             # Fallback to VARCHAR
             cast_clauses.append(f"CAST({column} AS VARCHAR) AS {column}")
     
-    return ',\n        '.join(cast_clauses)
+    return ',\n        '.join(cast_clauses), excluded_columns
 
 def get_primary_key_for_table(table_name):
     """Get the primary key column for a given table"""
@@ -338,16 +493,12 @@ def feature_creation(con, table):
         """)
         logger.info(f"flag_embryoscope added to silver.{table}")
         
-        # Add embryo_number: row_number per id_micromanipulacao ordered by id, but only for embryos (flag_embryoscope = 1)
-        logger.info(f"Adding embryo_number to silver.{table} (only for embryos)")
+        # Add embryo_number: row_number per id_micromanipulacao ordered by id (for all rows)
+        logger.info(f"Adding embryo_number to silver.{table} (for all rows)")
         con.execute(f"""
             CREATE OR REPLACE TABLE silver.{table} AS
             SELECT *,
-                   CASE 
-                       WHEN flag_embryoscope = 1 THEN 
-                           ROW_NUMBER() OVER (PARTITION BY id_micromanipulacao ORDER BY id)
-                       ELSE NULL 
-                   END AS embryo_number
+                   ROW_NUMBER() OVER (PARTITION BY id_micromanipulacao ORDER BY id) AS embryo_number
             FROM silver.{table}
         """)
         logger.info(f"embryo_number added to silver.{table}")
@@ -396,7 +547,7 @@ def feature_creation(con, table):
     # Add more table-specific features here as needed
 
 def main():
-    logger.info('Starting complete try_strptime silver loader (ALL COLUMNS)')
+    logger.info('Starting complete try_strptime silver loader (EXCLUDING COLUMNS WITH >90% NULL RATE)')
     logger.info(f'Database path: {db_path}')
     
     with duckdb.connect(db_path) as con:
@@ -407,8 +558,8 @@ def main():
         for table in bronze_tables:
             logger.info(f'Processing {table}')
             try:
-                # Generate complete CAST SQL for all columns
-                cast_sql = generate_complete_cast_sql(con, table)
+                # Generate complete CAST SQL, excluding columns with >90% null rate
+                cast_sql, excluded_columns = generate_complete_cast_sql(con, table, null_rate_threshold=90.0)
                 if cast_sql is None:
                     logger.error(f'Failed to generate CAST SQL for {table}')
                     continue
@@ -431,10 +582,31 @@ def main():
                 logger.info(f'Column count: Bronze={bronze_cols}, Silver={silver_cols}')
                 
                 if bronze_cols != silver_cols:
-                    logger.warning(f'Column count mismatch for {table}: Bronze={bronze_cols}, Silver={silver_cols}')
+                    logger.info(f'Column count difference for {table}: Bronze={bronze_cols}, Silver={silver_cols} (expected due to null rate filtering)')
                 
             except Exception as e:
                 logger.error(f'Error processing {table}: {e}', exc_info=True)
+    
+    # Create indexes for better JOIN performance in gold layer
+    logger.info('Creating indexes for better JOIN performance...')
+    with duckdb.connect(db_path) as con:
+        index_queries = [
+            "CREATE INDEX IF NOT EXISTS idx_oocitos_id_micromanipulacao ON silver.view_micromanipulacao_oocitos(id_micromanipulacao)",
+            "CREATE INDEX IF NOT EXISTS idx_micromanipulacao_codigo_ficha ON silver.view_micromanipulacao(codigo_ficha)",
+            "CREATE INDEX IF NOT EXISTS idx_congelamentos_ovulos_ciclo_prontuario ON silver.view_congelamentos_ovulos(Ciclo, prontuario)",
+            "CREATE INDEX IF NOT EXISTS idx_descongelamentos_ovulos_data_prontuario ON silver.view_descongelamentos_ovulos(DataDescongelamento, prontuario)",
+            "CREATE INDEX IF NOT EXISTS idx_congelamentos_embrioes_ciclo_prontuario ON silver.view_congelamentos_embrioes(Ciclo, prontuario)",
+            "CREATE INDEX IF NOT EXISTS idx_descongelamentos_embrioes_ciclo_codcongelamento ON silver.view_descongelamentos_embrioes(Ciclo, CodCongelamento)",
+            "CREATE INDEX IF NOT EXISTS idx_embrioes_congelados_id_oocito ON silver.view_embrioes_congelados(id_oocito)"
+        ]
+        
+        for idx_query in index_queries:
+            try:
+                con.execute(idx_query)
+            except Exception as e:
+                logger.warning(f'Index creation failed (may already exist): {e}')
+        
+        logger.info('Indexes created successfully')
     
     logger.info('Complete try_strptime silver loader finished successfully')
 

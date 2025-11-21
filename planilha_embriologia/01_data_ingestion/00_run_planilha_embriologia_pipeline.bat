@@ -1,9 +1,9 @@
 @echo off
 set PARENT_STEP=%1
-if "%PARENT_STEP%"=="" set PARENT_STEP=4
+if "%PARENT_STEP%"=="" set PARENT_STEP=6
 
 echo ========================================
-echo RUNNING MESCLADA DATA INGESTION PIPELINE
+echo RUNNING PLANILHA EMBRIOLOGIA DATA INGESTION PIPELINE
 echo ========================================
 echo.
 
@@ -17,9 +17,9 @@ call conda activate try_request
 
 echo.
 echo ========================================
-echo STEP %PARENT_STEP%.1: Mesclada to Bronze
+echo STEP %PARENT_STEP%.1: Planilha Embriologia to Bronze
 echo ========================================
-python finops/01_data_ingestion/03_01_mesclada_to_bronze.py
+python planilha_embriologia/01_data_ingestion/01_01_planilha_embriologia_to_bronze.py
 if %errorlevel% neq 0 (
     echo ERROR: Step %PARENT_STEP%.1 failed
     pause
@@ -28,9 +28,9 @@ if %errorlevel% neq 0 (
 
 echo.
 echo ========================================
-echo STEP %PARENT_STEP%.2: Mesclada Bronze to Silver
+echo STEP %PARENT_STEP%.2: Planilha Embriologia Bronze to Silver
 echo ========================================
-python finops/01_data_ingestion/03_02_mesclada_to_silver.py
+python planilha_embriologia/01_data_ingestion/01_02_planilha_embriologia_to_silver.py
 if %errorlevel% neq 0 (
     echo ERROR: Step %PARENT_STEP%.2 failed
     pause
@@ -39,10 +39,11 @@ if %errorlevel% neq 0 (
 
 echo.
 echo ========================================
-echo MESCLADA PIPELINE COMPLETED SUCCESSFULLY!
+echo PLANILHA EMBRIOLOGIA PIPELINE COMPLETED SUCCESSFULLY!
 echo ========================================
 echo.
 echo All steps completed without errors.
 echo Check the logs folder for execution details.
 echo.
 exit /b 0
+
