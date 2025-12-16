@@ -87,6 +87,57 @@ def build_select_clause(target_columns, column_mapping, available_columns):
                 logger.warning(f"Missing columns for Age calculation: {missing_cols}. Using NULL.")
                 select_parts.append(f'NULL as "{target_col}"')
                 missing_source_columns.append((target_col, ', '.join(missing_cols)))
+        # Special handling for BMI - calculate from weight and height (must come before None check)
+        elif target_col == "BMI":
+            weight_col = "trat_peso_paciente"
+            height_col = "trat_altura_paciente"
+            if weight_col in available_columns and height_col in available_columns:
+                # Calculate BMI: weight / (height)^2
+                # Weight and height are patient+slide-level attributes, so use MAX() to get non-NULL values
+                # Group by Patient ID and Slide ID (everything before "-" in embryo_EmbryoID)
+                # Height is in meters, BMI = weight(kg) / height(m)^2
+                select_parts.append(f'''CASE 
+                    WHEN MAX("{weight_col}") OVER (PARTITION BY "micro_prontuario", SPLIT_PART("embryo_EmbryoID", '-', 1)) IS NOT NULL 
+                         AND MAX("{height_col}") OVER (PARTITION BY "micro_prontuario", SPLIT_PART("embryo_EmbryoID", '-', 1)) IS NOT NULL 
+                         AND CAST(MAX("{height_col}") OVER (PARTITION BY "micro_prontuario", SPLIT_PART("embryo_EmbryoID", '-', 1)) AS DOUBLE) > 0 
+                    THEN ROUND(CAST(MAX("{weight_col}") OVER (PARTITION BY "micro_prontuario", SPLIT_PART("embryo_EmbryoID", '-', 1)) AS DOUBLE) / 
+                                  POWER(CAST(MAX("{height_col}") OVER (PARTITION BY "micro_prontuario", SPLIT_PART("embryo_EmbryoID", '-', 1)) AS DOUBLE), 2), 2)
+                    ELSE NULL 
+                END as "{target_col}"''')
+            else:
+                missing_cols = []
+                if weight_col not in available_columns:
+                    missing_cols.append(weight_col)
+                if height_col not in available_columns:
+                    missing_cols.append(height_col)
+                logger.warning(f"Missing columns for BMI calculation: {missing_cols}. Using NULL.")
+                select_parts.append(f'NULL as "{target_col}"')
+                missing_source_columns.append((target_col, ', '.join(missing_cols)))
+        # Special handling for Previus ET: rank ET cycles per patient by Slide ID groups
+        elif target_col == "Previus ET":
+            # We want: oldest slide group = 0, next = 1, etc. (monotonic by slide prefix)
+            # Let r = DENSE_RANK over slide prefixes ASC (oldest = 1, newest = N)
+            # Then Previus ET = r - 1 → oldest: 1-1=0, next: 2-1=1, ...
+            select_parts.append(
+                'DENSE_RANK() OVER ('
+                'PARTITION BY "micro_prontuario" '
+                'ORDER BY SPLIT_PART("embryo_EmbryoID", \'-\', 1) ASC'
+                ') - 1 as "Previus ET"'
+            )
+        # Special handling for patient+slide-level columns that need MAX() aggregation
+        elif target_col in ["Diagnosis", "Patient Comments", "Previus OD ET", "Oocyte Source"]:
+            source_col = column_mapping.get(target_col)
+            if source_col is not None and source_col in available_columns:
+                # Use MAX() window function to get non-NULL values grouped by Patient ID and Slide ID
+                select_parts.append(f'MAX("{source_col}") OVER (PARTITION BY "micro_prontuario", SPLIT_PART("embryo_EmbryoID", \'-\', 1)) as "{target_col}"')
+            else:
+                if source_col is None:
+                    select_parts.append(f'NULL as "{target_col}"')
+                    unmapped_columns.append(target_col)
+                else:
+                    logger.warning(f"Source column '{source_col}' not found for target '{target_col}'. Using NULL.")
+                    select_parts.append(f'NULL as "{target_col}"')
+                    missing_source_columns.append((target_col, source_col))
         elif target_col in column_mapping:
             source_col = column_mapping[target_col]
             
@@ -151,27 +202,28 @@ def create_data_ploidia_table(conn):
     conn.execute("DROP TABLE IF EXISTS gold.data_ploidia")
     logger.info("Dropped existing gold.data_ploidia table if it existed")
     
-    # Build WHERE clause if filters are specified
-    where_clause = ""
-    if FILTER_PATIENT_ID is not None or FILTER_EMBRYO_IDS is not None:
-        where_conditions = []
-        
-        if FILTER_PATIENT_ID is not None:
-            # Filter by Patient ID (micro_prontuario)
-            where_conditions.append(f'"micro_prontuario" = {FILTER_PATIENT_ID}')
-            logger.info(f"Filter: Patient ID = {FILTER_PATIENT_ID}")
-        
-        if FILTER_EMBRYO_IDS is not None and len(FILTER_EMBRYO_IDS) > 0:
-            # Filter by Embryo ID (embryo_EmbryoID)
-            embryo_ids_str = ', '.join([f"'{eid}'" for eid in FILTER_EMBRYO_IDS])
-            where_conditions.append(f'"embryo_EmbryoID" IN ({embryo_ids_str})')
-            logger.info(f"Filter: Embryo ID IN ({', '.join(FILTER_EMBRYO_IDS)})")
-        
-        # Always exclude NULL embryo IDs to avoid incomplete records
-        where_conditions.append('"embryo_EmbryoID" IS NOT NULL')
-        
-        if where_conditions:
-            where_clause = " WHERE " + " AND ".join(where_conditions)
+    # Build WHERE clause
+    where_conditions = []
+    
+    # Always exclude rows where Embryo Description is NULL
+    where_conditions.append('"embryo_Description" IS NOT NULL')
+    logger.info("Filter: Embryo Description IS NOT NULL")
+    
+    if FILTER_PATIENT_ID is not None:
+        # Filter by Patient ID (micro_prontuario)
+        where_conditions.append(f'"micro_prontuario" = {FILTER_PATIENT_ID}')
+        logger.info(f"Filter: Patient ID = {FILTER_PATIENT_ID}")
+    
+    if FILTER_EMBRYO_IDS is not None and len(FILTER_EMBRYO_IDS) > 0:
+        # Filter by Embryo ID (embryo_EmbryoID)
+        embryo_ids_str = ', '.join([f"'{eid}'" for eid in FILTER_EMBRYO_IDS])
+        where_conditions.append(f'"embryo_EmbryoID" IN ({embryo_ids_str})')
+        logger.info(f"Filter: Embryo ID IN ({', '.join(FILTER_EMBRYO_IDS)})")
+    
+    # Always exclude NULL embryo IDs to avoid incomplete records
+    where_conditions.append('"embryo_EmbryoID" IS NOT NULL')
+    
+    where_clause = " WHERE " + " AND ".join(where_conditions) if where_conditions else ""
     
     # Create table with mapped columns
     create_query = f"""
@@ -209,6 +261,28 @@ def create_data_ploidia_table(conn):
         if col == "Age":
             source_col = "ROUND(CAST(DATE_DIFF('day', patient_DateOfBirth, embryo_FertilizationTime) AS DOUBLE) / 365.25, 2)"
             status = "[OK]" if "embryo_FertilizationTime" in available_columns and "patient_DateOfBirth" in available_columns else "[--]"
+        # Special handling for BMI (calculated dynamically with patient+slide-level aggregation)
+        elif col == "BMI":
+            source_col = "ROUND(MAX(trat_peso_paciente) OVER (PARTITION BY micro_prontuario, SPLIT_PART(embryo_EmbryoID, '-', 1)) / POWER(MAX(trat_altura_paciente) OVER (PARTITION BY micro_prontuario, SPLIT_PART(embryo_EmbryoID, '-', 1)), 2), 2)"
+            status = "[OK]" if "trat_peso_paciente" in available_columns and "trat_altura_paciente" in available_columns else "[--]"
+        # Special handling for patient+slide-level columns with MAX() aggregation
+        elif col in ["Diagnosis", "Patient Comments", "Previus OD ET", "Oocyte Source"]:
+            source_col_mapped = COLUMN_MAPPING.get(col)
+            if source_col_mapped is not None and source_col_mapped in available_columns:
+                source_col = f"MAX({source_col_mapped}) OVER (PARTITION BY micro_prontuario, SPLIT_PART(embryo_EmbryoID, '-', 1))"
+                status = "[OK]"
+            else:
+                source_col = "NULL (unmapped or missing)" if source_col_mapped is None else f"NULL (missing: {source_col_mapped})"
+                status = "[--]"
+        # Special handling for Previus ET ranking
+        elif col == "Previus ET":
+            source_col = (
+                "DENSE_RANK() OVER ("
+                "PARTITION BY micro_prontuario "
+                "ORDER BY SPLIT_PART(embryo_EmbryoID, '-', 1) ASC"
+                ") - 1"
+            )
+            status = "[OK]"
         else:
             source_col = COLUMN_MAPPING.get(col, "NULL (unmapped)")
             if source_col == "NULL (unmapped)":

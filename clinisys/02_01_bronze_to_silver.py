@@ -341,7 +341,7 @@ def get_exception_columns(table_name):
     """
     exceptions = {
         'view_tratamentos': ['prontuario_doadora', 'prontuario_genitores'],
-        'view_micromanipulacao_oocitos': ['ResultadoPGD']
+        'view_micromanipulacao_oocitos': ['ResultadoPGD', 'score_maia', 'relatorio_ia']
     }
     return exceptions.get(table_name, [])
 
@@ -371,6 +371,9 @@ def generate_complete_cast_sql(con, table_name, null_rate_threshold=90.0):
     if exception_columns:
         logger.info(f"[{table_name}] Exception columns (always kept): {exception_columns}")
     
+    # Columns ending with these suffixes are also always kept (e.g. *_D3, *_D4, ...)
+    suffix_exception_patterns = ['_D3', '_D4', '_D5', '_D6', '_D7']
+    
     # Calculate filling rates for all columns
     logger.info(f"Calculating filling rates for columns in {table_name}...")
     filling_rates = calculate_column_filling_rates(con, table_name, columns)
@@ -386,8 +389,11 @@ def generate_complete_cast_sql(con, table_name, null_rate_threshold=90.0):
         filling_rate = filling_rates.get(column, 0.0)
         null_rate = 100.0 - filling_rate
         
-        # Check if column is in exception list
-        if column in exception_columns:
+        # Check if column is in exception list or matches any suffix pattern (e.g. *_D3, *_D4, ...)
+        is_named_exception = column in exception_columns
+        is_suffix_exception = any(column.endswith(suffix) for suffix in suffix_exception_patterns)
+        
+        if is_named_exception or is_suffix_exception:
             included_columns.append(column)
             if null_rate > null_rate_threshold:
                 exception_kept_columns.append((column, null_rate))

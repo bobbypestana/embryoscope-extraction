@@ -57,15 +57,15 @@ COLUMN_MAPPING = {
     "Unidade": "patient_unit_huntington",
     "Video ID": None,
     "Age": None,  # Calculated dynamically as difference between embryo_FertilizationTime and patient_DateOfBirth
-    "BMI": None,  
+    "BMI": None,  # Calculated dynamically as trat_peso_paciente / (trat_altura_paciente)^2  
     "Birth Year": "patient_DateOfBirth",  # Will extract year in SQL
-    "Diagnosis": None,  
+    "Diagnosis": "trat_fator_infertilidade1",  
     "Patient Comments": None,
     "Patient ID": "micro_prontuario",
     "Previus ET": None,  
     "Previus OD ET": None,  
     "Oocyte History": "oocito_OrigemOocito",  
-    "Oocyte Source": None,
+    "Oocyte Source": "trat_origem_material",
     "Oocytes Aspirated": "micro_oocitos",
     "Slide ID": "embryo_EmbryoID",  
     "Well": "embryo_WellNumber",
@@ -97,6 +97,6 @@ COLUMN_MAPPING = {
 
 # Filter configuration for table creation
 # Set to None to include all rows, or specify filters
-FILTER_PATIENT_ID = 823589  # Filter by Patient ID (micro_prontuario) - set to None to disable
+FILTER_PATIENT_ID = None  # Filter by Patient ID (micro_prontuario) - set to None to disable
 FILTER_EMBRYO_IDS = None  # Filter by Embryo ID (embryo_EmbryoID)
 

@@ -70,23 +70,23 @@ if %errorlevel% neq 0 (
 )
 cd /d "%PROJECT_ROOT%"
 
-@REM echo.
-@REM echo ========================================
-@REM echo STEP 2: Running Embryoscope Dataflow
-@REM echo ========================================
-@REM if not exist "embryoscope\00_run_dataflow_embryoscope.bat" (
-@REM     echo ERROR: Cannot find embryoscope\00_run_dataflow_embryoscope.bat
-@REM     echo Current directory: %CD%
-@REM     pause
-@REM     exit /b 1
-@REM )
-@REM call "embryoscope\00_run_dataflow_embryoscope.bat" 2
-@REM if %errorlevel% neq 0 (
-@REM     echo ERROR: Step 2 failed
-@REM     pause
-@REM     exit /b 1
-@REM )
-@REM cd /d "%PROJECT_ROOT%"
+echo.
+echo ========================================
+echo STEP 2: Running Embryoscope Dataflow
+echo ========================================
+if not exist "embryoscope\00_run_dataflow_embryoscope.bat" (
+    echo ERROR: Cannot find embryoscope\00_run_dataflow_embryoscope.bat
+    echo Current directory: %CD%
+    pause
+    exit /b 1
+)
+call "embryoscope\00_run_dataflow_embryoscope.bat" 2
+if %errorlevel% neq 0 (
+    echo ERROR: Step 2 failed
+    pause
+    exit /b 1
+)
+cd /d "%PROJECT_ROOT%"
 
 echo.
 echo ========================================

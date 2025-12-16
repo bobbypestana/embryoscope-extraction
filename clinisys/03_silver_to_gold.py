@@ -186,20 +186,21 @@ def main():
     vec_columns = build_column_list('vec')
     tr_columns = build_column_list('tr')
     
-    # Build the SELECT clause with all columns
+    # Build the SELECT clause with all columns, aliasing them with table prefixes
+    # This ensures columns from different tables with the same name are properly distinguished
     select_columns = []
     if ooc_columns:
-        select_columns.extend([f"ooc.{col}" for col in ooc_columns])
+        select_columns.extend([f"ooc.{col} AS oocito_{col}" for col in ooc_columns])
     if mic_columns:
-        select_columns.extend([f"mic.{col}" for col in mic_columns])
+        select_columns.extend([f"mic.{col} AS micro_{col}" for col in mic_columns])
     if vce_columns:
-        select_columns.extend([f"vce.{col}" for col in vce_columns])
+        select_columns.extend([f"vce.{col} AS cong_em_{col}" for col in vce_columns])
     if vde_columns:
-        select_columns.extend([f"vde.{col}" for col in vde_columns])
+        select_columns.extend([f"vde.{col} AS descong_em_{col}" for col in vde_columns])
     if vec_columns:
-        select_columns.extend([f"vec.{col}" for col in vec_columns])
+        select_columns.extend([f"vec.{col} AS emb_cong_{col}" for col in vec_columns])
     if tr_columns:
-        select_columns.extend([f"tr.{col}" for col in tr_columns])
+        select_columns.extend([f"tr.{col} AS trat_{col}" for col in tr_columns])
     
     logger.info(f'Selected {len(select_columns)} columns for join (all columns from silver layer)')
     
@@ -247,10 +248,10 @@ def main():
                 logger.warning('No data found in source database')
                 return
                 
-            # Column filtering and prefixing
-            logger.info('Applying column filtering and prefixing...')
+            # Column filtering (prefixes are already applied in the SELECT clause)
+            logger.info('Applying column filtering...')
             
-            # Remove all hash and extraction_timestamp columns (these weren't filtered in the query)
+            # Remove all hash and extraction_timestamp columns
             columns_to_remove = [col for col in df.columns if 'hash' in col.lower() or 'extraction_timestamp' in col.lower()]
             if columns_to_remove:
                 df = df.drop(columns=columns_to_remove)
@@ -258,49 +259,7 @@ def main():
             else:
                 logger.info('No hash/extraction_timestamp columns found')
             
-            # Define prefixes for each table
-            table_prefixes = {
-                'ooc': 'oocito_',
-                'mic': 'micro_',
-                'vce': 'cong_em_',
-                'vde': 'descong_em_',
-                'vec': 'emb_cong_',
-                'tr': 'trat_',
-            }
-            
-            # Get original column names from each table to determine prefixes
-            with duckdb.connect(source_db_path) as temp_con:
-                ooc_columns = set(temp_con.execute("SELECT column_name FROM information_schema.columns WHERE table_schema = 'silver' AND table_name = 'view_micromanipulacao_oocitos'").df()['column_name'].tolist())
-                mic_columns = set(temp_con.execute("SELECT column_name FROM information_schema.columns WHERE table_schema = 'silver' AND table_name = 'view_micromanipulacao'").df()['column_name'].tolist())
-                vce_columns = set(temp_con.execute("SELECT column_name FROM information_schema.columns WHERE table_schema = 'silver' AND table_name = 'view_congelamentos_embrioes'").df()['column_name'].tolist())
-                vde_columns = set(temp_con.execute("SELECT column_name FROM information_schema.columns WHERE table_schema = 'silver' AND table_name = 'view_descongelamentos_embrioes'").df()['column_name'].tolist())
-                vec_columns = set(temp_con.execute("SELECT column_name FROM information_schema.columns WHERE table_schema = 'silver' AND table_name = 'view_embrioes_congelados'").df()['column_name'].tolist())
-                tr_columns = set(temp_con.execute("SELECT column_name FROM information_schema.columns WHERE table_schema = 'silver' AND table_name = 'view_tratamentos'").df()['column_name'].tolist())
-            
-            # Create mapping of original column names to prefixed names
-            column_mapping = {}
-            
-            # Map columns from each table to their prefixed versions
-            for col in df.columns:
-                if col in ooc_columns:
-                    column_mapping[col] = f"oocito_{col}"
-                elif col in mic_columns:
-                    column_mapping[col] = f"micro_{col}"
-                elif col in vce_columns:
-                    column_mapping[col] = f"cong_em_{col}"
-                elif col in vde_columns:
-                    column_mapping[col] = f"descong_em_{col}"
-                elif col in vec_columns:
-                    column_mapping[col] = f"emb_cong_{col}"
-                elif col in tr_columns:
-                    column_mapping[col] = f"trat_{col}"
-                else:
-                    # Keep original name for columns that don't match any table
-                    column_mapping[col] = col
-            
-            # Rename columns
-            df = df.rename(columns=column_mapping)
-            logger.info(f'Applied prefixes to columns. New column count: {len(df.columns)}')
+            logger.info(f'Final column count: {len(df.columns)}')
             
         # Write data to target database
         logger.info('Connecting to target database to write data')

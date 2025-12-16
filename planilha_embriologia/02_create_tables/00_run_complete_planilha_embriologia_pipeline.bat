@@ -26,16 +26,16 @@ if %errorlevel% neq 0 (
     exit /b 1
 )
 
-echo.
-echo ========================================
-echo STEP %PARENT_STEP%.2: Exporting Combined Table to Excel
-echo ========================================
-python planilha_embriologia/02_create_tables/02_export_to_excel.py
-if %errorlevel% neq 0 (
-    echo ERROR: Step %PARENT_STEP%.2 failed
-    pause
-    exit /b 1
-)
+@REM echo.
+@REM echo ========================================
+@REM echo STEP %PARENT_STEP%.2: Exporting Combined Table to Excel
+@REM echo ========================================
+@REM python planilha_embriologia/02_create_tables/02_export_to_excel.py
+@REM if %errorlevel% neq 0 (
+@REM     echo ERROR: Step %PARENT_STEP%.2 failed
+@REM     pause
+@REM     exit /b 1
+@REM )
 
 echo.
 echo ========================================
