@@ -41,8 +41,7 @@ def test_join_strategies(con):
             SELECT COUNT(*) as matches
             FROM gold.clinisys_embrioes c
             LEFT JOIN gold.embryoscope_embrioes e
-                ON (c.micro_Data_DL = DATE(e.embryo_FertilizationTime) )
-                    -- OR c.micro_Data_DL = TRY_CAST(strptime(substring(e.embryo_EmbryoID, 2, 10), '%Y.%m.%d') AS DATE))
+                ON c.micro_Data_DL = DATE(e.embryo_FertilizationTime)
                 AND c.micro_prontuario = e.prontuario
                 AND e.embryo_embryo_number = c.oocito_embryo_number
                 AND e.prontuario IS NOT NULL
@@ -89,10 +88,8 @@ def main():
             
             # Use exact day matching with properly typed DATE columns for better performance
             # Cast embryo_FertilizationTime (TIMESTAMP) to DATE for comparison with micro_Data_DL (DATE)
-            # Cast embryo_FertilizationTime (TIMESTAMP) to DATE for comparison with micro_Data_DL (DATE)
-            # OR Extract date from embryo_EmbryoID (format DYYYY.MM.DD...)
-            date_condition = "(c.micro_Data_DL = DATE(e.embryo_FertilizationTime) OR c.micro_Data_DL = TRY_CAST(strptime(substring(e.embryo_EmbryoID, 2, 10), '%Y.%m.%d') AS DATE))"
-            logger.info(f"Using exact day matching strategy with OR condition (FertilizationTime OR EmbryoID)")
+            date_condition = "c.micro_Data_DL = DATE(e.embryo_FertilizationTime)"
+            logger.info(f"Using exact day matching strategy with DATE() casting")
             
             # CURRENT LOGIC (COMMENTED OUT) - Selective columns only
             # query = f'''

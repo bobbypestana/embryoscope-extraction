@@ -1,0 +1,1826 @@
+================================================================================
+DATA COMPARISON REPORT
+================================================================================
+Generated: 2025-12-17 12:46:10
+
+SUMMARY
+--------------------------------------------------------------------------------
+Excel file: G:\My Drive\projetos_individuais\Huntington\planilha_ploidia\planilhas_exemplo\Planilha IA ploidia - 344 embrioes (1).xlsx
+Excel rows: 344
+Excel unique Video IDs: 343
+
+Database table: gold.data_ploidia
+Database rows (filtered): 347
+Database unique Video IDs (filtered): 308
+
+VIDEO ID COMPARISON
+--------------------------------------------------------------------------------
+Video IDs in both datasets: 308
+Video IDs only in Excel: 35
+Video IDs only in Database: 0
+
+VIDEO IDs ONLY IN EXCEL (not in database):
+--------------------------------------------------------------------------------
+Total missing Video IDs: 35
+Unique Prontuarios (Patient IDs): 9
+
+Breakdown by Prontuario:
+
+  Prontuario 510693: 5 embryos
+    - 510693 - AA1
+    - 510693 - AA11
+    - 510693 - AA15
+    - 510693 - AA16
+    - 510693 - AB4
+
+  Prontuario 65591: 6 embryos
+    - 65591 - AC10
+    - 65591 - AC12
+    - 65591 - AC13
+    - 65591 - AC4
+    - 65591 - AC6
+    - 65591 - AC7
+
+  Prontuario 751632: 2 embryos
+    - 751632 - AD3
+    - 751632 - AD5
+
+  Prontuario 784771: 4 embryos
+    - 784771 - AA1
+    - 784771 - AA2
+    - 784771 - AA6
+    - 784771 - AA7
+
+  Prontuario 823261: 4 embryos
+    - 823261 - AB11
+    - 823261 - AB13
+    - 823261 - AB14
+    - 823261 - AB15
+
+  Prontuario 823589: 2 embryos
+    - 823589 - AA6
+    - 823589 - AA7
+
+  Prontuario 824192: 4 embryos
+    - 824192 - AB5
+    - 824192 - AB6
+    - 824192 - AB7
+    - 824192 - AB9
+
+  Prontuario 831054: 3 embryos
+    - 831054 - AA2
+    - 831054 - AA4
+    - 831054 - AA7
+
+  Prontuario 838080: 5 embryos
+    - 838080 - AA12
+    - 838080 - AA5
+    - 838080 - AB4
+    - 838080 - AB5
+    - 838080 - AB7
+
+Complete list of missing Video IDs:
+  - 510693 - AA1
+  - 510693 - AA11
+  - 510693 - AA15
+  - 510693 - AA16
+  - 510693 - AB4
+  - 65591 - AC10
+  - 65591 - AC12
+  - 65591 - AC13
+  - 65591 - AC4
+  - 65591 - AC6
+  - 65591 - AC7
+  - 751632 - AD3
+  - 751632 - AD5
+  - 784771 - AA1
+  - 784771 - AA2
+  - 784771 - AA6
+  - 784771 - AA7
+  - 823261 - AB11
+  - 823261 - AB13
+  - 823261 - AB14
+  - 823261 - AB15
+  - 823589 - AA6
+  - 823589 - AA7
+  - 824192 - AB5
+  - 824192 - AB6
+  - 824192 - AB7
+  - 824192 - AB9
+  - 831054 - AA2
+  - 831054 - AA4
+  - 831054 - AA7
+  - 838080 - AA12
+  - 838080 - AA5
+  - 838080 - AB4
+  - 838080 - AB5
+  - 838080 - AB7
+
+COLUMN COMPARISON
+--------------------------------------------------------------------------------
+Columns in both: 39
+Columns only in Excel: 0
+Columns only in Database: 0
+
+DATA VALUE COMPARISON (for matching Video IDs)
+--------------------------------------------------------------------------------
+Note: Language differences are ignored (Fresh=Fresco, IBI=Ibirapuera, etc.)
+      Timing values, BMI, and Age are rounded to 1 decimal place before comparison
+      Numeric type differences are ignored (e.g., '0' string vs 0 integer)
+      Patient ID: thousands separators removed (dots/commas) and converted to integer
+      Video ID: well number suffix removed (e.g., -10, -2)
+
+Comparing all 308 matching Video IDs...
+
+  Video ID: 107805 - AA10
+    BMI: Excel=22.8, DB=nan
+    Diagnosis: Excel=Male factor, DB=None
+    Oocyte Source: Excel=Autologous, DB=None
+    Patient Comments: Excel=Genetic factor, DB=<NA>
+
+  Video ID: 107805 - AA11
+    BMI: Excel=22.8, DB=nan
+    Diagnosis: Excel=Male factor, DB=None
+    Oocyte Source: Excel=Autologous, DB=None
+    Patient Comments: Excel=Genetic factor, DB=<NA>
+
+  Video ID: 107805 - AA13
+    BMI: Excel=22.8, DB=nan
+    Diagnosis: Excel=Male factor, DB=None
+    Oocyte Source: Excel=Autologous, DB=None
+    Patient Comments: Excel=Genetic factor, DB=<NA>
+
+  Video ID: 107805 - AA15
+    BMI: Excel=22.8, DB=nan
+    Diagnosis: Excel=Male factor, DB=None
+    Oocyte Source: Excel=Autologous, DB=None
+    Patient Comments: Excel=Genetic factor, DB=<NA>
+
+  Video ID: 107805 - AA2
+    BMI: Excel=22.8, DB=nan
+    Diagnosis: Excel=Male factor, DB=None
+    Oocyte Source: Excel=Autologous, DB=None
+    Patient Comments: Excel=Genetic factor, DB=<NA>
+
+  Video ID: 107805 - AA5
+    BMI: Excel=22.8, DB=nan
+    Diagnosis: Excel=Male factor, DB=None
+    Oocyte Source: Excel=Autologous, DB=None
+    Patient Comments: Excel=Genetic factor, DB=<NA>
+
+  Video ID: 107805 - AA6
+    BMI: Excel=22.8, DB=nan
+    Diagnosis: Excel=Male factor, DB=None
+    Oocyte Source: Excel=Autologous, DB=None
+    Patient Comments: Excel=Genetic factor, DB=<NA>
+
+  Video ID: 138475 - AC1
+    Diagnosis: Excel=Single Female, DB=Outros
+    Oocyte Source: Excel=Autologous, DB=Heterólogo
+
+  Video ID: 138475 - AC10
+    Diagnosis: Excel=Single Female, DB=Outros
+    Oocyte Source: Excel=Autologous, DB=Heterólogo
+
+  Video ID: 138475 - AC13
+    Diagnosis: Excel=Single Female, DB=Outros
+    Oocyte Source: Excel=Autologous, DB=Heterólogo
+
+  Video ID: 138475 - AC14
+    Diagnosis: Excel=Single Female, DB=Outros
+    Oocyte Source: Excel=Autologous, DB=Heterólogo
+
+  Video ID: 138475 - AC3
+    Diagnosis: Excel=Single Female, DB=Outros
+    Oocyte Source: Excel=Autologous, DB=Heterólogo
+
+  Video ID: 138475 - AC4
+    Diagnosis: Excel=Single Female, DB=Outros
+    Oocyte Source: Excel=Autologous, DB=Heterólogo
+
+  Video ID: 154562 - AB2
+    Diagnosis: Excel=Other, DB=Outros
+    Oocyte Source: Excel=Autologous, DB=None
+    Patient Comments: Excel=Genetic factor, DB=<NA>
+
+  Video ID: 154562 - AB6
+    Diagnosis: Excel=Other, DB=Outros
+    Oocyte Source: Excel=Autologous, DB=None
+    Patient Comments: Excel=Genetic factor, DB=<NA>
+
+  Video ID: 154562 - AB7
+    Diagnosis: Excel=Other, DB=Outros
+    Oocyte Source: Excel=Autologous, DB=None
+    Patient Comments: Excel=Genetic factor, DB=<NA>
+
+  Video ID: 154562 - AB8
+    Diagnosis: Excel=Other, DB=Outros
+    Oocyte Source: Excel=Autologous, DB=None
+    Patient Comments: Excel=Genetic factor, DB=<NA>
+
+  Video ID: 154562 - AC3
+    Diagnosis: Excel=Other, DB=Outros
+    Oocyte Source: Excel=Autologous, DB=Homólogo
+    Patient Comments: Excel=Genetic factor, DB=<NA>
+
+  Video ID: 154562 - AC5
+    Diagnosis: Excel=Other, DB=Outros
+    Oocyte Source: Excel=Autologous, DB=Homólogo
+    Patient Comments: Excel=Genetic factor, DB=<NA>
+
+  Video ID: 171805 - AB1
+    BMI: Excel=25.1, DB=25.16
+    Diagnosis: Excel=Single Female, DB=Outros
+    Oocyte Source: Excel=Autologous, DB=Homólogo
+    Previus ET: Excel=1, DB=3
+
+  Video ID: 171805 - AB2
+    BMI: Excel=25.1, DB=25.16
+    Diagnosis: Excel=Single Female, DB=Outros
+    Oocyte Source: Excel=Autologous, DB=Homólogo
+    Previus ET: Excel=1, DB=3
+
+  Video ID: 171805 - AB4
+    BMI: Excel=25.1, DB=25.16
+    Diagnosis: Excel=Single Female, DB=Outros
+    Oocyte Source: Excel=Autologous, DB=Homólogo
+    Previus ET: Excel=1, DB=3
+
+  Video ID: 171805 - AB6
+    BMI: Excel=25.1, DB=25.16
+    Diagnosis: Excel=Single Female, DB=Outros
+    Oocyte Source: Excel=Autologous, DB=Homólogo
+    Previus ET: Excel=1, DB=3
+
+  Video ID: 171805 - AB7
+    BMI: Excel=25.1, DB=25.16
+    Diagnosis: Excel=Single Female, DB=Outros
+    Oocyte Source: Excel=Autologous, DB=Homólogo
+    Previus ET: Excel=1, DB=3
+
+  Video ID: 171805 - AB9
+    BMI: Excel=25.1, DB=25.16
+    Diagnosis: Excel=Single Female, DB=Outros
+    Oocyte Source: Excel=Autologous, DB=Homólogo
+    Previus ET: Excel=1, DB=3
+
+  Video ID: 184019 - AA1
+    Diagnosis: Excel=Other, DB=Fator feminino anatômico
+    Oocyte Source: Excel=Autologous, DB=None
+    Patient Comments: Excel=Uterin factor, DB=<NA>
+
+  Video ID: 184019 - AA2
+    Diagnosis: Excel=Other, DB=Fator feminino anatômico
+    Oocyte Source: Excel=Autologous, DB=None
+    Patient Comments: Excel=Uterin factor, DB=<NA>
+
+  Video ID: 184019 - AA3
+    Diagnosis: Excel=Other, DB=Fator feminino anatômico
+    Oocyte Source: Excel=Autologous, DB=None
+    Patient Comments: Excel=Uterin factor, DB=<NA>
+
+  Video ID: 184019 - AA4
+    Diagnosis: Excel=Other, DB=Fator feminino anatômico
+    Oocyte Source: Excel=Autologous, DB=None
+    Patient Comments: Excel=Uterin factor, DB=<NA>
+
+  Video ID: 184019 - AA5
+    Diagnosis: Excel=Other, DB=Fator feminino anatômico
+    Oocyte Source: Excel=Autologous, DB=None
+    Patient Comments: Excel=Uterin factor, DB=<NA>
+
+  Video ID: 184019 - AA6
+    Diagnosis: Excel=Other, DB=Fator feminino anatômico
+    Oocyte Source: Excel=Autologous, DB=None
+    Patient Comments: Excel=Uterin factor, DB=<NA>
+
+  Video ID: 223137 - AA1
+    Diagnosis: Excel=Other, DB=Outros
+    Oocyte Source: Excel=Autologous, DB=None
+    Patient Comments: Excel=PRESERVATION, DB=<NA>
+    Previus ET: Excel=0, DB=1
+
+  Video ID: 223137 - AA2
+    Diagnosis: Excel=Other, DB=Outros
+    Oocyte Source: Excel=Autologous, DB=None
+    Patient Comments: Excel=PRESERVATION, DB=<NA>
+    Previus ET: Excel=0, DB=1
+
+  Video ID: 223137 - AA3
+    Diagnosis: Excel=Other, DB=Outros
+    Oocyte Source: Excel=Autologous, DB=None
+    Patient Comments: Excel=PRESERVATION, DB=<NA>
+    Previus ET: Excel=0, DB=1
+
+  Video ID: 223137 - AA4
+    Diagnosis: Excel=Other, DB=Outros
+    Oocyte Source: Excel=Autologous, DB=None
+    Patient Comments: Excel=PRESERVATION, DB=<NA>
+    Previus ET: Excel=0, DB=1
+
+  Video ID: 223137 - AA5
+    Diagnosis: Excel=Other, DB=Outros
+    Oocyte Source: Excel=Autologous, DB=None
+    Patient Comments: Excel=PRESERVATION, DB=<NA>
+    Previus ET: Excel=0, DB=1
+
+  Video ID: 223137 - AA7
+    Diagnosis: Excel=Other, DB=Outros
+    Oocyte Source: Excel=Autologous, DB=None
+    Patient Comments: Excel=PRESERVATION, DB=<NA>
+    Previus ET: Excel=0, DB=1
+
+  Video ID: 522770 - AA1
+    Diagnosis: Excel=Endometriosis, DB=Endometriose
+    Oocyte Source: Excel=Autologous, DB=Homólogo
+    Previus ET: Excel=0, DB=2
+
+  Video ID: 522770 - AA10
+    Diagnosis: Excel=Endometriosis, DB=Endometriose
+    Oocyte Source: Excel=Autologous, DB=Homólogo
+    Previus ET: Excel=0, DB=2
+
+  Video ID: 522770 - AA12
+    Diagnosis: Excel=Endometriosis, DB=Endometriose
+    Oocyte Source: Excel=Autologous, DB=Homólogo
+    Previus ET: Excel=0, DB=2
+
+  Video ID: 522770 - AA13
+    Diagnosis: Excel=Endometriosis, DB=Endometriose
+    Oocyte Source: Excel=Autologous, DB=Homólogo
+    Previus ET: Excel=0, DB=2
+
+  Video ID: 522770 - AA14
+    Diagnosis: Excel=Endometriosis, DB=Endometriose
+    Oocyte Source: Excel=Autologous, DB=Homólogo
+    Previus ET: Excel=0, DB=2
+
+  Video ID: 522770 - AA9
+    Diagnosis: Excel=Endometriosis, DB=Endometriose
+    Oocyte Source: Excel=Autologous, DB=Homólogo
+    Previus ET: Excel=0, DB=2
+
+  Video ID: 788678 - AB10
+    Diagnosis: Excel=Male factor, DB=Endometriose
+    Oocyte Source: Excel=Autologous, DB=Homólogo
+    Patient Comments: Excel=ENDOMETRIOSIS, DB=<NA>
+    Previus ET: Excel=0, DB=2
+
+  Video ID: 788678 - AB12
+    Diagnosis: Excel=Male factor, DB=Endometriose
+    Oocyte Source: Excel=Autologous, DB=Homólogo
+    Patient Comments: Excel=ENDOMETRIOSIS, DB=<NA>
+    Previus ET: Excel=0, DB=2
+
+  Video ID: 788678 - AB14
+    Diagnosis: Excel=Male factor, DB=Endometriose
+    Oocyte Source: Excel=Autologous, DB=Homólogo
+    Patient Comments: Excel=ENDOMETRIOSIS, DB=<NA>
+    Previus ET: Excel=0, DB=2
+
+  Video ID: 788678 - AB2
+    Diagnosis: Excel=Male factor, DB=Endometriose
+    Oocyte Source: Excel=Autologous, DB=Homólogo
+    Patient Comments: Excel=ENDOMETRIOSIS, DB=<NA>
+    Previus ET: Excel=0, DB=2
+
+  Video ID: 788678 - AB5
+    Diagnosis: Excel=Male factor, DB=Endometriose
+    Oocyte Source: Excel=Autologous, DB=Homólogo
+    Patient Comments: Excel=ENDOMETRIOSIS, DB=<NA>
+    Previus ET: Excel=0, DB=2
+
+  Video ID: 788678 - AB7
+    Diagnosis: Excel=Male factor, DB=Endometriose
+    Oocyte Source: Excel=Autologous, DB=Homólogo
+    Patient Comments: Excel=ENDOMETRIOSIS, DB=<NA>
+    Previus ET: Excel=0, DB=2
+
+  Video ID: 788678 - AB9
+    Diagnosis: Excel=Male factor, DB=Endometriose
+    Oocyte Source: Excel=Autologous, DB=Homólogo
+    Patient Comments: Excel=ENDOMETRIOSIS, DB=<NA>
+    Previus ET: Excel=0, DB=2
+
+  Video ID: 792575 - AA1
+    Diagnosis: Excel=Male factor, DB=Fator masculino
+    Oocyte Source: Excel=Autologous, DB=None
+    Previus ET: Excel=1, DB=5
+
+  Video ID: 792575 - AA3
+    Diagnosis: Excel=Male factor, DB=Fator masculino
+    Oocyte Source: Excel=Autologous, DB=None
+    Previus ET: Excel=1, DB=5
+
+  Video ID: 792575 - AA5
+    Diagnosis: Excel=Male factor, DB=Fator masculino
+    Oocyte Source: Excel=Autologous, DB=None
+    Previus ET: Excel=1, DB=5
+
+  Video ID: 792575 - AA7
+    Diagnosis: Excel=Male factor, DB=Fator masculino
+    Oocyte Source: Excel=Autologous, DB=None
+    Previus ET: Excel=1, DB=5
+
+  Video ID: 792575 - AA9
+    Diagnosis: Excel=Male factor, DB=Fator masculino
+    Oocyte Source: Excel=Autologous, DB=None
+    Previus ET: Excel=1, DB=5
+
+  Video ID: 794640 - AA11
+    Diagnosis: Excel=Unexplained Infertility, DB=Inexplicado
+    Oocyte Source: Excel=Autologous, DB=Homólogo
+    Previus ET: Excel=2, DB=0
+
+  Video ID: 794640 - AA2
+    Diagnosis: Excel=Unexplained Infertility, DB=Inexplicado
+    Oocyte Source: Excel=Autologous, DB=Homólogo
+    Previus ET: Excel=2, DB=0
+
+  Video ID: 794640 - AA4
+    Diagnosis: Excel=Unexplained Infertility, DB=Inexplicado
+    Oocyte Source: Excel=Autologous, DB=Homólogo
+    Previus ET: Excel=2, DB=0
+
+  Video ID: 794640 - AA5
+    Diagnosis: Excel=Unexplained Infertility, DB=Inexplicado
+    Oocyte Source: Excel=Autologous, DB=Homólogo
+    Previus ET: Excel=2, DB=0
+
+  Video ID: 794640 - AA8
+    Diagnosis: Excel=Unexplained Infertility, DB=Inexplicado
+    Oocyte Source: Excel=Autologous, DB=Homólogo
+    Previus ET: Excel=2, DB=0
+
+  Video ID: 794640 - AA9
+    Diagnosis: Excel=Unexplained Infertility, DB=Inexplicado
+    Oocyte Source: Excel=Autologous, DB=Homólogo
+    Previus ET: Excel=2, DB=0
+
+  Video ID: 794748 - AA13
+    Diagnosis: Excel=Other, DB=Outros
+    Embryo Description: Excel=At risk, DB=Em risco
+    Oocyte Source: Excel=Autologous, DB=Homólogo
+    Patient Comments: Excel=Genetic cause, DB=<NA>
+
+  Video ID: 794748 - AA15
+    Diagnosis: Excel=Other, DB=Outros
+    Oocyte Source: Excel=Autologous, DB=Homólogo
+    Patient Comments: Excel=Genetic cause, DB=<NA>
+
+  Video ID: 794748 - AA16
+    Diagnosis: Excel=Other, DB=Outros
+    Embryo Description: Excel=At risk, DB=Em risco
+    Oocyte Source: Excel=Autologous, DB=Homólogo
+    Patient Comments: Excel=Genetic cause, DB=<NA>
+
+  Video ID: 794748 - AA3
+    Diagnosis: Excel=Other, DB=Outros
+    Embryo Description: Excel=At risk, DB=Em risco
+    Oocyte Source: Excel=Autologous, DB=Homólogo
+    Patient Comments: Excel=Genetic cause, DB=<NA>
+
+  Video ID: 794748 - AA4
+    Diagnosis: Excel=Other, DB=Outros
+    Oocyte Source: Excel=Autologous, DB=Homólogo
+    Patient Comments: Excel=Genetic cause, DB=<NA>
+
+  Video ID: 794748 - AA8
+    Diagnosis: Excel=Other, DB=Outros
+    Oocyte Source: Excel=Autologous, DB=Homólogo
+    Patient Comments: Excel=Genetic cause, DB=<NA>
+
+  Video ID: 794748 - AA9
+    Diagnosis: Excel=Other, DB=Outros
+    Oocyte Source: Excel=Autologous, DB=Homólogo
+    Patient Comments: Excel=Genetic cause, DB=<NA>
+
+  Video ID: 795181 - AA10
+    Diagnosis: Excel=Other, DB=Outros
+    Embryo Description: Excel=Non carrier /Euploid XX, DB=Non bearer/ Euploid XX
+    Oocyte Source: Excel=Autologous, DB=Homólogo
+    Oocytes Aspirated: Excel=15, DB=16
+    Patient Comments: Excel=Genetic cause, DB=<NA>
+    Previus ET: Excel=0, DB=1
+
+  Video ID: 795181 - AA11
+    Diagnosis: Excel=Other, DB=Outros
+    Embryo Description: Excel=Non carrier / Euploid XX, DB=Non bearer/ Euploid XX
+    Oocyte Source: Excel=Autologous, DB=Homólogo
+    Oocytes Aspirated: Excel=15, DB=16
+    Patient Comments: Excel=Genetic cause, DB=<NA>
+    Previus ET: Excel=0, DB=1
+
+  Video ID: 795181 - AA12
+    Diagnosis: Excel=Other, DB=Outros
+    Embryo Description: Excel=Non carrier / Euploid XY, DB=Non bearer/ Euploid XY
+    Oocyte Source: Excel=Autologous, DB=Homólogo
+    Oocytes Aspirated: Excel=15, DB=16
+    Patient Comments: Excel=Genetic cause, DB=<NA>
+    Previus ET: Excel=0, DB=1
+
+  Video ID: 795181 - AA16
+    Diagnosis: Excel=Other, DB=Outros
+    Oocyte Source: Excel=Autologous, DB=Homólogo
+    Oocytes Aspirated: Excel=15, DB=16
+    Patient Comments: Excel=Genetic cause, DB=<NA>
+    Previus ET: Excel=0, DB=1
+
+  Video ID: 795181 - AA3
+    Diagnosis: Excel=Other, DB=Outros
+    Oocyte Source: Excel=Autologous, DB=Homólogo
+    Oocytes Aspirated: Excel=15, DB=16
+    Patient Comments: Excel=Genetic cause, DB=<NA>
+    Previus ET: Excel=0, DB=1
+
+  Video ID: 795181 - AA4
+    Diagnosis: Excel=Other, DB=Outros
+    Embryo Description: Excel=Non carrier / Euploid XY, DB=Non bearer/ Euploid XY
+    Oocyte Source: Excel=Autologous, DB=Homólogo
+    Oocytes Aspirated: Excel=15, DB=16
+    Patient Comments: Excel=Genetic cause, DB=<NA>
+    Previus ET: Excel=0, DB=1
+
+  Video ID: 795181 - AA5
+    Diagnosis: Excel=Other, DB=Outros
+    Oocyte Source: Excel=Autologous, DB=Homólogo
+    Oocytes Aspirated: Excel=15, DB=16
+    Patient Comments: Excel=Genetic cause, DB=<NA>
+    Previus ET: Excel=0, DB=1
+
+  Video ID: 795181 - AA6
+    Diagnosis: Excel=Other, DB=Outros
+    Embryo Description: Excel=Non carrier / Euploid XY, DB=Non bearer/ Euploid XY
+    Oocyte Source: Excel=Autologous, DB=Homólogo
+    Oocytes Aspirated: Excel=15, DB=16
+    Patient Comments: Excel=Genetic cause, DB=<NA>
+    Previus ET: Excel=0, DB=1
+
+  Video ID: 795181 - AA8
+    Diagnosis: Excel=Other, DB=Outros
+    Oocyte Source: Excel=Autologous, DB=Homólogo
+    Oocytes Aspirated: Excel=15, DB=16
+    Patient Comments: Excel=Genetic cause, DB=<NA>
+    Previus ET: Excel=0, DB=1
+
+  Video ID: 795181 - AB11
+    Diagnosis: Excel=Other, DB=Outros
+    Embryo Description: Excel=Carrier / Euploid XX, DB=Bearer/ Euploid XX
+    Oocyte History: Excel=Fresh, DB=Descongelado
+    Oocyte Source: Excel=Autologous, DB=None
+    Oocytes Aspirated: Excel=15, DB=16
+    Patient Comments: Excel=Genetic cause, DB=<NA>
+    Previus ET: Excel=0, DB=1
+
+  Video ID: 795181 - AB2
+    Diagnosis: Excel=Other, DB=Outros
+    Embryo Description: Excel=Non carrier / Euploid XY, DB=Non bearer/ Euploid XY
+    Oocyte Source: Excel=Autologous, DB=None
+    Oocytes Aspirated: Excel=15, DB=16
+    Patient Comments: Excel=Genetic cause, DB=<NA>
+    Previus ET: Excel=0, DB=1
+
+  Video ID: 795181 - AB3
+    Diagnosis: Excel=Other, DB=Outros
+    Oocyte History: Excel=Fresh, DB=Descongelado
+    Oocyte Source: Excel=Autologous, DB=None
+    Oocytes Aspirated: Excel=15, DB=16
+    Patient Comments: Excel=Genetic cause, DB=<NA>
+    Previus ET: Excel=0, DB=1
+
+  Video ID: 795181 - AB6
+    Diagnosis: Excel=Other, DB=Outros
+    Oocyte History: Excel=Fresh, DB=Descongelado
+    Oocyte Source: Excel=Autologous, DB=None
+    Oocytes Aspirated: Excel=15, DB=16
+    Patient Comments: Excel=Genetic cause, DB=<NA>
+    Previus ET: Excel=0, DB=1
+
+  Video ID: 795181 - AB8
+    Diagnosis: Excel=Other, DB=Outros
+    Embryo Description: Excel=Carrier / Euploid XX, DB=Bearer/ Euploid XX
+    Oocyte History: Excel=Fresh, DB=Descongelado
+    Oocyte Source: Excel=Autologous, DB=None
+    Oocytes Aspirated: Excel=15, DB=16
+    Patient Comments: Excel=Genetic cause, DB=<NA>
+    Previus ET: Excel=0, DB=1
+
+  Video ID: 801682 - AA1
+    Diagnosis: Excel=Tubal factor, DB=Fator feminino anatômico
+    Oocyte Source: Excel=Autologous, DB=Homólogo
+
+  Video ID: 801682 - AA10
+    Diagnosis: Excel=Tubal factor, DB=Fator feminino anatômico
+    Oocyte Source: Excel=Autologous, DB=Homólogo
+
+  Video ID: 801682 - AA11
+    Diagnosis: Excel=Tubal factor, DB=Fator feminino anatômico
+    Oocyte Source: Excel=Autologous, DB=Homólogo
+
+  Video ID: 801682 - AA15
+    Diagnosis: Excel=Tubal factor, DB=Fator feminino anatômico
+    Oocyte Source: Excel=Autologous, DB=Homólogo
+
+  Video ID: 801682 - AA4
+    Diagnosis: Excel=Tubal factor, DB=Fator feminino anatômico
+    Oocyte Source: Excel=Autologous, DB=Homólogo
+
+  Video ID: 801682 - AB1
+    Diagnosis: Excel=Tubal factor, DB=Fator feminino anatômico
+    Oocyte Source: Excel=Autologous, DB=Homólogo
+
+  Video ID: 806083 - AC10
+    BMI: Excel=26.0, DB=nan
+    Diagnosis: Excel=Unknown, DB=None
+    Oocyte Source: Excel=Autologous, DB=None
+
+  Video ID: 806083 - AC12
+    BMI: Excel=26.0, DB=nan
+    Diagnosis: Excel=Unknown, DB=None
+    Oocyte Source: Excel=Autologous, DB=None
+
+  Video ID: 806083 - AC14
+    BMI: Excel=26.0, DB=nan
+    Diagnosis: Excel=Unknown, DB=None
+    Oocyte Source: Excel=Autologous, DB=None
+
+  Video ID: 806083 - AC2
+    BMI: Excel=26.0, DB=nan
+    Diagnosis: Excel=Unknown, DB=None
+    Oocyte Source: Excel=Autologous, DB=None
+
+  Video ID: 806083 - AC3
+    BMI: Excel=26.0, DB=nan
+    Diagnosis: Excel=Unknown, DB=None
+    Oocyte Source: Excel=Autologous, DB=None
+
+  Video ID: 806083 - AC6
+    BMI: Excel=26.0, DB=nan
+    Diagnosis: Excel=Unknown, DB=None
+    Oocyte Source: Excel=Autologous, DB=None
+
+  Video ID: 806083 - AC8
+    BMI: Excel=26.0, DB=nan
+    Diagnosis: Excel=Unknown, DB=None
+    Oocyte Source: Excel=Autologous, DB=None
+
+  Video ID: 806083 - AC9
+    BMI: Excel=26.0, DB=nan
+    Diagnosis: Excel=Unknown, DB=None
+    Oocyte Source: Excel=Autologous, DB=None
+
+  Video ID: 806415 - AB10
+    BMI: Excel=22.6, DB=22.66
+    Diagnosis: Excel=Endometriosis, DB=Endometriose
+    Oocyte Source: Excel=Autologous, DB=Homólogo
+    Previus ET: Excel=1, DB=2
+
+  Video ID: 806415 - AB11
+    BMI: Excel=22.6, DB=22.66
+    Diagnosis: Excel=Endometriosis, DB=Endometriose
+    Oocyte Source: Excel=Autologous, DB=Homólogo
+    Previus ET: Excel=1, DB=2
+
+  Video ID: 806415 - AB4
+    BMI: Excel=22.6, DB=22.66
+    Diagnosis: Excel=Endometriosis, DB=Endometriose
+    Oocyte Source: Excel=Autologous, DB=Homólogo
+    Previus ET: Excel=1, DB=2
+
+  Video ID: 806415 - AB6
+    BMI: Excel=22.6, DB=22.66
+    Diagnosis: Excel=Endometriosis, DB=Endometriose
+    Oocyte Source: Excel=Autologous, DB=Homólogo
+    Previus ET: Excel=1, DB=2
+
+  Video ID: 806415 - AB7
+    BMI: Excel=22.6, DB=22.66
+    Diagnosis: Excel=Endometriosis, DB=Endometriose
+    Oocyte Source: Excel=Autologous, DB=Homólogo
+    Previus ET: Excel=1, DB=2
+
+  Video ID: 806415 - AB8
+    BMI: Excel=22.6, DB=22.66
+    Diagnosis: Excel=Endometriosis, DB=Endometriose
+    Oocyte Source: Excel=Autologous, DB=Homólogo
+    Previus ET: Excel=1, DB=2
+
+  Video ID: 809017 - AC10
+    BMI: Excel=20.5, DB=20.55
+    Diagnosis: Excel=Other, DB=Outros
+    Oocyte Source: Excel=Autologous, DB=Homólogo
+    Patient Comments: Excel=Abortion, DB=<NA>
+    Previus ET: Excel=0, DB=1
+
+  Video ID: 809017 - AC11
+    BMI: Excel=20.5, DB=20.55
+    Diagnosis: Excel=Other, DB=Outros
+    Oocyte Source: Excel=Autologous, DB=Homólogo
+    Patient Comments: Excel=Abortion, DB=<NA>
+    Previus ET: Excel=0, DB=1
+
+  Video ID: 809017 - AC12
+    BMI: Excel=20.5, DB=20.55
+    Diagnosis: Excel=Other, DB=Outros
+    Oocyte Source: Excel=Autologous, DB=Homólogo
+    Patient Comments: Excel=Abortion, DB=<NA>
+    Previus ET: Excel=0, DB=1
+
+  Video ID: 809017 - AC15
+    BMI: Excel=20.5, DB=20.55
+    Diagnosis: Excel=Other, DB=Outros
+    Oocyte Source: Excel=Autologous, DB=Homólogo
+    Patient Comments: Excel=Abortion, DB=<NA>
+    Previus ET: Excel=0, DB=1
+
+  Video ID: 809017 - AC2
+    BMI: Excel=20.5, DB=20.55
+    Diagnosis: Excel=Other, DB=Outros
+    Oocyte Source: Excel=Autologous, DB=Homólogo
+    Patient Comments: Excel=Abortion, DB=<NA>
+    Previus ET: Excel=0, DB=1
+
+  Video ID: 809017 - AC3
+    BMI: Excel=20.5, DB=20.55
+    Diagnosis: Excel=Other, DB=Outros
+    Oocyte Source: Excel=Autologous, DB=Homólogo
+    Patient Comments: Excel=Abortion, DB=<NA>
+    Previus ET: Excel=0, DB=1
+
+  Video ID: 809017 - AC4
+    BMI: Excel=20.5, DB=20.55
+    Diagnosis: Excel=Other, DB=Outros
+    Oocyte Source: Excel=Autologous, DB=Homólogo
+    Patient Comments: Excel=Abortion, DB=<NA>
+    Previus ET: Excel=0, DB=1
+
+  Video ID: 809017 - AC5
+    BMI: Excel=20.5, DB=20.55
+    Diagnosis: Excel=Other, DB=Outros
+    Oocyte Source: Excel=Autologous, DB=Homólogo
+    Patient Comments: Excel=Abortion, DB=<NA>
+    Previus ET: Excel=0, DB=1
+
+  Video ID: 809017 - AC6
+    BMI: Excel=20.5, DB=20.55
+    Diagnosis: Excel=Other, DB=Outros
+    Oocyte Source: Excel=Autologous, DB=Homólogo
+    Patient Comments: Excel=Abortion, DB=<NA>
+    Previus ET: Excel=0, DB=1
+
+  Video ID: 809017 - AC7
+    BMI: Excel=20.5, DB=20.55
+    Diagnosis: Excel=Other, DB=Outros
+    Oocyte Source: Excel=Autologous, DB=Homólogo
+    Patient Comments: Excel=Abortion, DB=<NA>
+    Previus ET: Excel=0, DB=1
+
+  Video ID: 809017 - AC9
+    BMI: Excel=20.5, DB=20.55
+    Diagnosis: Excel=Other, DB=Outros
+    Oocyte Source: Excel=Autologous, DB=Homólogo
+    Patient Comments: Excel=Abortion, DB=<NA>
+    Previus ET: Excel=0, DB=1
+
+  Video ID: 809017 - AD2
+    BMI: Excel=20.5, DB=20.55
+    Diagnosis: Excel=Other, DB=Outros
+    Oocyte Source: Excel=Autologous, DB=None
+    Patient Comments: Excel=Abortion, DB=<NA>
+    Previus ET: Excel=0, DB=1
+
+  Video ID: 809017 - AD6
+    BMI: Excel=20.5, DB=20.55
+    Diagnosis: Excel=Other, DB=Outros
+    Oocyte Source: Excel=Autologous, DB=None
+    Patient Comments: Excel=Abortion, DB=<NA>
+    Previus ET: Excel=0, DB=1
+
+  Video ID: 809017 - AD7
+    BMI: Excel=20.5, DB=20.55
+    Diagnosis: Excel=Other, DB=Outros
+    Oocyte Source: Excel=Autologous, DB=None
+    Patient Comments: Excel=Abortion, DB=<NA>
+    Previus ET: Excel=0, DB=1
+
+  Video ID: 809017 - AD8
+    BMI: Excel=20.5, DB=20.55
+    Diagnosis: Excel=Other, DB=Outros
+    Embryo Description: Excel=Aneuploid, XXX, DB=TRIPLE OF  XXY
+    Oocyte Source: Excel=Autologous, DB=None
+    Patient Comments: Excel=Abortion, DB=<NA>
+    Previus ET: Excel=0, DB=1
+
+  Video ID: 809722 - AB1
+    Diagnosis: Excel=Endometriosis, DB=Endometriose
+    Oocyte Source: Excel=Autologous, DB=Homólogo
+    Previus ET: Excel=1, DB=3
+
+  Video ID: 809722 - AB2
+    Diagnosis: Excel=Endometriosis, DB=Endometriose
+    Oocyte Source: Excel=Autologous, DB=Homólogo
+    Previus ET: Excel=1, DB=3
+
+  Video ID: 809722 - AB3
+    Diagnosis: Excel=Endometriosis, DB=Endometriose
+    Oocyte Source: Excel=Autologous, DB=Homólogo
+    Previus ET: Excel=1, DB=3
+
+  Video ID: 809722 - AB4
+    Diagnosis: Excel=Endometriosis, DB=Endometriose
+    Oocyte Source: Excel=Autologous, DB=Homólogo
+    Previus ET: Excel=1, DB=3
+
+  Video ID: 809722 - AB6
+    Diagnosis: Excel=Endometriosis, DB=Endometriose
+    Oocyte Source: Excel=Autologous, DB=Homólogo
+    Previus ET: Excel=1, DB=3
+
+  Video ID: 809722 - AB7
+    Diagnosis: Excel=Endometriosis, DB=Endometriose
+    Oocyte Source: Excel=Autologous, DB=Homólogo
+    Previus ET: Excel=1, DB=3
+
+  Video ID: 809722 - AB8
+    Diagnosis: Excel=Endometriosis, DB=Endometriose
+    Oocyte Source: Excel=Autologous, DB=Homólogo
+    Previus ET: Excel=1, DB=3
+
+  Video ID: 813040 - AA3
+    Age: Excel=31.16, DB=31.15
+    Diagnosis: Excel=Unknown, DB=Endometriose
+    Oocyte Source: Excel=Autologous, DB=Homólogo
+
+  Video ID: 813040 - AA4
+    Age: Excel=31.16, DB=31.15
+    Diagnosis: Excel=Unknown, DB=Endometriose
+    Oocyte Source: Excel=Autologous, DB=Homólogo
+
+  Video ID: 813040 - AA5
+    Age: Excel=31.16, DB=31.15
+    Diagnosis: Excel=Unknown, DB=Endometriose
+    Oocyte Source: Excel=Autologous, DB=Homólogo
+
+  Video ID: 813040 - AA7
+    Age: Excel=31.16, DB=31.15
+    Diagnosis: Excel=Unknown, DB=Endometriose
+    Oocyte Source: Excel=Autologous, DB=Homólogo
+    Previus ET: Excel=2, DB=0
+
+  Video ID: 813293 - AA11
+    Diagnosis: Excel=Male factor, DB=Fator masculino
+    Oocyte Source: Excel=Autologous, DB=Homólogo
+    Patient Comments: Excel=Ovarian Failure, DB=<NA>
+
+  Video ID: 813293 - AA13
+    Diagnosis: Excel=Male factor, DB=Fator masculino
+    Oocyte Source: Excel=Autologous, DB=Homólogo
+    Patient Comments: Excel=Ovarian Failure, DB=<NA>
+
+  Video ID: 813293 - AA2
+    Diagnosis: Excel=Male factor, DB=Fator masculino
+    Oocyte Source: Excel=Autologous, DB=Homólogo
+    Patient Comments: Excel=Ovarian Failure, DB=<NA>
+
+  Video ID: 813293 - AA3
+    Diagnosis: Excel=Male factor, DB=Fator masculino
+    Oocyte Source: Excel=Autologous, DB=Homólogo
+    Patient Comments: Excel=Ovarian Failure, DB=<NA>
+
+  Video ID: 813293 - AA4
+    Diagnosis: Excel=Male factor, DB=Fator masculino
+    Oocyte Source: Excel=Autologous, DB=Homólogo
+    Patient Comments: Excel=Ovarian Failure, DB=<NA>
+
+  Video ID: 813293 - AA7
+    Diagnosis: Excel=Male factor, DB=Fator masculino
+    Oocyte Source: Excel=Autologous, DB=Homólogo
+    Patient Comments: Excel=Ovarian Failure, DB=<NA>
+
+  Video ID: 815770 - AB11
+    BMI: Excel=22.7, DB=22.76
+    Diagnosis: Excel=Other, DB=Insuficiência ovariana
+    Oocyte Source: Excel=Autologous, DB=None
+    Patient Comments: Excel=<AMH, DB=<NA>
+    Previus ET: Excel=0, DB=1
+
+  Video ID: 815770 - AB13
+    BMI: Excel=22.7, DB=22.76
+    Diagnosis: Excel=Other, DB=Insuficiência ovariana
+    Oocyte Source: Excel=Autologous, DB=None
+    Patient Comments: Excel=<AMH, DB=<NA>
+    Previus ET: Excel=0, DB=1
+
+  Video ID: 815770 - AB14
+    BMI: Excel=22.7, DB=22.76
+    Diagnosis: Excel=Other, DB=Insuficiência ovariana
+    Oocyte Source: Excel=Autologous, DB=None
+    Patient Comments: Excel=<AMH, DB=<NA>
+    Previus ET: Excel=0, DB=1
+
+  Video ID: 815770 - AB16
+    BMI: Excel=22.7, DB=22.76
+    Diagnosis: Excel=Other, DB=Insuficiência ovariana
+    Oocyte Source: Excel=Autologous, DB=None
+    Patient Comments: Excel=<AMH, DB=<NA>
+    Previus ET: Excel=0, DB=1
+
+  Video ID: 815770 - AB2
+    BMI: Excel=22.7, DB=22.76
+    Diagnosis: Excel=Other, DB=Insuficiência ovariana
+    Oocyte Source: Excel=Autologous, DB=None
+    Patient Comments: Excel=<AMH, DB=<NA>
+    Previus ET: Excel=0, DB=1
+
+  Video ID: 815770 - AB4
+    BMI: Excel=22.7, DB=22.76
+    Diagnosis: Excel=Other, DB=Insuficiência ovariana
+    Oocyte Source: Excel=Autologous, DB=None
+    Patient Comments: Excel=<AMH, DB=<NA>
+    Previus ET: Excel=0, DB=1
+
+  Video ID: 815770 - AB5
+    BMI: Excel=22.7, DB=22.76
+    Diagnosis: Excel=Other, DB=Insuficiência ovariana
+    Oocyte Source: Excel=Autologous, DB=None
+    Patient Comments: Excel=<AMH, DB=<NA>
+    Previus ET: Excel=0, DB=1
+
+  Video ID: 815770 - AB7
+    BMI: Excel=22.7, DB=22.76
+    Diagnosis: Excel=Other, DB=Insuficiência ovariana
+    Oocyte Source: Excel=Autologous, DB=None
+    Patient Comments: Excel=<AMH, DB=<NA>
+    Previus ET: Excel=0, DB=1
+
+  Video ID: 815770 - AB9
+    BMI: Excel=22.7, DB=22.76
+    Diagnosis: Excel=Other, DB=Insuficiência ovariana
+    Oocyte Source: Excel=Autologous, DB=None
+    Patient Comments: Excel=<AMH, DB=<NA>
+    Previus ET: Excel=0, DB=1
+
+  Video ID: 815770 - AC1
+    BMI: Excel=22.7, DB=22.76
+    Diagnosis: Excel=Other, DB=Insuficiência ovariana
+    Oocyte Source: Excel=Autologous, DB=None
+    Patient Comments: Excel=<AMH, DB=<NA>
+    Previus ET: Excel=0, DB=1
+
+  Video ID: 815770 - AC3
+    BMI: Excel=22.7, DB=22.76
+    Diagnosis: Excel=Other, DB=Insuficiência ovariana
+    Oocyte Source: Excel=Autologous, DB=None
+    Patient Comments: Excel=<AMH, DB=<NA>
+    Previus ET: Excel=0, DB=1
+
+  Video ID: 820251 - AB11
+    BMI: Excel=37.2, DB=37.29
+    Diagnosis: Excel=Unknown, DB=Outros
+    Oocyte Source: Excel=Autologous, DB=Homólogo
+    Previus ET: Excel=1, DB=3
+
+  Video ID: 820251 - AB2
+    BMI: Excel=37.2, DB=37.29
+    Diagnosis: Excel=Unknown, DB=Outros
+    Oocyte Source: Excel=Autologous, DB=Homólogo
+    Previus ET: Excel=1, DB=3
+
+  Video ID: 820251 - AB3
+    BMI: Excel=37.2, DB=37.29
+    Diagnosis: Excel=Unknown, DB=Outros
+    Oocyte Source: Excel=Autologous, DB=Homólogo
+    Previus ET: Excel=1, DB=3
+
+  Video ID: 820251 - AB4
+    BMI: Excel=37.2, DB=37.29
+    Diagnosis: Excel=Unknown, DB=Outros
+    Oocyte Source: Excel=Autologous, DB=Homólogo
+    Previus ET: Excel=1, DB=3
+
+  Video ID: 820251 - AB6
+    BMI: Excel=37.2, DB=37.29
+    Diagnosis: Excel=Unknown, DB=Outros
+    Oocyte Source: Excel=Autologous, DB=Homólogo
+    Previus ET: Excel=1, DB=3
+
+  Video ID: 820251 - AB9
+    BMI: Excel=37.2, DB=37.29
+    Diagnosis: Excel=Unknown, DB=Outros
+    Oocyte Source: Excel=Autologous, DB=Homólogo
+    Previus ET: Excel=1, DB=3
+
+  Video ID: 820617 - AA1
+    BMI: Excel=25.8, DB=25.86
+    Diagnosis: Excel=Endometriosis, DB=Endometriose
+    Oocyte Source: Excel=Autologous, DB=Homólogo
+
+  Video ID: 820617 - AA12
+    BMI: Excel=25.8, DB=25.86
+    Diagnosis: Excel=Endometriosis, DB=Endometriose
+    Oocyte Source: Excel=Autologous, DB=Homólogo
+
+  Video ID: 820617 - AA13
+    BMI: Excel=25.8, DB=25.86
+    Diagnosis: Excel=Endometriosis, DB=Endometriose
+    Oocyte Source: Excel=Autologous, DB=Homólogo
+
+  Video ID: 820617 - AA15
+    BMI: Excel=25.8, DB=25.86
+    Diagnosis: Excel=Endometriosis, DB=Endometriose
+    Oocyte Source: Excel=Autologous, DB=Homólogo
+
+  Video ID: 820617 - AA3
+    BMI: Excel=25.8, DB=25.86
+    Diagnosis: Excel=Endometriosis, DB=Endometriose
+    Oocyte Source: Excel=Autologous, DB=Homólogo
+
+  Video ID: 820617 - AA4
+    BMI: Excel=25.8, DB=25.86
+    Diagnosis: Excel=Endometriosis, DB=Endometriose
+    Oocyte Source: Excel=Autologous, DB=Homólogo
+
+  Video ID: 820617 - AA8
+    BMI: Excel=25.8, DB=25.86
+    Diagnosis: Excel=Endometriosis, DB=Endometriose
+    Oocyte Source: Excel=Autologous, DB=Homólogo
+
+  Video ID: 820617 - AA9
+    BMI: Excel=25.8, DB=25.86
+    Diagnosis: Excel=Endometriosis, DB=Endometriose
+    Oocyte Source: Excel=Autologous, DB=Homólogo
+
+  Video ID: 821133 - AC1
+    Diagnosis: Excel=Other, DB=Outros
+    Embryo Description: Excel=Low risk/Euploid XX, DB=Low risk/Euploid, XX
+    Oocyte Source: Excel=Autologous, DB=Homólogo
+    Patient Comments: Excel=Genetic factor, DB=<NA>
+    Previus ET: Excel=0, DB=2
+
+  Video ID: 821133 - AC10
+    Diagnosis: Excel=Other, DB=Outros
+    Oocyte Source: Excel=Autologous, DB=Homólogo
+    Patient Comments: Excel=Genetic factor, DB=<NA>
+    Previus ET: Excel=0, DB=2
+
+  Video ID: 821133 - AC11
+    Diagnosis: Excel=Other, DB=Outros
+    Oocyte Source: Excel=Autologous, DB=Homólogo
+    Patient Comments: Excel=Genetic factor, DB=<NA>
+    Previus ET: Excel=0, DB=2
+
+  Video ID: 821133 - AC12
+    Diagnosis: Excel=Other, DB=Outros
+    Oocyte Source: Excel=Autologous, DB=Homólogo
+    Patient Comments: Excel=Genetic factor, DB=<NA>
+    Previus ET: Excel=0, DB=2
+
+  Video ID: 821133 - AC2
+    Diagnosis: Excel=Other, DB=Outros
+    Embryo Description: Excel=Low risk/Euploid XX, DB=Low risk/Euploid, XX
+    Oocyte Source: Excel=Autologous, DB=Homólogo
+    Patient Comments: Excel=Genetic factor, DB=<NA>
+    Previus ET: Excel=0, DB=2
+
+  Video ID: 821133 - AC3
+    Diagnosis: Excel=Other, DB=Outros
+    Embryo Description: Excel=Low risk/Euploid XY, DB=Low risk/Euploid, XY
+    Oocyte Source: Excel=Autologous, DB=Homólogo
+    Patient Comments: Excel=Genetic factor, DB=<NA>
+    Previus ET: Excel=0, DB=2
+
+  Video ID: 821133 - AC6
+    Diagnosis: Excel=Other, DB=Outros
+    Oocyte Source: Excel=Autologous, DB=Homólogo
+    Patient Comments: Excel=Genetic factor, DB=<NA>
+    Previus ET: Excel=0, DB=2
+
+  Video ID: 821133 - AC8
+    Diagnosis: Excel=Other, DB=Outros
+    Embryo Description: Excel=Low risk/Euploid XY, DB=Low risk/Euploid, XY
+    Oocyte Source: Excel=Autologous, DB=Homólogo
+    Patient Comments: Excel=Genetic factor, DB=<NA>
+    Previus ET: Excel=0, DB=2
+
+  Video ID: 821133 - AC9
+    Diagnosis: Excel=Other, DB=Outros
+    Oocyte Source: Excel=Autologous, DB=Homólogo
+    Patient Comments: Excel=Genetic factor, DB=<NA>
+    Previus ET: Excel=0, DB=2
+
+  Video ID: 821169 - AA1
+    Diagnosis: Excel=Unknown, DB=Inexplicado
+    Oocyte Source: Excel=Autologous, DB=None
+
+  Video ID: 821169 - AA3
+    Diagnosis: Excel=Unknown, DB=Inexplicado
+    Oocyte Source: Excel=Autologous, DB=None
+
+  Video ID: 821169 - AA4
+    Diagnosis: Excel=Unknown, DB=Inexplicado
+    Embryo Description: Excel=Euploid, XY, DB=s/biopsia
+    Embryo ID: Excel=AB4, DB=AA4
+    Oocyte Source: Excel=Autologous, DB=None
+    Slide ID: Excel=D2024.02.08_S03676_I3027_P, DB=D2024.02.08_S03675_I3027_P-4
+    TE - Value: Excel=A, DB=B
+    t2: Excel=31.49093, DB=31.4
+    t3: Excel=38.03584389, DB=35.9
+    t4: Excel=38.03584389, DB=36.4
+    t5: Excel=49.59982111, DB=48.8
+    t8: Excel=51.744565, DB=55.6
+    tB: Excel=93.84264583, DB=99.4
+    tPNf: Excel=31.49093, DB=22.5
+    tSB: Excel=86.47452889, DB=87.2
+
+  Video ID: 821169 - AA5
+    Diagnosis: Excel=Unknown, DB=Inexplicado
+    Oocyte Source: Excel=Autologous, DB=None
+
+  Video ID: 821988 - AB1
+    Diagnosis: Excel=Male factor, DB=Fator masculino
+    Oocyte Source: Excel=Autologous, DB=Homólogo
+    Previus ET: Excel=0, DB=1
+
+  Video ID: 821988 - AB10
+    Diagnosis: Excel=Male factor, DB=Fator masculino
+    Oocyte Source: Excel=Autologous, DB=Homólogo
+    Previus ET: Excel=0, DB=1
+
+  Video ID: 821988 - AB14
+    Diagnosis: Excel=Male factor, DB=Fator masculino
+    Oocyte Source: Excel=Autologous, DB=Homólogo
+    Previus ET: Excel=0, DB=1
+
+  Video ID: 821988 - AB4
+    Diagnosis: Excel=Male factor, DB=Fator masculino
+    Oocyte Source: Excel=Autologous, DB=Homólogo
+    Previus ET: Excel=0, DB=1
+
+  Video ID: 821988 - AB6
+    Diagnosis: Excel=Male factor, DB=Fator masculino
+    Oocyte Source: Excel=Autologous, DB=Homólogo
+    Previus ET: Excel=0, DB=1
+
+  Video ID: 821988 - AB9
+    Diagnosis: Excel=Male factor, DB=Fator masculino
+    Oocyte Source: Excel=Autologous, DB=Homólogo
+    Previus ET: Excel=0, DB=1
+
+  Video ID: 823261 - AB1
+    BMI: Excel=21.1, DB=21.19
+    Diagnosis: Excel=Other, DB=Outros
+    Oocyte History: Excel=Other, DB=Descongelado
+    Oocyte Source: Excel=Autologous, DB=None
+    Patient Comments: Excel=PRESERVATION, DB=<NA>
+    Previus ET: Excel=0, DB=2
+
+  Video ID: 823261 - AB3
+    BMI: Excel=21.1, DB=21.19
+    Diagnosis: Excel=Other, DB=Outros
+    Oocyte History: Excel=Other, DB=Descongelado
+    Oocyte Source: Excel=Autologous, DB=None
+    Patient Comments: Excel=PRESERVATION, DB=<NA>
+    Previus ET: Excel=0, DB=2
+
+  Video ID: 823261 - AB4
+    BMI: Excel=21.1, DB=21.19
+    Diagnosis: Excel=Other, DB=Outros
+    Oocyte History: Excel=Other, DB=Descongelado
+    Oocyte Source: Excel=Autologous, DB=None
+    Patient Comments: Excel=PRESERVATION, DB=<NA>
+    Previus ET: Excel=0, DB=2
+
+  Video ID: 823589 - AA2
+    Diagnosis: Excel=Male factor, DB=Outros
+    Oocyte Source: Excel=Autologous, DB=Homólogo
+    Patient Comments: Excel=Miscarriage\r\nTrombofilic factor, DB=<NA>
+
+  Video ID: 823589 - AA3
+    Diagnosis: Excel=Male factor, DB=Outros
+    Oocyte Source: Excel=Autologous, DB=Homólogo
+    Patient Comments: Excel=Miscarriage\r\nTrombofilic factor, DB=<NA>
+
+  Video ID: 823589 - AA4
+    Diagnosis: Excel=Male factor, DB=Outros
+    Oocyte Source: Excel=Autologous, DB=Homólogo
+    Patient Comments: Excel=Miscarriage\r\nTrombofilic factor, DB=<NA>
+
+  Video ID: 823589 - AA5
+    Diagnosis: Excel=Male factor, DB=Outros
+    Oocyte Source: Excel=Autologous, DB=Homólogo
+    Patient Comments: Excel=Miscarriage\r\nTrombofilic factor, DB=<NA>
+
+  Video ID: 824696 - AA2
+    BMI: Excel=25.4, DB=25.47
+    Diagnosis: Excel=Tubal factor, DB=Endometriose
+    Oocyte Source: Excel=Autologous, DB=Homólogo
+    Patient Comments: Excel=<AMH, DB=<NA>
+
+  Video ID: 824696 - AA3
+    BMI: Excel=25.4, DB=25.47
+    Diagnosis: Excel=Tubal factor, DB=Endometriose
+    Oocyte Source: Excel=Autologous, DB=Homólogo
+    Patient Comments: Excel=<AMH, DB=<NA>
+
+  Video ID: 824696 - AA6
+    BMI: Excel=25.4, DB=25.47
+    Diagnosis: Excel=Tubal factor, DB=Endometriose
+    Oocyte Source: Excel=Autologous, DB=Homólogo
+    Patient Comments: Excel=<AMH, DB=<NA>
+
+  Video ID: 824696 - AA7
+    BMI: Excel=25.4, DB=25.47
+    Diagnosis: Excel=Tubal factor, DB=Endometriose
+    Oocyte Source: Excel=Autologous, DB=Homólogo
+    Patient Comments: Excel=<AMH, DB=<NA>
+
+  Video ID: 824696 - AA8
+    BMI: Excel=25.4, DB=25.47
+    Diagnosis: Excel=Tubal factor, DB=Endometriose
+    Oocyte Source: Excel=Autologous, DB=Homólogo
+    Patient Comments: Excel=<AMH, DB=<NA>
+
+  Video ID: 825960 - AB10
+    BMI: Excel=24.2, DB=22.04
+    Diagnosis: Excel=Male factor, DB=Insuficiência ovariana
+    Oocyte Source: Excel=Autologous, DB=Homólogo
+
+  Video ID: 825960 - AB11
+    BMI: Excel=24.2, DB=22.04
+    Diagnosis: Excel=Male factor, DB=Insuficiência ovariana
+    Oocyte Source: Excel=Autologous, DB=Homólogo
+
+  Video ID: 825960 - AB13
+    BMI: Excel=24.2, DB=22.04
+    Diagnosis: Excel=Male factor, DB=Insuficiência ovariana
+    Oocyte Source: Excel=Autologous, DB=Homólogo
+
+  Video ID: 825960 - AB3
+    BMI: Excel=24.2, DB=22.04
+    Diagnosis: Excel=Male factor, DB=Insuficiência ovariana
+    Oocyte Source: Excel=Autologous, DB=Homólogo
+
+  Video ID: 825960 - AB5
+    BMI: Excel=24.2, DB=22.04
+    Diagnosis: Excel=Male factor, DB=Insuficiência ovariana
+    Oocyte Source: Excel=Autologous, DB=Homólogo
+
+  Video ID: 825960 - AB6
+    BMI: Excel=24.2, DB=22.04
+    Diagnosis: Excel=Male factor, DB=Insuficiência ovariana
+    Oocyte Source: Excel=Autologous, DB=Homólogo
+
+  Video ID: 825960 - AB8
+    BMI: Excel=24.2, DB=22.04
+    Diagnosis: Excel=Male factor, DB=Insuficiência ovariana
+    Oocyte Source: Excel=Autologous, DB=Homólogo
+
+  Video ID: 825960 - AB9
+    BMI: Excel=24.2, DB=22.04
+    Diagnosis: Excel=Male factor, DB=Insuficiência ovariana
+    Oocyte Source: Excel=Autologous, DB=Homólogo
+
+  Video ID: 826326 - AA10
+    Diagnosis: Excel=Male factor, DB=Fator masculino
+    Oocyte Source: Excel=Autologous, DB=Homólogo
+
+  Video ID: 826326 - AA11
+    Diagnosis: Excel=Male factor, DB=Fator masculino
+    Oocyte Source: Excel=Autologous, DB=Homólogo
+
+  Video ID: 826326 - AA16
+    Diagnosis: Excel=Male factor, DB=Fator masculino
+    Oocyte Source: Excel=Autologous, DB=Homólogo
+
+  Video ID: 826326 - AA3
+    Diagnosis: Excel=Male factor, DB=Fator masculino
+    Oocyte Source: Excel=Autologous, DB=Homólogo
+
+  Video ID: 826326 - AA9
+    Diagnosis: Excel=Male factor, DB=Fator masculino
+    Oocyte Source: Excel=Autologous, DB=Homólogo
+
+  Video ID: 826659 - AA2
+    Diagnosis: Excel=Male factor, DB=Endometriose
+    Oocyte Source: Excel=Autologous, DB=None
+    Patient Comments: Excel=Endometriosis, DB=<NA>
+
+  Video ID: 826659 - AA3
+    Diagnosis: Excel=Male factor, DB=Endometriose
+    Oocyte Source: Excel=Autologous, DB=None
+    Patient Comments: Excel=Endometriosis, DB=<NA>
+
+  Video ID: 826659 - AB1
+    Diagnosis: Excel=Male factor, DB=Endometriose
+    Oocyte Source: Excel=Autologous, DB=Homólogo
+    Patient Comments: Excel=Endometriosis, DB=<NA>
+
+  Video ID: 826659 - AB4
+    Diagnosis: Excel=Male factor, DB=Endometriose
+    Oocyte Source: Excel=Autologous, DB=Homólogo
+    Patient Comments: Excel=Endometriosis, DB=<NA>
+
+  Video ID: 828627 - AA1
+    Diagnosis: Excel=Unexplained Infertility, DB=Inexplicado
+    Oocyte Source: Excel=Autologous, DB=Homólogo
+
+  Video ID: 828627 - AA10
+    Diagnosis: Excel=Unexplained Infertility, DB=Inexplicado
+    Oocyte Source: Excel=Autologous, DB=Homólogo
+
+  Video ID: 828627 - AA12
+    Diagnosis: Excel=Unexplained Infertility, DB=Inexplicado
+    Oocyte Source: Excel=Autologous, DB=Homólogo
+
+  Video ID: 828627 - AA14
+    Diagnosis: Excel=Unexplained Infertility, DB=Inexplicado
+    Oocyte Source: Excel=Autologous, DB=Homólogo
+
+  Video ID: 828627 - AA3
+    Diagnosis: Excel=Unexplained Infertility, DB=Inexplicado
+    Oocyte Source: Excel=Autologous, DB=Homólogo
+
+  Video ID: 828627 - AA7
+    Diagnosis: Excel=Unexplained Infertility, DB=Inexplicado
+    Oocyte Source: Excel=Autologous, DB=Homólogo
+
+  Video ID: 828627 - AA8
+    Diagnosis: Excel=Unexplained Infertility, DB=Inexplicado
+    Oocyte Source: Excel=Autologous, DB=Homólogo
+
+  Video ID: 829172 - AA10
+    BMI: Excel=23.3, DB=nan
+    Diagnosis: Excel=Unexplained Infertility, DB=None
+    Oocyte Source: Excel=Autologous, DB=None
+
+  Video ID: 829172 - AA3
+    BMI: Excel=23.3, DB=nan
+    Diagnosis: Excel=Unexplained Infertility, DB=None
+    Oocyte Source: Excel=Autologous, DB=None
+
+  Video ID: 829172 - AA4
+    BMI: Excel=23.3, DB=nan
+    Diagnosis: Excel=Unexplained Infertility, DB=None
+    Oocyte Source: Excel=Autologous, DB=None
+
+  Video ID: 829172 - AA5
+    BMI: Excel=23.3, DB=nan
+    Diagnosis: Excel=Unexplained Infertility, DB=None
+    Oocyte Source: Excel=Autologous, DB=None
+
+  Video ID: 829172 - AA6
+    BMI: Excel=23.3, DB=nan
+    Diagnosis: Excel=Unexplained Infertility, DB=None
+    Oocyte Source: Excel=Autologous, DB=None
+
+  Video ID: 829172 - AA7
+    BMI: Excel=23.3, DB=nan
+    Diagnosis: Excel=Unexplained Infertility, DB=None
+    Oocyte Source: Excel=Autologous, DB=None
+
+  Video ID: 829172 - AA8
+    BMI: Excel=23.3, DB=nan
+    Diagnosis: Excel=Unexplained Infertility, DB=None
+    Oocyte Source: Excel=Autologous, DB=None
+
+  Video ID: 829172 - AA9
+    BMI: Excel=23.3, DB=nan
+    Diagnosis: Excel=Unexplained Infertility, DB=None
+    Oocyte Source: Excel=Autologous, DB=None
+
+  Video ID: 829723 - AA1
+    Diagnosis: Excel=Preservation, DB=Outros
+    Oocyte Source: Excel=Autologous, DB=None
+
+  Video ID: 829723 - AA2
+    Diagnosis: Excel=Preservation, DB=Outros
+    Oocyte Source: Excel=Autologous, DB=None
+
+  Video ID: 829723 - AA4
+    Diagnosis: Excel=Preservation, DB=Outros
+    Oocyte Source: Excel=Autologous, DB=None
+
+  Video ID: 829723 - AA5
+    Diagnosis: Excel=Preservation, DB=Outros
+    Oocyte Source: Excel=Autologous, DB=None
+
+  Video ID: 829723 - AA6
+    Diagnosis: Excel=Preservation, DB=Outros
+    Oocyte Source: Excel=Autologous, DB=None
+
+  Video ID: 829723 - AB10
+    Diagnosis: Excel=Preservation, DB=Outros
+    Oocyte Source: Excel=Autologous, DB=None
+
+  Video ID: 829723 - AB11
+    Diagnosis: Excel=Preservation, DB=Outros
+    Oocyte Source: Excel=Autologous, DB=None
+
+  Video ID: 829723 - AB12
+    Diagnosis: Excel=Preservation, DB=Outros
+    Oocyte Source: Excel=Autologous, DB=None
+
+  Video ID: 829723 - AB7
+    Diagnosis: Excel=Preservation, DB=Outros
+    Oocyte Source: Excel=Autologous, DB=None
+
+  Video ID: 829723 - AB8
+    Diagnosis: Excel=Preservation, DB=Outros
+    Oocyte Source: Excel=Autologous, DB=None
+
+  Video ID: 829723 - AB9
+    Diagnosis: Excel=Preservation, DB=Outros
+    Oocyte Source: Excel=Autologous, DB=None
+
+  Video ID: 829857 - AA2
+    BMI: Excel=20.3, DB=20.37
+    Diagnosis: Excel=Tubal factor, DB=Fator feminino anatômico
+    Oocyte Source: Excel=Autologous, DB=Homólogo
+
+  Video ID: 829857 - AA6
+    BMI: Excel=20.3, DB=20.37
+    Diagnosis: Excel=Tubal factor, DB=Fator feminino anatômico
+    Oocyte Source: Excel=Autologous, DB=Homólogo
+
+  Video ID: 829857 - AA7
+    BMI: Excel=20.3, DB=20.37
+    Diagnosis: Excel=Tubal factor, DB=Fator feminino anatômico
+    Oocyte Source: Excel=Autologous, DB=Homólogo
+
+  Video ID: 829857 - AA8
+    BMI: Excel=20.3, DB=20.37
+    Diagnosis: Excel=Tubal factor, DB=Fator feminino anatômico
+    Oocyte Source: Excel=Autologous, DB=Homólogo
+
+  Video ID: 832131 - AB1
+    Diagnosis: Excel=Endometriosis, DB=Endometriose
+    Oocyte Source: Excel=Autologous, DB=Homólogo
+    Previus ET: Excel=0, DB=1
+
+  Video ID: 832131 - AB2
+    Diagnosis: Excel=Endometriosis, DB=Endometriose
+    Oocyte Source: Excel=Autologous, DB=Homólogo
+    Previus ET: Excel=0, DB=1
+
+  Video ID: 832131 - AB3
+    Diagnosis: Excel=Endometriosis, DB=Endometriose
+    Oocyte Source: Excel=Autologous, DB=Homólogo
+    Previus ET: Excel=0, DB=1
+
+  Video ID: 832131 - AB4
+    Diagnosis: Excel=Endometriosis, DB=Endometriose
+    Oocyte Source: Excel=Autologous, DB=Homólogo
+    Previus ET: Excel=0, DB=1
+
+  Video ID: 832131 - AB5
+    Diagnosis: Excel=Endometriosis, DB=Endometriose
+    Oocyte Source: Excel=Autologous, DB=Homólogo
+    Previus ET: Excel=0, DB=1
+
+  Video ID: 832131 - AB6
+    Diagnosis: Excel=Endometriosis, DB=Endometriose
+    Oocyte Source: Excel=Autologous, DB=Homólogo
+    Previus ET: Excel=0, DB=1
+
+  Video ID: 833385 - AA10
+    BMI: Excel=22.5, DB=22.58
+    Diagnosis: Excel=Male factor, DB=Fator masculino
+    Oocyte Source: Excel=Autologous, DB=None
+
+  Video ID: 833385 - AA4
+    BMI: Excel=22.5, DB=22.58
+    Diagnosis: Excel=Male factor, DB=Fator masculino
+    Oocyte Source: Excel=Autologous, DB=None
+
+  Video ID: 833385 - AA7
+    BMI: Excel=22.5, DB=22.58
+    Diagnosis: Excel=Male factor, DB=Fator masculino
+    Oocyte Source: Excel=Autologous, DB=None
+
+  Video ID: 833596 - AA10
+    BMI: Excel=23.1, DB=23.01
+    Diagnosis: Excel=Unknown, DB=Inexplicado
+    Oocyte Source: Excel=Autologous, DB=Homólogo
+
+  Video ID: 833596 - AA11
+    BMI: Excel=23.1, DB=23.01
+    Diagnosis: Excel=Unknown, DB=Inexplicado
+    Oocyte Source: Excel=Autologous, DB=Homólogo
+
+  Video ID: 833596 - AA14
+    BMI: Excel=23.1, DB=23.01
+    Diagnosis: Excel=Unknown, DB=Inexplicado
+    Embryo Description: Excel=Euploid, XY, DB=sem analise
+    Oocyte Source: Excel=Autologous, DB=Homólogo
+
+  Video ID: 833596 - AA2
+    BMI: Excel=23.1, DB=23.01
+    Diagnosis: Excel=Unknown, DB=Inexplicado
+    Embryo Description: Excel=Complex aneuploid -16, +15, XX, DB=sem analise
+    Oocyte Source: Excel=Autologous, DB=Homólogo
+
+  Video ID: 833596 - AA5
+    BMI: Excel=23.1, DB=23.01
+    Diagnosis: Excel=Unknown, DB=Inexplicado
+    Oocyte Source: Excel=Autologous, DB=Homólogo
+
+  Video ID: 833596 - AA7
+    BMI: Excel=23.1, DB=23.01
+    Diagnosis: Excel=Unknown, DB=Inexplicado
+    Oocyte Source: Excel=Autologous, DB=Homólogo
+
+  Video ID: 833596 - AA9
+    BMI: Excel=23.1, DB=23.01
+    Diagnosis: Excel=Unknown, DB=Inexplicado
+    Embryo Description: Excel=Aneuploid +3, XY, DB=sem analise
+    Oocyte Source: Excel=Autologous, DB=Homólogo
+
+  Video ID: 834863 - AA1
+    Diagnosis: Excel=Unknown, DB=Outros
+    Oocyte Source: Excel=Autologous, DB=Homólogo
+
+  Video ID: 834863 - AA12
+    Diagnosis: Excel=Unknown, DB=Outros
+    Oocyte Source: Excel=Autologous, DB=Homólogo
+
+  Video ID: 834863 - AA4
+    Diagnosis: Excel=Unknown, DB=Outros
+    Oocyte Source: Excel=Autologous, DB=Homólogo
+
+  Video ID: 834863 - AA6
+    Diagnosis: Excel=Unknown, DB=Outros
+    Oocyte Source: Excel=Autologous, DB=Homólogo
+
+  Video ID: 834863 - AA7
+    Diagnosis: Excel=Unknown, DB=Outros
+    Oocyte Source: Excel=Autologous, DB=Homólogo
+
+  Video ID: 835937 - AB11
+    BMI: Excel=21.5, DB=21.55
+    Diagnosis: Excel=Unexplained Infertility, DB=Inexplicado
+    Oocyte Source: Excel=Autologous, DB=None
+    Previus ET: Excel=0, DB=2
+
+  Video ID: 835937 - AB12
+    BMI: Excel=21.5, DB=21.55
+    Diagnosis: Excel=Unexplained Infertility, DB=Inexplicado
+    Oocyte Source: Excel=Autologous, DB=None
+    Previus ET: Excel=0, DB=2
+
+  Video ID: 835937 - AB13
+    BMI: Excel=21.5, DB=21.55
+    Diagnosis: Excel=Unexplained Infertility, DB=Inexplicado
+    Oocyte Source: Excel=Autologous, DB=None
+    Previus ET: Excel=0, DB=2
+
+  Video ID: 835937 - AB9
+    BMI: Excel=21.5, DB=21.55
+    Diagnosis: Excel=Unexplained Infertility, DB=Inexplicado
+    Oocyte Source: Excel=Autologous, DB=None
+    Previus ET: Excel=0, DB=2
+
+  Video ID: 835937 - AC5
+    BMI: Excel=21.5, DB=21.55
+    Diagnosis: Excel=Unexplained Infertility, DB=Inexplicado
+    Oocyte Source: Excel=Autologous, DB=None
+    Previus ET: Excel=0, DB=2
+
+  Video ID: 835937 - AD1
+    BMI: Excel=21.5, DB=21.55
+    Diagnosis: Excel=Unexplained Infertility, DB=Inexplicado
+    Oocyte Source: Excel=Autologous, DB=None
+    Previus ET: Excel=0, DB=3
+
+  Video ID: 835937 - AD10
+    BMI: Excel=21.5, DB=21.55
+    Diagnosis: Excel=Unexplained Infertility, DB=Inexplicado
+    Oocyte Source: Excel=Autologous, DB=None
+    Previus ET: Excel=0, DB=3
+
+  Video ID: 835937 - AD11
+    BMI: Excel=21.5, DB=21.55
+    Diagnosis: Excel=Unexplained Infertility, DB=Inexplicado
+    Oocyte Source: Excel=Autologous, DB=None
+    Previus ET: Excel=0, DB=3
+
+  Video ID: 835937 - AD16
+    BMI: Excel=21.5, DB=21.55
+    Diagnosis: Excel=Unexplained Infertility, DB=Inexplicado
+    Oocyte Source: Excel=Autologous, DB=None
+    Previus ET: Excel=0, DB=3
+
+  Video ID: 835937 - AD7
+    BMI: Excel=21.5, DB=21.55
+    Diagnosis: Excel=Unexplained Infertility, DB=Inexplicado
+    Oocyte Source: Excel=Autologous, DB=None
+    Previus ET: Excel=0, DB=3
+
+  Video ID: 835937 - AE2
+    BMI: Excel=21.5, DB=21.55
+    Diagnosis: Excel=Unexplained Infertility, DB=Inexplicado
+    Oocyte Source: Excel=Autologous, DB=None
+    Previus ET: Excel=0, DB=3
+
+  Video ID: 836249 - AA14
+    Diagnosis: Excel=Unexplained Infertility, DB=Inexplicado
+    Oocyte Source: Excel=Autologous, DB=Homólogo
+
+  Video ID: 836249 - AA3
+    Diagnosis: Excel=Unexplained Infertility, DB=Inexplicado
+    Oocyte Source: Excel=Autologous, DB=Homólogo
+
+  Video ID: 836249 - AA4
+    Diagnosis: Excel=Unexplained Infertility, DB=Inexplicado
+    Oocyte Source: Excel=Autologous, DB=Homólogo
+
+  Video ID: 836249 - AA5
+    Diagnosis: Excel=Unexplained Infertility, DB=Inexplicado
+    Oocyte Source: Excel=Autologous, DB=Homólogo
+
+  Video ID: 836249 - AA9
+    Diagnosis: Excel=Unexplained Infertility, DB=Inexplicado
+    Oocyte Source: Excel=Autologous, DB=Homólogo
+
+  Video ID: 836930 - AA1
+    BMI: Excel=nan, DB=19.47
+    Diagnosis: Excel=Endometriosis, DB=Endometriose
+    Oocyte Source: Excel=Autologous, DB=Homólogo
+    Patient Comments: Excel=<AMH, DB=<NA>
+
+  Video ID: 836930 - AA2
+    BMI: Excel=nan, DB=19.47
+    Diagnosis: Excel=Endometriosis, DB=Endometriose
+    Oocyte Source: Excel=Autologous, DB=Homólogo
+    Patient Comments: Excel=<AMH, DB=<NA>
+
+  Video ID: 836930 - AA4
+    BMI: Excel=nan, DB=19.47
+    Diagnosis: Excel=Endometriosis, DB=Endometriose
+    Oocyte Source: Excel=Autologous, DB=Homólogo
+    Patient Comments: Excel=<AMH, DB=<NA>
+
+  Video ID: 836930 - AA5
+    BMI: Excel=nan, DB=19.47
+    Diagnosis: Excel=Endometriosis, DB=Endometriose
+    Oocyte Source: Excel=Autologous, DB=Homólogo
+    Patient Comments: Excel=<AMH, DB=<NA>
+
+  Video ID: 836930 - AA7
+    BMI: Excel=nan, DB=19.47
+    Diagnosis: Excel=Endometriosis, DB=Endometriose
+    Oocyte Source: Excel=Autologous, DB=Homólogo
+    Patient Comments: Excel=<AMH, DB=<NA>
+
+  Video ID: 836930 - AA8
+    BMI: Excel=nan, DB=19.47
+    Diagnosis: Excel=Endometriosis, DB=Endometriose
+    Oocyte Source: Excel=Autologous, DB=Homólogo
+    Patient Comments: Excel=<AMH, DB=<NA>
+
+  Video ID: 836930 - AA9
+    BMI: Excel=nan, DB=19.47
+    Diagnosis: Excel=Endometriosis, DB=Endometriose
+    Oocyte Source: Excel=Autologous, DB=Homólogo
+    Patient Comments: Excel=<AMH, DB=<NA>
+
+  Video ID: 837762 - AA1
+    Diagnosis: Excel=Other, DB=Outros
+    Oocyte Source: Excel=Autologous, DB=None
+    Patient Comments: Excel=PRESERVATION, DB=<NA>
+
+  Video ID: 837762 - AA10
+    Diagnosis: Excel=Other, DB=Outros
+    Oocyte Source: Excel=Autologous, DB=None
+    Patient Comments: Excel=PRESERVATION, DB=<NA>
+
+  Video ID: 837762 - AA12
+    Diagnosis: Excel=Other, DB=Outros
+    Oocyte Source: Excel=Autologous, DB=None
+    Patient Comments: Excel=PRESERVATION, DB=<NA>
+
+  Video ID: 837762 - AA3
+    Diagnosis: Excel=Other, DB=Outros
+    Oocyte Source: Excel=Autologous, DB=None
+    Patient Comments: Excel=PRESERVATION, DB=<NA>
+
+  Video ID: 837762 - AA4
+    Diagnosis: Excel=Other, DB=Outros
+    Oocyte Source: Excel=Autologous, DB=None
+    Patient Comments: Excel=PRESERVATION, DB=<NA>
+
+  Video ID: 837762 - AA5
+    Diagnosis: Excel=Other, DB=Outros
+    Oocyte Source: Excel=Autologous, DB=None
+    Patient Comments: Excel=PRESERVATION, DB=<NA>
+
+  Video ID: 837762 - AA6
+    Diagnosis: Excel=Other, DB=Outros
+    Oocyte Source: Excel=Autologous, DB=None
+    Patient Comments: Excel=PRESERVATION, DB=<NA>
+
+  Video ID: 837762 - AA8
+    Diagnosis: Excel=Other, DB=Outros
+    Oocyte Source: Excel=Autologous, DB=None
+    Patient Comments: Excel=PRESERVATION, DB=<NA>
+
+  Video ID: 840694 - AA12
+    Diagnosis: Excel=Male factor, DB=Fator masculino
+    Oocyte Source: Excel=Autologous, DB=Homólogo
+
+  Video ID: 840694 - AA2
+    Diagnosis: Excel=Male factor, DB=Fator masculino
+    Oocyte Source: Excel=Autologous, DB=Homólogo
+
+  Video ID: 840694 - AA3
+    Diagnosis: Excel=Male factor, DB=Fator masculino
+    Oocyte Source: Excel=Autologous, DB=Homólogo
+
+  Video ID: 840694 - AA5
+    Diagnosis: Excel=Male factor, DB=Fator masculino
+    Oocyte Source: Excel=Autologous, DB=Homólogo
+
+  Video ID: 840694 - AA6
+    Diagnosis: Excel=Male factor, DB=Fator masculino
+    Oocyte Source: Excel=Autologous, DB=Homólogo
+
+  Video ID: 840694 - AA8
+    Diagnosis: Excel=Male factor, DB=Fator masculino
+    Oocyte Source: Excel=Autologous, DB=Homólogo
+
+  Video ID: 841524 - AA1
+    BMI: Excel=22.4, DB=22.49
+    Diagnosis: Excel=nan, DB=Outros
+    Oocyte Source: Excel=Autologous, DB=None
+
+  Video ID: 841524 - AA10
+    BMI: Excel=22.4, DB=22.49
+    Diagnosis: Excel=nan, DB=Outros
+    Oocyte Source: Excel=Autologous, DB=None
+
+  Video ID: 841524 - AA3
+    BMI: Excel=22.4, DB=22.49
+    Diagnosis: Excel=nan, DB=Outros
+    Oocyte Source: Excel=Autologous, DB=None
+
+  Video ID: 841524 - AA6
+    BMI: Excel=22.4, DB=22.49
+    Diagnosis: Excel=nan, DB=Outros
+    Oocyte Source: Excel=Autologous, DB=None
+
+  Video ID: 841524 - AA7
+    BMI: Excel=22.4, DB=22.49
+    Diagnosis: Excel=nan, DB=Outros
+    Oocyte Source: Excel=Autologous, DB=None
+
+  Video ID: 841524 - AA8
+    BMI: Excel=22.4, DB=22.49
+    Diagnosis: Excel=nan, DB=Outros
+    Oocyte Source: Excel=Autologous, DB=None
+
+  Video ID: 844325 - AA1
+    BMI: Excel=18.2, DB=nan
+    Diagnosis: Excel=Other, DB=None
+    Oocyte Source: Excel=Autologous, DB=None
+    Patient Comments: Excel=Abortion, DB=<NA>
+
+  Video ID: 844325 - AA10
+    BMI: Excel=18.2, DB=nan
+    Diagnosis: Excel=Other, DB=None
+    Oocyte Source: Excel=Autologous, DB=None
+    Patient Comments: Excel=Abortion, DB=<NA>
+
+  Video ID: 844325 - AA12
+    BMI: Excel=18.2, DB=nan
+    Diagnosis: Excel=Other, DB=None
+    ICM - Value: Excel=B, DB=None
+    Oocyte Source: Excel=Autologous, DB=None
+    Patient Comments: Excel=Abortion, DB=<NA>
+    TE - Value: Excel=B, DB=None
+
+  Video ID: 844325 - AA2
+    BMI: Excel=18.2, DB=nan
+    Diagnosis: Excel=Other, DB=None
+    Oocyte Source: Excel=Autologous, DB=None
+    Patient Comments: Excel=Abortion, DB=<NA>
+
+  Video ID: 844325 - AA5
+    BMI: Excel=18.2, DB=nan
+    Diagnosis: Excel=Other, DB=None
+    Oocyte Source: Excel=Autologous, DB=None
+    Patient Comments: Excel=Abortion, DB=<NA>
+
+  Video ID: 844325 - AA6
+    BMI: Excel=18.2, DB=nan
+    Diagnosis: Excel=Other, DB=None
+    Oocyte Source: Excel=Autologous, DB=None
+    Patient Comments: Excel=Abortion, DB=<NA>
+
+  Video ID: 844325 - AA7
+    BMI: Excel=18.2, DB=nan
+    Diagnosis: Excel=Other, DB=None
+    Oocyte Source: Excel=Autologous, DB=None
+    Patient Comments: Excel=Abortion, DB=<NA>
+
+================================================================================
+END OF REPORT
+================================================================================

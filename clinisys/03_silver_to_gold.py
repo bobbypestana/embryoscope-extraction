@@ -201,6 +201,13 @@ def main():
         select_columns.extend([f"vec.{col} AS emb_cong_{col}" for col in vec_columns])
     if tr_columns:
         select_columns.extend([f"tr.{col} AS trat_{col}" for col in tr_columns])
+        
+        # Add flag column for match strategy
+        select_columns.append("""CASE 
+            WHEN vde.prontuario = tr.prontuario AND tr.data_procedimento = vde.DataTransferencia THEN 'THAWING_DATE'
+            WHEN mic.prontuario = tr.prontuario AND tr.data_procedimento = mic.Data_DL THEN 'MICRO_DATE'
+            ELSE NULL 
+        END AS flag_match_tratamento""")
     
     logger.info(f'Selected {len(select_columns)} columns for join (all columns from silver layer)')
     
@@ -210,6 +217,7 @@ def main():
     # 3. LEFT JOIN vce on vec.id_congelamento = vce.id and vec.prontuario = vce.prontuario
     # 4. LEFT JOIN vde on vec.id_descongelamento = vde.id and vec.prontuario = vde.prontuario
     # 5. LEFT JOIN mic on ooc.id_micromanipulacao = mic.codigo_ficha and mic.prontuario = vec.prontuario
+    # 6. LEFT JOIN tr on PRIMARY (vde.DataTransferencia) OR SECONDARY (mic.Data_DL)
     query = f'''
     SELECT
         {', '.join(select_columns)}
@@ -226,7 +234,8 @@ def main():
         ON ooc.id_micromanipulacao = mic.codigo_ficha
         AND (vec.prontuario IS NULL OR mic.prontuario = vec.prontuario)
     LEFT JOIN silver.view_tratamentos tr 
-        ON vde.prontuario = tr.prontuario AND tr.data_procedimento = vde.DataTransferencia
+        ON (vde.prontuario = tr.prontuario AND tr.data_procedimento = vde.DataTransferencia)
+        OR (mic.prontuario = tr.prontuario AND tr.data_procedimento = mic.Data_DL)
     ORDER BY ooc.id_micromanipulacao, ooc.id 
     '''
     
@@ -283,7 +292,8 @@ def main():
             index_queries = [
                 "CREATE INDEX IF NOT EXISTS idx_clinisys_micro_data_dl ON gold.clinisys_embrioes(micro_Data_DL)",
                 "CREATE INDEX IF NOT EXISTS idx_clinisys_micro_prontuario ON gold.clinisys_embrioes(micro_prontuario)",
-                "CREATE INDEX IF NOT EXISTS idx_clinisys_oocito_flag_embryoscope ON gold.clinisys_embrioes(oocito_flag_embryoscope)"
+                "CREATE INDEX IF NOT EXISTS idx_clinisys_oocito_flag_embryoscope ON gold.clinisys_embrioes(oocito_flag_embryoscope)",
+                 "CREATE INDEX IF NOT EXISTS idx_clinisys_trat_id ON gold.clinisys_embrioes(trat_id)"
             ]
             
             for idx_query in index_queries:
@@ -293,6 +303,8 @@ def main():
                     logger.warning(f'Index creation failed (may already exist): {e}')
             
             logger.info('Indexes created successfully')
+
+
             
             # Validate row count
             row_count = target_con.execute("SELECT COUNT(*) FROM gold.clinisys_embrioes").fetchone()[0]

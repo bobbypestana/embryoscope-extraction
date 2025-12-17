@@ -4,8 +4,8 @@ This directory contains scripts to create the `gold.data_ploidia` table from `go
 
 ## Files
 
-- `column_mapping.py` - Column mapping configuration defining target columns and their mappings to source columns
-- `00_list_available_columns.py` - Helper script to list all available columns in the source table
+- `00_01_list_available_columns.py` - Helper script to list all available columns in the source table
+- `00_02_column_mapping.py` - Column mapping configuration defining target columns and their mappings to source columns
 - `01_create_data_ploidia_table.py` - Main script to create the `gold.data_ploidia` table
 
 ## Usage
@@ -15,14 +15,14 @@ This directory contains scripts to create the `gold.data_ploidia` table from `go
 To verify the column mapping, first list all available columns:
 
 ```bash
-python planilha_ploidia/00_list_available_columns.py
+python planilha_ploidia/00_01_list_available_columns.py
 ```
 
 This will show all columns in `gold.planilha_embryoscope_combined` grouped by prefix (`embryoscope_` vs `planilha_`).
 
 ### 2. Update Column Mapping (if needed)
 
-Edit `column_mapping.py` to update the `COLUMN_MAPPING` dictionary with the correct source column names based on the output from step 1.
+Edit `00_02_column_mapping.py` to update the `COLUMN_MAPPING` dictionary with the correct source column names based on the output from step 1.
 
 ### 3. Create the Table
 
@@ -33,7 +33,7 @@ python planilha_ploidia/01_create_data_ploidia_table.py
 ```
 
 This script will:
-- Read the column mapping from `column_mapping.py`
+- Read the column mapping from `00_02_column_mapping.py`
 - Create a SELECT query that maps source columns to target columns
 - Leave NULL for unmapped columns
 - Create the table `gold.data_ploidia` with columns in the exact order specified

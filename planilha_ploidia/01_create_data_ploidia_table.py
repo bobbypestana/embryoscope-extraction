@@ -18,7 +18,14 @@ import sys
 
 # Import column mapping configuration
 sys.path.insert(0, os.path.dirname(__file__))
-from column_mapping import TARGET_COLUMNS, COLUMN_MAPPING, FILTER_PATIENT_ID, FILTER_EMBRYO_IDS
+import importlib.util
+spec = importlib.util.spec_from_file_location("column_mapping", os.path.join(os.path.dirname(__file__), "00_02_column_mapping.py"))
+column_mapping_module = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(column_mapping_module)
+TARGET_COLUMNS = column_mapping_module.TARGET_COLUMNS
+COLUMN_MAPPING = column_mapping_module.COLUMN_MAPPING
+FILTER_PATIENT_ID = column_mapping_module.FILTER_PATIENT_ID
+FILTER_EMBRYO_IDS = column_mapping_module.FILTER_EMBRYO_IDS
 
 # Setup logging
 LOGS_DIR = os.path.join(os.path.dirname(__file__), 'logs')
@@ -48,9 +55,9 @@ def get_database_connection(read_only=False):
 
 def get_available_columns(conn):
     """Get list of available columns in planilha_embryoscope_combined"""
-    col_info = conn.execute("DESCRIBE gold.planilha_embryoscope_combined").df()
+    col_info = conn.execute("DESCRIBE gold.embryoscope_clinisys_combined").df()
     available_columns = col_info['column_name'].tolist()
-    logger.info(f"Found {len(available_columns)} columns in gold.planilha_embryoscope_combined")
+    logger.info(f"Found {len(available_columns)} columns in gold.embryoscope_clinisys_combined")
     return available_columns
 
 def build_select_clause(target_columns, column_mapping, available_columns):
@@ -113,17 +120,42 @@ def build_select_clause(target_columns, column_mapping, available_columns):
                 logger.warning(f"Missing columns for BMI calculation: {missing_cols}. Using NULL.")
                 select_parts.append(f'NULL as "{target_col}"')
                 missing_source_columns.append((target_col, ', '.join(missing_cols)))
+        # Special handling for Video ID - construct from Patient ID and Embryo Description ID (well ID)
+        elif target_col == "Video ID":
+            patient_id_col = "micro_prontuario"
+            embryo_desc_id_col = "embryo_EmbryoDescriptionID"  # This contains the well ID like "AA4", "AB3", etc.
+            if patient_id_col in available_columns and embryo_desc_id_col in available_columns:
+                # Construct Video ID as: Patient ID + ' - ' + Embryo Description ID (e.g., "825960 - AB3")
+                select_parts.append(f'CAST(\"{patient_id_col}\" AS VARCHAR) || \' - \' || \"{embryo_desc_id_col}\" as \"{target_col}\"')
+            else:
+                missing_cols = []
+                if patient_id_col not in available_columns:
+                    missing_cols.append(patient_id_col)
+                if embryo_desc_id_col not in available_columns:
+                    missing_cols.append(embryo_desc_id_col)
+                logger.warning(f"Missing columns for Video ID construction: {missing_cols}. Using NULL.")
+                select_parts.append(f'NULL as "{target_col}"')
+                missing_source_columns.append((target_col, ', '.join(missing_cols)))
         # Special handling for Previus ET: rank ET cycles per patient by Slide ID groups
         elif target_col == "Previus ET":
-            # We want: oldest slide group = 0, next = 1, etc. (monotonic by slide prefix)
-            # Let r = DENSE_RANK over slide prefixes ASC (oldest = 1, newest = N)
-            # Then Previus ET = r - 1 → oldest: 1-1=0, next: 2-1=1, ...
-            select_parts.append(
-                'DENSE_RANK() OVER ('
-                'PARTITION BY "micro_prontuario" '
-                'ORDER BY SPLIT_PART("embryo_EmbryoID", \'-\', 1) ASC'
-                ') - 1 as "Previus ET"'
-            )
+            # Use minimum trat_tentativa - 1 per patient + slide group if available
+            if "trat_tentativa" in available_columns:
+                select_parts.append(
+                    f'COALESCE(MIN(CAST("trat_tentativa" AS INTEGER) - 1) OVER ('
+                    f'PARTITION BY "micro_prontuario", SPLIT_PART("embryo_EmbryoID", \'-\', 1)'
+                    f'), 0) as "{target_col}"'
+                )
+            else:
+                logger.warning("trat_tentativa not found for Previus ET. Using DENSE_RANK fallback.")
+                # We want: oldest slide group = 0, next = 1, etc. (monotonic by slide prefix)
+                # Let r = DENSE_RANK over slide prefixes ASC (oldest = 1, newest = N)
+                # Then Previus ET = r - 1 → oldest: 1-1=0, next: 2-1=1, ...
+                select_parts.append(
+                    'DENSE_RANK() OVER ('
+                    'PARTITION BY "micro_prontuario" '
+                    'ORDER BY SPLIT_PART("embryo_EmbryoID", \'-\', 1) ASC'
+                    ') - 1 as "Previus ET"'
+                )
         # Special handling for patient+slide-level columns that need MAX() aggregation
         elif target_col in ["Diagnosis", "Patient Comments", "Previus OD ET", "Oocyte Source"]:
             source_col = column_mapping.get(target_col)
@@ -132,7 +164,11 @@ def build_select_clause(target_columns, column_mapping, available_columns):
                 select_parts.append(f'MAX("{source_col}") OVER (PARTITION BY "micro_prontuario", SPLIT_PART("embryo_EmbryoID", \'-\', 1)) as "{target_col}"')
             else:
                 if source_col is None:
-                    select_parts.append(f'NULL as "{target_col}"')
+                    # Special case: Previus OD ET should be 0 instead of NULL
+                    if target_col == "Previus OD ET":
+                        select_parts.append(f'0 as "{target_col}"')
+                    else:
+                        select_parts.append(f'NULL as "{target_col}"')
                     unmapped_columns.append(target_col)
                 else:
                     logger.warning(f"Source column '{source_col}' not found for target '{target_col}'. Using NULL.")
@@ -230,7 +266,7 @@ def create_data_ploidia_table(conn):
     CREATE TABLE gold.data_ploidia AS
     SELECT 
         {select_clause}
-    FROM gold.planilha_embryoscope_combined
+    FROM gold.embryoscope_clinisys_combined
     {where_clause}
     """
     
@@ -272,17 +308,25 @@ def create_data_ploidia_table(conn):
                 source_col = f"MAX({source_col_mapped}) OVER (PARTITION BY micro_prontuario, SPLIT_PART(embryo_EmbryoID, '-', 1))"
                 status = "[OK]"
             else:
-                source_col = "NULL (unmapped or missing)" if source_col_mapped is None else f"NULL (missing: {source_col_mapped})"
+                # Special case: Previus OD ET shows 0 instead of NULL
+                if col == "Previus OD ET":
+                    source_col = "0 (unmapped)"
+                else:
+                    source_col = "NULL (unmapped or missing)" if source_col_mapped is None else f"NULL (missing: {source_col_mapped})"
                 status = "[--]"
         # Special handling for Previus ET ranking
         elif col == "Previus ET":
-            source_col = (
-                "DENSE_RANK() OVER ("
-                "PARTITION BY micro_prontuario "
-                "ORDER BY SPLIT_PART(embryo_EmbryoID, '-', 1) ASC"
-                ") - 1"
-            )
-            status = "[OK]"
+            if "trat_tentativa" in available_columns:
+                source_col = "COALESCE(MIN(trat_tentativa - 1) OVER (PARTITION BY micro_prontuario, SPLIT_PART(embryo_EmbryoID, '-', 1)), 0)"
+                status = "[OK]"
+            else:
+                source_col = (
+                    "DENSE_RANK() OVER ("
+                    "PARTITION BY micro_prontuario "
+                    "ORDER BY SPLIT_PART(embryo_EmbryoID, '-', 1) ASC"
+                    ") - 1 (Fallback)"
+                )
+                status = "[WARN]"
         else:
             source_col = COLUMN_MAPPING.get(col, "NULL (unmapped)")
             if source_col == "NULL (unmapped)":
