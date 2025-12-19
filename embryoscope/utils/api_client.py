@@ -306,6 +306,72 @@ class EmbryoscopeAPIClient:
         """
         return self._make_authenticated_request("GET/ongoingpatients")
     
+    def get_all_images(self, embryo_id: str, image_overlay: bool = True, focal_plane: int = 0) -> Optional[requests.Response]:
+        """
+        Get all images for a specific embryo as a ZIP file.
+        
+        Args:
+            embryo_id: Embryo identifier
+            image_overlay: Whether to include image overlay/annotations
+            focal_plane: Focal plane number (default=0)
+            
+        Returns:
+            Response object containing ZIP file data, or None if request failed
+        """
+        if not self.token:
+            self.logger.debug(f"[AUTH] No token present, authenticating...")
+            if not self.authenticate():
+                return None
+        
+        url = f"{self.base_url}/GET/allimages"
+        params = {
+            'EmbryoID': embryo_id,
+            'ImageOverlay': 'true' if image_overlay else 'false',
+            'focalPlane': focal_plane
+        }
+        headers = {'API-token': self.token}
+        
+        self.logger.info(f"Requesting all images for embryo {embryo_id}")
+        self.logger.debug(f"[API CALL] {url} | params={params}")
+        
+        # Use rate-limited request but return the raw response (not JSON)
+        response = self._rate_limited_request('GET', url, headers=headers, params=params)
+        
+        if response is None:
+            self.logger.error(f"Failed to get images for {embryo_id}")
+            return None
+        
+        # Check if response is a ZIP file
+        content_type = response.headers.get('Content-Type', '')
+        if 'zip' not in content_type.lower() and 'application/octet-stream' not in content_type.lower():
+            self.logger.warning(f"Unexpected content type for {embryo_id}: {content_type}")
+        
+        self.logger.info(f"Successfully retrieved images for {embryo_id} ({len(response.content):,} bytes)")
+        return response
+    
+    def get_image_runs(self, embryo_id: str) -> Optional[Dict]:
+        """
+        Get image runs metadata for a specific embryo.
+        
+        Args:
+            embryo_id: Embryo identifier
+            
+        Returns:
+            Dictionary with image runs data, or None if request failed
+        """
+        endpoint = f"GET/imageruns"
+        params = {'EmbryoID': embryo_id}
+        
+        self.logger.info(f"Requesting image runs for embryo {embryo_id}")
+        result = self._make_authenticated_request(endpoint, params=params)
+        
+        if result:
+            # Count runs if ImageRuns key exists
+            run_count = len(result.get('ImageRuns', [])) if isinstance(result.get('ImageRuns'), list) else 0
+            self.logger.info(f"Successfully retrieved {run_count} image runs for {embryo_id}")
+        
+        return result
+    
     def test_connection(self) -> bool:
         """
         Test the connection to the embryoscope API.

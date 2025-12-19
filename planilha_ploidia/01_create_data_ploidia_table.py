@@ -45,12 +45,17 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 def get_database_connection(read_only=False):
-    """Create and return a connection to the huntington_data_lake database"""
+    """Create and return a connection to the huntington_data_lake database and attach clinisys_all"""
     repo_root = os.path.dirname(os.path.dirname(__file__))
     path_to_db = os.path.join(repo_root, 'database', 'huntington_data_lake.duckdb')
     conn = db.connect(path_to_db, read_only=read_only)
-    
     logger.info(f"Connected to database: {path_to_db} (read_only={read_only})")
+    
+    # Attach clinisys_all database for access to view_tratamentos
+    clinisys_db = os.path.join(repo_root, 'database', 'clinisys_all.duckdb')
+    conn.execute(f"ATTACH '{clinisys_db}' AS clinisys (READ_ONLY)")
+    logger.info(f"Attached clinisys database: {clinisys_db}")
+    
     return conn
 
 def get_available_columns(conn):
@@ -120,22 +125,6 @@ def build_select_clause(target_columns, column_mapping, available_columns):
                 logger.warning(f"Missing columns for BMI calculation: {missing_cols}. Using NULL.")
                 select_parts.append(f'NULL as "{target_col}"')
                 missing_source_columns.append((target_col, ', '.join(missing_cols)))
-        # Special handling for Video ID - construct from Patient ID and Embryo Description ID (well ID)
-        elif target_col == "Video ID":
-            patient_id_col = "micro_prontuario"
-            embryo_desc_id_col = "embryo_EmbryoDescriptionID"  # This contains the well ID like "AA4", "AB3", etc.
-            if patient_id_col in available_columns and embryo_desc_id_col in available_columns:
-                # Construct Video ID as: Patient ID + ' - ' + Embryo Description ID (e.g., "825960 - AB3")
-                select_parts.append(f'CAST(\"{patient_id_col}\" AS VARCHAR) || \' - \' || \"{embryo_desc_id_col}\" as \"{target_col}\"')
-            else:
-                missing_cols = []
-                if patient_id_col not in available_columns:
-                    missing_cols.append(patient_id_col)
-                if embryo_desc_id_col not in available_columns:
-                    missing_cols.append(embryo_desc_id_col)
-                logger.warning(f"Missing columns for Video ID construction: {missing_cols}. Using NULL.")
-                select_parts.append(f'NULL as "{target_col}"')
-                missing_source_columns.append((target_col, ', '.join(missing_cols)))
         # Special handling for Previus ET: rank ET cycles per patient by Slide ID groups
         elif target_col == "Previus ET":
             # Use minimum trat_tentativa - 1 per patient + slide group if available
@@ -174,6 +163,17 @@ def build_select_clause(target_columns, column_mapping, available_columns):
                     logger.warning(f"Source column '{source_col}' not found for target '{target_col}'. Using NULL.")
                     select_parts.append(f'NULL as "{target_col}"')
                     missing_source_columns.append((target_col, source_col))
+        # Special handling for Video ID - concatenate Patient ID and Slide ID
+        elif target_col == "Video ID":
+            # Video ID = Patient ID (micro_prontuario) + "_" + Slide ID (full embryo_EmbryoID)
+            if "micro_prontuario" in available_columns and "embryo_EmbryoID" in available_columns:
+                select_parts.append(
+                    'CAST("micro_prontuario" AS VARCHAR) || \'_\' || "embryo_EmbryoID" as "' + target_col + '"'
+                )
+            else:
+                logger.warning("micro_prontuario or embryo_EmbryoID not found for Video ID. Using NULL.")
+                select_parts.append(f'NULL as "{target_col}"')
+                missing_source_columns.append((target_col, "micro_prontuario, embryo_EmbryoID"))
         elif target_col in column_mapping:
             source_col = column_mapping[target_col]
             
@@ -245,6 +245,14 @@ def create_data_ploidia_table(conn):
     where_conditions.append('"embryo_Description" IS NOT NULL')
     logger.info("Filter: Embryo Description IS NOT NULL")
     
+    # Always exclude rows where Patient ID is NULL
+    where_conditions.append('"micro_prontuario" IS NOT NULL')
+    logger.info("Filter: Patient ID (micro_prontuario) IS NOT NULL")
+    
+    # Always exclude rows where Embryo ID is NULL
+    where_conditions.append('"embryo_EmbryoID" IS NOT NULL')
+    logger.info("Filter: Embryo ID (embryo_EmbryoID) IS NOT NULL")
+    
     if FILTER_PATIENT_ID is not None:
         # Filter by Patient ID (micro_prontuario)
         where_conditions.append(f'"micro_prontuario" = {FILTER_PATIENT_ID}')
@@ -261,13 +269,121 @@ def create_data_ploidia_table(conn):
     
     where_clause = " WHERE " + " AND ".join(where_conditions) if where_conditions else ""
     
-    # Create table with mapped columns
+    # Create table with mapped columns and calculated values from view_tratamentos
     create_query = f"""
     CREATE TABLE gold.data_ploidia AS
+    WITH base_data AS (
+        SELECT DISTINCT
+            {select_clause}
+        FROM gold.embryoscope_clinisys_combined
+        {where_clause}
+    ),
+    embryo_ref_dates AS (
+        SELECT 
+            *,
+            STRPTIME(SPLIT_PART(SPLIT_PART("Slide ID", '_', 1), 'D', 2), '%Y.%m.%d') as ref_date
+        FROM base_data
+    ),
+    treatment_counts AS (
+        SELECT 
+            e."Patient ID",
+            e."Slide ID",
+            e.ref_date,
+            COUNT(t.prontuario) as prev_et_count,
+            COUNT(CASE WHEN t.doacao_ovulos = 'Sim' THEN 1 END) as prev_od_et_count
+        FROM embryo_ref_dates e
+        LEFT JOIN clinisys.silver.view_tratamentos t 
+            ON e."Patient ID" = t.prontuario 
+            AND t.data_transferencia < e.ref_date
+        GROUP BY e."Patient ID", e."Slide ID", e.ref_date
+    ),
+    most_recent_treatment AS (
+        SELECT 
+            e."Patient ID",
+            e."Slide ID",
+            e.ref_date,
+            t.peso_paciente,
+            t.altura_paciente,
+            ROUND(t.peso_paciente / POWER(t.altura_paciente, 2), 2) as calc_bmi,
+            t.fator_infertilidade1 as calc_diagnosis,
+            t.origem_material as calc_oocyte_source,
+            ROW_NUMBER() OVER (
+                PARTITION BY e."Patient ID", e."Slide ID"
+                ORDER BY t.data_transferencia DESC
+            ) as rn
+        FROM embryo_ref_dates e
+        LEFT JOIN clinisys.silver.view_tratamentos t 
+            ON e."Patient ID" = t.prontuario 
+            AND t.peso_paciente IS NOT NULL
+            AND t.altura_paciente IS NOT NULL
+            AND t.altura_paciente > 0
+    ),
+    fallback_treatment AS (
+        SELECT 
+            e."Patient ID",
+            e."Slide ID",
+            t.fator_infertilidade1 as fallback_diagnosis,
+            t.origem_material as fallback_oocyte_source,
+            ROW_NUMBER() OVER (
+                PARTITION BY e."Patient ID", e."Slide ID"
+                ORDER BY t.data_transferencia DESC
+            ) as rn
+        FROM embryo_ref_dates e
+        LEFT JOIN clinisys.silver.view_tratamentos t 
+            ON e."Patient ID" = t.prontuario
+    )
     SELECT 
-        {select_clause}
-    FROM gold.embryoscope_clinisys_combined
-    {where_clause}
+        e."Unidade",
+        e."Video ID",
+        e."Age",
+        COALESCE(mrt.calc_bmi, e."BMI") as "BMI",
+        e."Birth Year",
+        COALESCE(mrt.calc_diagnosis, ft.fallback_diagnosis, e."Diagnosis") as "Diagnosis",
+        e."Patient Comments",
+        e."Patient ID",
+        COALESCE(tc.prev_et_count, 0) as "Previus ET",
+        COALESCE(tc.prev_od_et_count, 0) as "Previus OD ET",
+        e."Oocyte History",
+        COALESCE(mrt.calc_oocyte_source, ft.fallback_oocyte_source, e."Oocyte Source") as "Oocyte Source",
+        e."Oocytes Aspirated",
+        e."Slide ID",
+        e."Well",
+        e."Embryo ID",
+        e."t2",
+        e."t3",
+        e."t4",
+        e."t5",
+        e."t8",
+        e."tB",
+        e."tEB",
+        e."tHB",
+        e."tM",
+        e."tPNa",
+        e."tPNf",
+        e."tSB",
+        e."tSC",
+        e."Frag-2 Cat. - Value",
+        e."Fragmentation - Value",
+        e."ICM - Value",
+        e."MN-2 Type - Value",
+        e."MN-2 Cells - Value",
+        e."PN - Value",
+        e."Pulsing - Value",
+        e."Re-exp Count - Value",
+        e."TE - Value",
+        e."Embryo Description"
+    FROM embryo_ref_dates e
+    LEFT JOIN treatment_counts tc 
+        ON e."Patient ID" = tc."Patient ID" 
+        AND e."Slide ID" = tc."Slide ID"
+    LEFT JOIN most_recent_treatment mrt 
+        ON e."Patient ID" = mrt."Patient ID" 
+        AND e."Slide ID" = mrt."Slide ID"
+        AND mrt.rn = 1
+    LEFT JOIN fallback_treatment ft
+        ON e."Patient ID" = ft."Patient ID"
+        AND e."Slide ID" = ft."Slide ID"
+        AND ft.rn = 1
     """
     
     logger.info("Executing CREATE TABLE query...")
@@ -297,6 +413,14 @@ def create_data_ploidia_table(conn):
         if col == "Age":
             source_col = "ROUND(CAST(DATE_DIFF('day', patient_DateOfBirth, embryo_FertilizationTime) AS DOUBLE) / 365.25, 2)"
             status = "[OK]" if "embryo_FertilizationTime" in available_columns and "patient_DateOfBirth" in available_columns else "[--]"
+        # Special handling for Video ID (concatenation of Patient ID and Slide ID)
+        elif col == "Video ID":
+            if "micro_prontuario" in available_columns and "embryo_EmbryoID" in available_columns:
+                source_col = "CAST(micro_prontuario AS VARCHAR) || '_' || embryo_EmbryoID"
+                status = "[OK]"
+            else:
+                source_col = "NULL (missing: micro_prontuario or embryo_EmbryoID)"
+                status = "[--]"
         # Special handling for BMI (calculated dynamically with patient+slide-level aggregation)
         elif col == "BMI":
             source_col = "ROUND(MAX(trat_peso_paciente) OVER (PARTITION BY micro_prontuario, SPLIT_PART(embryo_EmbryoID, '-', 1)) / POWER(MAX(trat_altura_paciente) OVER (PARTITION BY micro_prontuario, SPLIT_PART(embryo_EmbryoID, '-', 1)), 2), 2)"
