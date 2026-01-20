@@ -1,0 +1,127 @@
+# Huntington Data Lake: Gold Layer Data Flow
+
+This diagram illustrates the lineage of all tables in the `huntington_data_lake.gold` schema / layer, tracing back to their data sources.
+
+## Legend
+- **Blue**: Data Sources
+- **Bronze**: Raw Ingestion (Bronze Layer)
+- **Silver**: Cleaned/Transformed data & Views (Silver Layer)
+- **Gold**: Final Analytical Tables (Gold Layer)
+
+```mermaid
+graph TD
+    %% Use subgraphs to organize layers
+    
+    subgraph Sources
+        ClinisysDB[("Clinisys SQL Server")]
+        EmbryoscopeAPI[("Embryoscope API")]
+        ExcelFiles[("Planilha Embriologia Excel")]
+    end
+    
+    subgraph Bronze_Layer
+        B_Clini[("bronze.clinisys_*")]
+        B_Planilha[("bronze.planilha_embriologia_*")]
+    end
+    
+    subgraph Silver_Layer
+        S_Clini_Views[("silver.clinisys_views")]
+        note_views["view_tratamentos<br/>view_pacientes<br/>view_unidades<br/>view_medicos<br/>view_congelamentos_*<br/>view_extrato_atendimentos"]
+        
+        S_Planilha[("silver.planilha_embriologia")]
+    end
+    
+    subgraph Gold_Layer
+        %% Core Embryology Tables
+        G_Embryo_Embrioes[("gold.embryoscope_embrioes")]
+        G_Clini_Embrioes[("gold.clinisys_embrioes")]
+        G_Emb_Clini_Comb[("gold.embryoscope_clinisys_combined")]
+        G_Plan_Emb_Comb[("gold.planilha_embryoscope_combined")]
+        G_Data_Ploidia[("gold.data_ploidia")]
+        
+        %% Timeline Tables
+        G_All_Timeline[("gold.all_patients_timeline")]
+        G_Patient_Info[("gold.patient_info")]
+        
+        %% Other Timelines (derived from same logic/sources as All Timeline)
+        G_Biopsy_Timeline[("gold.biopsy_pgta_timeline")]
+        G_Consultas_Timeline[("gold.consultas_timeline")]
+        G_Cryo_Timeline[("gold.cryopreservation_events_timeline")]
+        G_Freeze_Timeline[("gold.embryo_freeze_timeline")]
+        G_Embryo_Timeline[("gold.embryoscope_timeline")]
+        
+        %% Finops
+        G_Finops[("gold.finops_summary")]
+    end
+
+    %% Flows - Ingestion
+    ClinisysDB --> B_Clini
+    ExcelFiles --> B_Planilha
+    
+    %% Flows - Bronze to Silver
+    B_Clini --> S_Clini_Views
+    B_Planilha --> S_Planilha
+    
+    %% Flows - Silver/API to Gold (Embryology)
+    EmbryoscopeAPI --> G_Embryo_Embrioes
+    S_Clini_Views --> G_Clini_Embrioes
+    
+    %% Flows - Merges
+    G_Clini_Embrioes --> G_Emb_Clini_Comb
+    G_Embryo_Embrioes --> G_Emb_Clini_Comb
+    
+    G_Emb_Clini_Comb --> G_Plan_Emb_Comb
+    S_Planilha --> G_Plan_Emb_Comb
+    
+    %% Flows - Data Ploidia
+    G_Emb_Clini_Comb --> G_Data_Ploidia
+    S_Clini_Views -->|.view_tratamentos| G_Data_Ploidia
+    
+    %% Flows - Timelines
+    S_Clini_Views -->|.view_tratamentos<br/>.view_extrato_atendimentos<br/>.view_congelamentos<br/>etc.| G_All_Timeline
+    
+    G_All_Timeline --> G_Patient_Info
+    S_Clini_Views -->|.view_medicos<br/>.view_pacientes| G_Patient_Info
+    
+    %% Specific Timelines (simplified flow)
+    S_Clini_Views --> G_Biopsy_Timeline
+    S_Clini_Views --> G_Consultas_Timeline
+    S_Clini_Views --> G_Cryo_Timeline
+    S_Clini_Views --> G_Freeze_Timeline
+    
+    %% Note: Embryoscope Timeline merges Clini + Embryoscope data usually
+    S_Clini_Views --> G_Embryo_Timeline
+    G_Embryo_Embrioes --> G_Embryo_Timeline
+    
+    %% Finops
+    S_Clini_Views --> G_Finops
+    G_All_Timeline -.-> G_Finops
+
+
+    %% Styling
+    style Sources fill:#f9f,stroke:#333
+    style Bronze_Layer fill:#e1f5fe,stroke:#333
+    style Silver_Layer fill:#e0e0e0,stroke:#333
+    style Gold_Layer fill:#fff9c4,stroke:#333
+    
+    style G_Emb_Clini_Comb fill:#ffd54f,stroke:#fbc02d,stroke-width:2px
+    style G_Plan_Emb_Comb fill:#ffd54f,stroke:#fbc02d,stroke-width:2px
+    style G_Data_Ploidia fill:#ffd54f,stroke:#fbc02d,stroke-width:2px
+    style G_All_Timeline fill:#ffd54f,stroke:#fbc02d,stroke-width:2px
+```
+
+## Table Descriptions
+
+### Core Embryology
+- **`gold.embryoscope_embrioes`**: Raw embryo data directly from Embryoscope API.
+- **`gold.clinisys_embrioes`**: Processed embryo data from Clinisys (oocytes, micro, freezing, thaw).
+- **`gold.embryoscope_clinisys_combined`**: Merged view of Embryoscope + Clinisys data (Key Join: Prontuario + Fertilization Date).
+- **`gold.planilha_embryoscope_combined`**: Enriched table adding manual spreadsheet data (FET info) to the combined embryoscope/clinisys data.
+- **`gold.data_ploidia`**: specialized table for PGT-A analysis, derived from the combined table with additional calculated metrics (BMI, counts).
+
+### Patient Timelines
+- **`gold.all_patients_timeline`**: Unified chronological event log for ALL patients (Treatments, Appointments, Freezing/Thawing events).
+- **`gold.patient_info`**: Parameterized patient dimensional table (Doctor, Unit) derived from the timeline history.
+- **`gold.*_timeline`**: Domain-specific timeline slices (Biopsy, Consultas, etc.).
+
+### Financial
+- **`gold.finops_summary`**: Financial operations summary derived from treatment and outcome data.

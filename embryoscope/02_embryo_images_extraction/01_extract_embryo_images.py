@@ -320,7 +320,35 @@ def main():
             logger.info(f"  Total records: {len(metadata_df)}")
         except Exception as e:
             logger.warning(f"Failed to export metadata to Excel: {e}")
-        
+
+        # Export clinical data (from gold.data_ploidia) to Excel
+        try:
+            logger.info("\nExporting clinical data to Excel...")
+            # Get list of processed embryo IDs
+            if results['success'] or results['skipped']:
+                processed_ids = results['success'] + results['skipped']
+                # Format list for SQL IN clause
+                ids_str = "', '".join(processed_ids)
+                
+                clinical_query = f'''
+                    SELECT *
+                    FROM gold.data_ploidia
+                    WHERE "Slide ID" IN ('{ids_str}')
+                '''
+                
+                clinical_df = conn.execute(clinical_query).df()
+                
+                # Save to Excel
+                clinical_excel_path = os.path.join(OUTPUT_DIR, '01_clinical_data.xlsx')
+                clinical_df.to_excel(clinical_excel_path, index=False, sheet_name='Clinical Data')
+                logger.info(f"✓ Clinical data exported to: {clinical_excel_path}")
+                logger.info(f"  Total records: {len(clinical_df)}")
+            else:
+                logger.info("No embryos processed effectively, skipping clinical data export.")
+                
+        except Exception as e:
+            logger.warning(f"Failed to export clinical data to Excel: {e}")
+            
     except Exception as e:
         logger.error(f"Fatal error in main workflow: {e}", exc_info=True)
         raise

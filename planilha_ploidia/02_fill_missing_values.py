@@ -171,15 +171,15 @@ def fill_oocyte_source_values(conn):
     WITH patient_oocyte_source AS (
         SELECT 
             prontuario,
-            origem_material as oocyte_source,
+            origem_ovulo as oocyte_source,
             COUNT(*) as frequency,
             ROW_NUMBER() OVER (
                 PARTITION BY prontuario 
                 ORDER BY COUNT(*) DESC
             ) as rn
         FROM silver.view_tratamentos
-        WHERE origem_material IS NOT NULL
-        GROUP BY prontuario, origem_material
+        WHERE origem_ovulo IS NOT NULL
+        GROUP BY prontuario, origem_ovulo
     )
     SELECT 
         prontuario,
@@ -229,9 +229,27 @@ def main():
         logger.info("")
         
         # Fill missing values
-        bmi_updates = fill_bmi_values(conn)
-        diagnosis_updates = fill_diagnosis_values(conn)
-        oocyte_source_updates = fill_oocyte_source_values(conn)
+        bmi_updates = 0
+        try:
+            bmi_updates = fill_bmi_values(conn)
+        except Exception as e:
+            logger.error(f"Error filling BMI values: {e}")
+            logger.error("Continuing with other updates...")
+
+        diagnosis_updates = 0
+        try:
+            diagnosis_updates = fill_diagnosis_values(conn)
+        except Exception as e:
+            logger.error(f"Error filling Diagnosis values: {e}")
+            logger.error("Continuing with other updates...")
+
+        # oocyte_source_updates = 0
+        # try:
+        #     oocyte_source_updates = fill_oocyte_source_values(conn)
+        # except Exception as e:
+        #     logger.error(f"Error filling Oocyte Source values: {e}")
+        #     logger.error("Continuing with other updates...")
+        oocyte_source_updates = 0 # Handled in creation script
         
         # Get NULL counts after filling
         logger.info("")

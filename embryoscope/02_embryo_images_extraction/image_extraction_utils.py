@@ -27,16 +27,27 @@ def get_embryos_to_extract(conn: duckdb.DuckDBPyConnection, limit: int = 3) -> L
         List of dictionaries with 'embryo_id' and 'location' keys
     """
     query = '''
-        SELECT DISTINCT 
-            dp."Slide ID" as embryo_id,
-            ee.patient_unit_huntington as location,
-            ee.patient_PatientID as prontuario,
-            ee.embryo_EmbryoDescriptionID as embryo_description_id
-        FROM gold.data_ploidia dp
-        LEFT JOIN gold.embryoscope_embrioes ee 
-            ON dp."Slide ID" = ee.embryo_EmbryoID
-        WHERE ee.patient_unit_huntington IS NOT NULL
-        ORDER BY dp."Slide ID"
+        WITH RankedEmbryos AS (
+            SELECT 
+                dp."Slide ID" as embryo_id,
+                ee.patient_unit_huntington as location,
+                ee.patient_PatientID as prontuario,
+                ee.embryo_EmbryoDescriptionID as embryo_description_id,
+                ROW_NUMBER() OVER (PARTITION BY ee.patient_PatientID ORDER BY dp."Slide ID") as rn
+            FROM gold.data_ploidia dp
+            LEFT JOIN gold.embryoscope_embrioes ee 
+                ON dp."Slide ID" = ee.embryo_EmbryoID
+            WHERE ee.patient_unit_huntington = 'Ibirapuera'
+              AND dp."BMI" IS NOT NULL
+        )
+        SELECT 
+            embryo_id,
+            location,
+            prontuario,
+            embryo_description_id
+        FROM RankedEmbryos
+        WHERE rn = 1
+        ORDER BY prontuario DESC
         LIMIT ?
     '''
     

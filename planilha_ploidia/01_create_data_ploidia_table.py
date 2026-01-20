@@ -146,7 +146,7 @@ def build_select_clause(target_columns, column_mapping, available_columns):
                     ') - 1 as "Previus ET"'
                 )
         # Special handling for patient+slide-level columns that need MAX() aggregation
-        elif target_col in ["Diagnosis", "Patient Comments", "Previus OD ET", "Oocyte Source"]:
+        elif target_col in ["Diagnosis", "Patient Comments", "Previus OD ET"]:
             source_col = column_mapping.get(target_col)
             if source_col is not None and source_col in available_columns:
                 # Use MAX() window function to get non-NULL values grouped by Patient ID and Slide ID
@@ -163,6 +163,17 @@ def build_select_clause(target_columns, column_mapping, available_columns):
                     logger.warning(f"Source column '{source_col}' not found for target '{target_col}'. Using NULL.")
                     select_parts.append(f'NULL as "{target_col}"')
                     missing_source_columns.append((target_col, source_col))
+        
+        # Special handling for Oocyte Source - Logic: If contains 'OR' then Heterologous else Autologous
+        elif target_col == "Oocyte Source":
+            if "oocito_OrigemOocito" in available_columns:
+                select_parts.append(f'''CASE 
+                    WHEN "oocito_OrigemOocito" LIKE '%OR%' THEN 'Heterologous'
+                    ELSE 'Autologous'
+                END as "{target_col}"''')
+            else:
+                logger.warning("oocito_OrigemOocito not found for Oocyte Source. Using Autologous as default.")
+                select_parts.append(f"'Autologous' as \"{target_col}\"")
         # Special handling for Video ID - concatenate Patient ID and Slide ID
         elif target_col == "Video ID":
             # Video ID = Patient ID (micro_prontuario) + "_" + Slide ID (full embryo_EmbryoID)
@@ -289,12 +300,23 @@ def create_data_ploidia_table(conn):
             e."Patient ID",
             e."Slide ID",
             e.ref_date,
-            COUNT(t.prontuario) as prev_et_count,
-            COUNT(CASE WHEN t.doacao_ovulos = 'Sim' THEN 1 END) as prev_od_et_count
+            COUNT(CASE 
+                WHEN t.prontuario IS NOT NULL 
+                     AND (t.resultado_tratamento == 'None' 
+                          OR t.resultado_tratamento NOT IN ('No transfer', 'Cancelado', 'Congelamento de Óvulos'))
+                THEN 1 
+            END) as prev_et_count,
+            COUNT(CASE 
+                WHEN t.prontuario IS NOT NULL
+                     AND t.doacao_ovulos = 'Sim' 
+                     AND (t.resultado_tratamento == 'None' 
+                          OR t.resultado_tratamento NOT IN ('No transfer', 'Cancelado', 'Congelamento de Óvulos'))
+                THEN 1 
+            END) as prev_od_et_count
         FROM embryo_ref_dates e
         LEFT JOIN clinisys.silver.view_tratamentos t 
             ON e."Patient ID" = t.prontuario 
-            AND t.data_transferencia < e.ref_date
+            AND COALESCE(t.data_transferencia, t.data_procedimento, t.data_dum) < e.ref_date
         GROUP BY e."Patient ID", e."Slide ID", e.ref_date
     ),
     most_recent_treatment AS (
@@ -306,7 +328,7 @@ def create_data_ploidia_table(conn):
             t.altura_paciente,
             ROUND(t.peso_paciente / POWER(t.altura_paciente, 2), 2) as calc_bmi,
             t.fator_infertilidade1 as calc_diagnosis,
-            t.origem_material as calc_oocyte_source,
+            t.origem_ovulo as calc_oocyte_source,
             ROW_NUMBER() OVER (
                 PARTITION BY e."Patient ID", e."Slide ID"
                 ORDER BY t.data_transferencia DESC
@@ -323,7 +345,7 @@ def create_data_ploidia_table(conn):
             e."Patient ID",
             e."Slide ID",
             t.fator_infertilidade1 as fallback_diagnosis,
-            t.origem_material as fallback_oocyte_source,
+            t.origem_ovulo as fallback_oocyte_source,
             ROW_NUMBER() OVER (
                 PARTITION BY e."Patient ID", e."Slide ID"
                 ORDER BY t.data_transferencia DESC
@@ -344,7 +366,7 @@ def create_data_ploidia_table(conn):
         COALESCE(tc.prev_et_count, 0) as "Previus ET",
         COALESCE(tc.prev_od_et_count, 0) as "Previus OD ET",
         e."Oocyte History",
-        COALESCE(mrt.calc_oocyte_source, ft.fallback_oocyte_source, e."Oocyte Source") as "Oocyte Source",
+        e."Oocyte Source",
         e."Oocytes Aspirated",
         e."Slide ID",
         e."Well",

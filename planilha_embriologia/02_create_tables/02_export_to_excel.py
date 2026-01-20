@@ -1,6 +1,9 @@
 #!/usr/bin/env python3
 """
 Export gold.planilha_embryoscope_combined table to Excel
+FILTERS: Only exports embryos that were transferred (trat_data_transferencia IS NOT NULL OR planilha_DATA_DA_FET IS NOT NULL)
+This reduces the export from ~330K rows to ~9K rows for better Excel compatibility.
+
 Uses efficient methods for large tables:
 - Reads data in chunks if table is very large
 - Uses xlsxwriter for better memory efficiency
@@ -12,6 +15,8 @@ import pandas as pd
 from datetime import datetime
 import os
 import logging
+import yaml
+import re
 
 # Setup logging
 LOGS_DIR = os.path.join(os.path.dirname(__file__), 'logs')
@@ -45,12 +50,81 @@ def get_database_connection(read_only=True):
 
 def get_table_info(conn):
     """Get table row count and column count"""
-    row_count = conn.execute("SELECT COUNT(*) FROM gold.planilha_embryoscope_combined").fetchone()[0]
+    # Filter for transferred embryos only
+    where_clause = "WHERE trat_data_transferencia IS NOT NULL OR planilha_DATA_DA_FET IS NOT NULL"
+    
+    row_count = conn.execute(f"SELECT COUNT(*) FROM gold.planilha_embryoscope_combined {where_clause}").fetchone()[0]
     col_info = conn.execute("DESCRIBE gold.planilha_embryoscope_combined").df()
     col_count = len(col_info)
     
-    logger.info(f"Table info: {row_count:,} rows, {col_count} columns")
+    logger.info(f"Table info (transferred embryos only): {row_count:,} rows, {col_count} columns")
     return row_count, col_count
+
+def load_exclusion_config():
+    """Load column exclusion configuration from yaml file"""
+    try:
+        config_path = os.path.join(os.path.dirname(__file__), '02_a_export_config.yml')
+        if os.path.exists(config_path):
+            with open(config_path, 'r') as f:
+                config = yaml.safe_load(f)
+            logger.info(f"Loaded column exclusion config from {config_path}")
+            return config
+        else:
+            logger.warning(f"Exclusion config file not found at {config_path}")
+            return None
+    except Exception as e:
+        logger.error(f"Error loading exclusion config: {e}")
+        return None
+
+def filter_columns(df):
+    """Filter out excluded columns and null columns"""
+    initial_cols = len(df.columns)
+    
+    # 1. remove excluded columns based on config
+    config = load_exclusion_config()
+    if config:
+        exclude_cols = config.get('exclude_columns', []) or []
+        exclude_patterns = config.get('exclude_patterns', []) or []
+        
+        cols_to_drop = []
+        
+        # Check specific column names
+        for col in exclude_cols:
+            if col in df.columns:
+                cols_to_drop.append(col)
+                
+        # Check regex patterns
+        if exclude_patterns:
+            for pattern in exclude_patterns:
+                try:
+                    regex = re.compile(pattern)
+                    matches = [c for c in df.columns if regex.search(c)]
+                    cols_to_drop.extend(matches)
+                except re.error as e:
+                    logger.error(f"Invalid regex pattern '{pattern}': {e}")
+        
+        # Deduplicate
+        cols_to_drop = list(set(cols_to_drop))
+        
+        if cols_to_drop:
+            logger.info(f"Removing {len(cols_to_drop)} excluded columns matching config...")
+            df = df.drop(columns=cols_to_drop, errors='ignore')
+            logger.info(f"Columns reduced from {initial_cols} to {len(df.columns)}")
+        else:
+            logger.info("No columns matched exclusion config")
+            
+    # 2. Remove columns that are completely null
+    current_cols = len(df.columns)
+    null_cols = [col for col in df.columns if df[col].isna().all()]
+    
+    if null_cols:
+        logger.info(f"Removing {len(null_cols)} completely null columns...")
+        df = df.drop(columns=null_cols)
+        logger.info(f"Columns reduced from {current_cols} to {len(df.columns)}")
+    else:
+        logger.info("No completely null columns found")
+    
+    return df
 
 def export_to_excel_efficient(conn, output_path, chunk_size=100000, export_format='excel'):
     """
@@ -102,13 +176,17 @@ def export_to_csv(conn, output_path):
     logger.info(f"Exporting to CSV: {output_path}")
     logger.info("Using UTF-8-SIG encoding and forced quoting for all fields")
     
-    # Read data from database
-    logger.info("Reading data from database...")
-    df = conn.execute("SELECT * FROM gold.planilha_embryoscope_combined").df()
+    # Read data from database (transferred embryos only)
+    where_clause = "WHERE trat_data_transferencia IS NOT NULL OR planilha_DATA_DA_FET IS NOT NULL"
+    logger.info("Reading data from database (transferred embryos only)...")
+    df = conn.execute(f"SELECT * FROM gold.planilha_embryoscope_combined {where_clause}").df()
     logger.info(f"Read {len(df):,} rows, {len(df.columns)} columns")
     
     # Replace NaT values with None
     df = df.replace({pd.NaT: None})
+    
+    # Remove excluded and completely null columns
+    df = filter_columns(df)
     
     # Clean newline characters from ALL columns to avoid CSV parsing issues
     logger.info("Cleaning newline characters from data...")
@@ -153,15 +231,19 @@ def export_to_csv(conn, output_path):
 
 def export_full(conn, output_path):
     """Export entire table at once (for smaller tables)"""
-    logger.info("Reading all data from database...")
+    logger.info("Reading all data from database (transferred embryos only)...")
     
-    # Read all data
-    df = conn.execute("SELECT * FROM gold.planilha_embryoscope_combined").df()
+    # Read all data (transferred embryos only)
+    where_clause = "WHERE trat_data_transferencia IS NOT NULL OR planilha_DATA_DA_FET IS NOT NULL"
+    df = conn.execute(f"SELECT * FROM gold.planilha_embryoscope_combined {where_clause}").df()
     
     logger.info(f"Read {len(df):,} rows. Writing to Excel...")
     
     # Replace NaT values with None to avoid xlsxwriter errors
     df = df.replace({pd.NaT: None})
+    
+    # Remove excluded and completely null columns
+    df = filter_columns(df)
     
     # Write to Excel
     # Use xlsxwriter engine for better performance and memory efficiency
@@ -203,8 +285,10 @@ def export_chunked(conn, output_path, chunk_size):
     csv_path = output_path.replace('.xlsx', '.csv')
     logger.info(f"Step 1: Exporting to CSV: {csv_path}")
     
+    # Filter for transferred embryos only
+    where_clause = "WHERE trat_data_transferencia IS NOT NULL OR planilha_DATA_DA_FET IS NOT NULL"
     conn.execute(f"""
-        COPY (SELECT * FROM gold.planilha_embryoscope_combined) 
+        COPY (SELECT * FROM gold.planilha_embryoscope_combined {where_clause}) 
         TO '{csv_path}' (HEADER, DELIMITER ',')
     """)
     
@@ -297,9 +381,8 @@ def main():
         # Generate output filename with timestamp
         timestamp_str = datetime.now().strftime('%Y%m%d_%H%M%S')
         
-        # For large files, CSV is much faster - user can open in Excel
-        # Change 'csv' to 'excel' if you specifically need .xlsx format
-        export_format = 'csv'  # Options: 'csv', 'excel', 'auto' (auto chooses based on size)
+        # Export to Excel format
+        export_format = 'excel'  # Options: 'csv', 'excel', 'auto' (auto chooses based on size)
         
         if export_format == 'csv':
             output_filename = f'planilha_embryoscope_combined_{timestamp_str}.csv'

@@ -1,0 +1,33 @@
+# Columns to exclude from the final Excel export
+exclude_columns:
+  - planilha_line_number
+  - planilha_extraction_timestamp
+  - planilha_file_name
+  - micro_responsavel_denud_id
+  - micro_profissional_fertilizacao_id
+  - micro_profissional_d3_id
+  - micro_profissional_d5_id
+  - micro_profissional_d6_id
+  - micro_profissional_d7_id
+  - micro_materiais_insumos
+  - micro_observacoes_resumo_ciclos
+  - micro_meios
+  - micro_responsavel_oocitos_id
+  - micro_comentarios_ps
+  - micro_responsavel_ps
+  - micro_Observacoes  
+  - micro_responsavel_labfiv
+  - micro_responsavel_labfiv_data
+  - cong_em_Observacoes
+  - descong_em_Observacoes
+  - emb_cong_comentarios
+  - emb_cong_comentarios_descongelamento
+  - trat_observacoes_gerais
+
+
+
+# Regex patterns for columns to exclude
+# Use valid Python regex syntax
+exclude_patterns:
+  - "_hash$"  # Ends with _hash
+  - "^extraction_timestamp" # Starts with extraction_timestamp (if any, besides planilha_)

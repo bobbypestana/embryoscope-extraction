@@ -65,7 +65,7 @@ COLUMN_MAPPING = {
     "Previus ET": None,  
     "Previus OD ET": None,  
     "Oocyte History": "oocito_OrigemOocito",  
-    "Oocyte Source": "trat_origem_material",
+    "Oocyte Source": "trat_origem_ovulo",
     "Oocytes Aspirated": "micro_oocitos",
     "Slide ID": "embryo_EmbryoID",  
     "Well": "embryo_WellNumber",
