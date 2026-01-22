@@ -8,7 +8,377 @@ from datetime import datetime
 import collections
 import yaml
 
+# Import new modules
+from transformations import flatten_patients_json, flatten_embryo_json, flatten_idascore_json
+from patient_id_cleaner import clean_patient_id
+from patient_matching import update_prontuario_column
+import feature_engineering
+
 script_dir = os.path.dirname(os.path.abspath(__file__))
+script_name = os.path.splitext(os.path.basename(__file__))[0]  # Get filename without extension
+log_dir = os.path.join(script_dir, 'logs')
+os.makedirs(log_dir, exist_ok=True)
+log_ts = datetime.now().strftime('%Y%m%d_%H%M%S')
+log_file = os.path.join(log_dir, f'{script_name}_{log_ts}.log')
+
+# Load log level from params.yml
+params_path = os.path.join(script_dir, 'params.yml')
+with open(params_path, 'r') as f:
+    params = yaml.safe_load(f)
+log_level_str = params.get('extraction', {}).get('log_level', 'INFO').upper()
+log_level = getattr(logging, log_level_str, logging.INFO)
+
+# Setup logger with custom format
+logger = logging.getLogger(script_name)
+logger.setLevel(log_level)
+formatter = logging.Formatter('%(asctime)s,%(msecs)03d - %(name)s - %(levelname)s - %(message)s', datefmt='%Y-%m-%d %H:%M:%S')
+file_handler = logging.FileHandler(log_file)
+file_handler.setFormatter(formatter)
+stream_handler = logging.StreamHandler()
+stream_handler.setFormatter(formatter)
+if not logger.hasHandlers():
+    logger.addHandler(file_handler)
+    logger.addHandler(stream_handler)
+
+logger.info(f"Logging to: {log_file}")
+
+# NOTE: calculate_column_filling_rates and filter_columns_by_null_rate have been removed.
+# We now keep all columns to preserve data integrity.
+
+def process_database(db_path):
+    db_name = os.path.basename(db_path)
+    logger.info(f"[{db_name}] Processing patients table.")
+    try:
+        con = duckdb.connect(db_path)
+        con.execute('CREATE SCHEMA IF NOT EXISTS silver')
+        read_query = 'SELECT raw_json, _extraction_timestamp, _location, _run_id, _row_hash FROM bronze.raw_patients'
+        logger.debug(f"[{db_name}] Reading patients with query: {read_query}")
+        logger.info(f"[{db_name}] Reading patients with query: {read_query}")
+        df = con.execute(read_query).fetchdf()
+        logger.info(f"[{db_name}] Read {len(df)} rows from bronze.raw_patients.")
+        all_patients = []
+        meta_cols = ['_extraction_timestamp', '_location', '_run_id', '_row_hash']
+        for idx, row in df.iterrows():
+            patients = flatten_patients_json(row['raw_json'])
+            for p in patients:
+                for col in meta_cols:
+                    p[col] = row[col]
+            all_patients.extend(patients)
+        logger.info(f"[{db_name}] Flattened to {len(all_patients)} patient records.")
+        if not all_patients:
+            logger.warning(f"[{db_name}] No patients found.")
+            return
+        patients_df = pd.DataFrame(all_patients)
+        if 'DateOfBirth' in patients_df.columns:
+            patients_df['DateOfBirth'] = pd.to_datetime(patients_df['DateOfBirth'], errors='coerce')
+        
+        # Clean PatientID column
+        patients_df = clean_patient_id(patients_df, 'patients', db_name)
+        
+        if patients_df.empty:
+            logger.warning(f"[{db_name}] No patient records remain after cleaning")
+            con.close()
+            return
+        
+        # Initialize prontuario column with -1 (unmatched)
+        logger.info(f"[{db_name}] Initializing prontuario column with -1 (unmatched)...")
+        patients_df['prontuario'] = -1
+        
+        # Ensure all metadata columns exist
+        for col in meta_cols:
+            if col not in patients_df.columns:
+                patients_df[col] = None
+                
+        logger.debug(f"[{db_name}] Saving patients to table: silver.patients in database: {db_path}")
+        logger.info(f"[{db_name}] Saving patients to table: silver.patients.")
+        con.execute('DROP TABLE IF EXISTS silver.patients')
+        con.register('patients_df', patients_df)
+        con.execute('CREATE TABLE silver.patients AS SELECT * FROM patients_df')
+        con.unregister('patients_df')
+        logger.info(f"[{db_name}] silver.patients creation complete.")
+        
+        # Update prontuario column using PatientID matching logic
+        update_prontuario_column(con, db_name)
+        
+        # Apply feature engineering
+        feature_engineering.feature_creation(con, 'patients')
+        
+        con.close()
+        
+    except Exception as e:
+        logger.error(f"[{db_name}] Failed to process patients: {e}")
+
+def process_treatments_database(db_path):
+    db_name = os.path.basename(db_path)
+    logger.info(f"[{db_name}] Processing treatments table.")
+    try:
+        con = duckdb.connect(db_path)
+        con.execute('CREATE SCHEMA IF NOT EXISTS silver')
+        read_query = 'SELECT raw_json, _extraction_timestamp, _location, _run_id, _row_hash FROM bronze.raw_treatments'
+        logger.debug(f"[{db_name}] Reading treatments with query: {read_query}")
+        logger.info(f"[{db_name}] Reading treatments with query: {read_query}")
+        df = con.execute(read_query).fetchdf()
+        logger.info(f"[{db_name}] Read {len(df)} rows from bronze.raw_treatments.")
+        all_treatments = []
+        meta_cols = ['_extraction_timestamp', '_location', '_run_id', '_row_hash']
+        for idx, row in df.iterrows():
+            try:
+                treatment = json.loads(str(row['raw_json']))
+                for col in meta_cols:
+                    treatment[col] = row[col]
+                all_treatments.append(treatment)
+            except Exception as e:
+                logger.error(f"[{db_name}] Error parsing treatment JSON at row {idx}: {e}")
+        logger.info(f"[{db_name}] Parsed {len(all_treatments)} treatment records.")
+        if not all_treatments:
+            logger.warning(f"[{db_name}] No treatments found.")
+            return
+        treatments_df = pd.DataFrame(all_treatments)
+        for col in treatments_df.columns:
+            treatments_df[col] = treatments_df[col].astype(str)
+        
+        # Clean PatientID column
+        treatments_df = clean_patient_id(treatments_df, 'treatments', db_name)
+        
+        if treatments_df.empty:
+            logger.warning(f"[{db_name}] No treatment records remain after cleaning")
+            con.close()
+            return
+        
+        # Ensure all metadata columns exist
+        for col in meta_cols:
+            if col not in treatments_df.columns:
+                treatments_df[col] = None
+        logger.info(f"[{db_name}] Saving treatments to table: silver.treatments.")
+        con.execute('DROP TABLE IF EXISTS silver.treatments')
+        con.register('treatments_df', treatments_df)
+        con.execute('CREATE TABLE silver.treatments AS SELECT * FROM treatments_df')
+        con.unregister('treatments_df')
+        
+        # Apply feature engineering
+        feature_engineering.feature_creation(con, 'treatments')
+        
+        con.close()
+        logger.info(f"[{db_name}] silver.treatments creation complete.")
+    except Exception as e:
+        logger.error(f"[{db_name}] Failed to process treatments: {e}")
+
+def process_idascore_database(db_path):
+    db_name = os.path.basename(db_path)
+    logger.info(f"[{db_name}] Processing idascore table.")
+    try:
+        con = duckdb.connect(db_path)
+        con.execute('CREATE SCHEMA IF NOT EXISTS silver')
+        read_query = 'SELECT raw_json, _extraction_timestamp, _location, _run_id, _row_hash FROM bronze.raw_idascore'
+        logger.debug(f"[{db_name}] Reading idascore with query: {read_query}")
+        logger.info(f"[{db_name}] Reading idascore with query: {read_query}")
+        try:
+            df = con.execute(read_query).fetchdf()
+        except Exception as e:
+            logger.warning(f"[{db_name}] Table bronze.raw_idascore does not exist: {e}")
+            con.close()
+            return
+        logger.info(f"[{db_name}] Read {len(df)} rows from bronze.raw_idascore.")
+        all_idascore = []
+        meta_cols = ['_extraction_timestamp', '_location', '_run_id', '_row_hash']
+        
+        for idx, row in df.iterrows():
+            mapped_record = flatten_idascore_json(row['raw_json'], meta_cols, row)
+            if mapped_record:
+                all_idascore.append(mapped_record)
+                
+        logger.info(f"[{db_name}] Parsed {len(all_idascore)} idascore records.")
+        if not all_idascore:
+            logger.warning(f"[{db_name}] No idascore records found.")
+            # Create empty table with correct columns
+            logger.info(f"[{db_name}] Creating empty silver.idascore table.")
+            con.execute('DROP TABLE IF EXISTS silver.idascore')
+            con.execute('CREATE TABLE silver.idascore (EmbryoID TEXT, IDAScore TEXT, IDATime TEXT, IDAVersion TEXT, IDATimestamp TEXT, _extraction_timestamp TIMESTAMP, _location TEXT, _run_id TEXT, _row_hash TEXT)')
+            con.close()
+            logger.info(f"[{db_name}] Empty silver.idascore table created.")
+            return
+        idascore_df = pd.DataFrame(all_idascore)
+        for col in idascore_df.columns:
+            idascore_df[col] = idascore_df[col].astype(str)
+        
+        if idascore_df.empty:
+            logger.warning(f"[{db_name}] DataFrame empty for idascore table")
+            con.close()
+            return
+        
+        logger.info(f"[{db_name}] Saving idascore to table: silver.idascore.")
+        con.execute('DROP TABLE IF EXISTS silver.idascore')
+        con.register('idascore_df', idascore_df)
+        con.execute('CREATE TABLE silver.idascore AS SELECT * FROM idascore_df')
+        con.unregister('idascore_df')
+        
+        # Apply feature engineering
+        feature_engineering.feature_creation(con, 'idascore')
+        
+        con.close()
+        logger.info(f"[{db_name}] silver.idascore creation complete.")
+    except Exception as e:
+        logger.error(f"[{db_name}] Failed to process idascore: {e}")
+
+def process_embryo_data_database(db_path):
+    db_name = os.path.basename(db_path)
+    logger.info(f"[{db_name}] Processing embryo_data table.")
+    try:
+        con = duckdb.connect(db_path)
+        con.execute('CREATE SCHEMA IF NOT EXISTS silver')
+        read_query = 'SELECT raw_json, _extraction_timestamp, _location, _run_id, _row_hash FROM bronze.raw_embryo_data'
+        logger.debug(f"[{db_name}] Reading embryo_data with query: {read_query}")
+        logger.info(f"[{db_name}] Reading embryo_data with query: {read_query}")
+        try:
+            df = con.execute(read_query).fetchdf()
+        except Exception as e:
+            logger.warning(f"[{db_name}] Table bronze.raw_embryo_data does not exist: {e}")
+            con.close()
+            return
+        logger.info(f"[{db_name}] Read {len(df)} rows from bronze.raw_embryo_data.")
+        # First pass: collect all annotation names
+        annotation_names = set()
+        for idx, row in df.iterrows():
+            try:
+                data = json.loads(str(row['raw_json']))
+                for ann in data.get('AnnotationList', []):
+                    if 'Name' in ann:
+                        annotation_names.add(ann['Name'])
+            except Exception as e:
+                logger.error(f"[{db_name}] Error collecting annotation names at row {idx}: {e}")
+        logger.debug(f"[{db_name}] Found annotation types: {sorted(annotation_names)}")
+        logger.info(f"[{db_name}] Found annotation types: {sorted(annotation_names)}")
+        
+        # Second pass: flatten all rows
+        all_embryos = []
+        meta_cols = ['_extraction_timestamp', '_location', '_run_id', '_row_hash']
+        for idx, row in df.iterrows():
+            flat = flatten_embryo_json(row['raw_json'], annotation_names_set=annotation_names)
+            for col in meta_cols:
+                flat[col] = row[col]
+            all_embryos.append(flat)
+        logger.info(f"[{db_name}] Flattened {len(all_embryos)} embryo records.")
+        if not all_embryos:
+            logger.warning(f"[{db_name}] No embryo_data records found.")
+            # Create empty table with all expected columns
+            columns = [
+                'EmbryoID', 'PatientIDx', 'TreatmentName',
+                'EmbryoDetails_InstrumentNumber', 'EmbryoDetails_Position', 'EmbryoDetails_WellNumber',
+                'EmbryoDetails_FertilizationTime', 'EmbryoDetails_FertilizationMethod', 'EmbryoDetails_EmbryoFate',
+                'EmbryoDetails_Description', 'EmbryoDetails_EmbryoDescriptionID',
+                'Evaluation_Model', 'Evaluation_User', 'Evaluation_EvaluationDate',
+                '_extraction_timestamp', '_location', '_run_id', '_row_hash'
+            ]
+            for ann_name in sorted(annotation_names):
+                columns.extend([
+                    f'Name_{ann_name}', f'Time_{ann_name}', f'Value_{ann_name}', f'Timestamp_{ann_name}'
+                ])
+            col_defs = ', '.join([f'{col} TEXT' for col in columns])
+            con.execute('DROP TABLE IF EXISTS silver.embryo_data')
+            con.execute(f'CREATE TABLE silver.embryo_data ({col_defs})')
+            con.close()
+            logger.info(f"[{db_name}] Empty silver.embryo_data table created.")
+            return
+        embryo_df = pd.DataFrame(all_embryos)
+        # Cast types - ensure proper DATE type for JOIN performance
+        for col in embryo_df.columns:
+            if col.startswith('Time_'):
+                try:
+                    embryo_df[col] = pd.to_numeric(embryo_df[col], errors='coerce')
+                except Exception as e:
+                    logger.error(f"[{db_name}] Error casting {col} to numeric: {e}")
+            elif col.endswith('Date') or col.endswith('Time') or col.endswith('Timestamp'):
+                try:
+                    # Special handling for FertilizationTime - ensure it's properly typed for JOINs
+                    if col == 'FertilizationTime':
+                        embryo_df[col] = pd.to_datetime(embryo_df[col], errors='coerce')
+                        logger.info(f"[{db_name}] Cast {col} to datetime for JOIN performance")
+                    else:
+                        embryo_df[col] = pd.to_datetime(embryo_df[col], errors='coerce')
+                except Exception as e:
+                    logger.error(f"[{db_name}] Error casting {col} to datetime: {e}")
+                    
+        # Map Evaluation_Evaluation -> KIDScore, Evaluation_EvaluationDate -> KIDDate
+        if 'Evaluation_Evaluation' in embryo_df.columns:
+            embryo_df['KIDScore'] = embryo_df['Evaluation_Evaluation']
+            embryo_df = embryo_df.drop(columns=['Evaluation_Evaluation'])
+        if 'Evaluation_EvaluationDate' in embryo_df.columns:
+            embryo_df['KIDDate'] = embryo_df['Evaluation_EvaluationDate']
+            embryo_df = embryo_df.drop(columns=['Evaluation_EvaluationDate'])
+        if 'Evaluation_Model' in embryo_df.columns:
+            embryo_df['KIDVersion'] = embryo_df['Evaluation_Model']
+            embryo_df = embryo_df.drop(columns=['Evaluation_Model'])
+        if 'Evaluation_User' in embryo_df.columns:
+            embryo_df['KIDUser'] = embryo_df['Evaluation_User']
+            embryo_df = embryo_df.drop(columns=['Evaluation_User'])
+        # Remove EmbryoDetails_ prefix
+        embryo_df = embryo_df.rename(columns={col: col.replace('EmbryoDetails_', '') for col in embryo_df.columns if col.startswith('EmbryoDetails_')})
+        
+        # Clean PatientID column (before processing)
+        embryo_df = clean_patient_id(embryo_df, 'embryo_data', db_name)
+        
+        if embryo_df.empty:
+            logger.warning(f"[{db_name}] No embryo records remain after cleaning")
+            con.close()
+            return
+        
+        # Order columns: EmbryoID, PatientIDx, TreatmentName, all KID*, all IDA*, then the rest
+        cols = list(embryo_df.columns)
+        main_cols = ['EmbryoID', 'PatientIDx', 'TreatmentName']
+        kid_cols = sorted([c for c in cols if c.startswith('KID')])
+        ida_cols = sorted([c for c in cols if c.startswith('IDA')])
+        other_cols = sorted([c for c in cols if c not in main_cols + kid_cols + ida_cols])
+        ordered_cols = main_cols + kid_cols + ida_cols + other_cols
+        # Only reindex with columns that exist in the DataFrame
+        ordered_cols = [c for c in ordered_cols if c in embryo_df.columns]
+        embryo_df = embryo_df.reindex(columns=ordered_cols)
+        
+        # Ensure all metadata columns exist
+        for col in meta_cols:
+            if col not in embryo_df.columns:
+                embryo_df[col] = None
+                
+        logger.info(f"[{db_name}] Saving embryo_data to table: silver.embryo_data.")
+        con.execute('DROP TABLE IF EXISTS silver.embryo_data')
+        con.register('embryo_df', embryo_df)
+        con.execute('CREATE TABLE silver.embryo_data AS SELECT * FROM embryo_df')
+        con.unregister('embryo_df')
+        
+        # Apply feature engineering
+        feature_engineering.feature_creation(con, 'embryo_data')
+        
+        con.close()
+        logger.info(f"[{db_name}] silver.embryo_data creation complete.")
+    except Exception as e:
+        logger.error(f"[{db_name}] Failed to process embryo_data: {e}")
+
+def main():
+    logger.info("Starting bronze to silver conversion...")
+    
+    # Process all embryoscope databases in the database folder
+    db_folder = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'database')
+    logger.info(f"Looking for databases in: {db_folder}")
+    
+    # Find all databases matching pattern
+    db_files = glob.glob(os.path.join(db_folder, 'embryoscope_*.db'))
+    logger.info(f"Found {len(db_files)} databases to process.")
+    
+    for db_path in db_files:
+        # Skip huntington_data_lake.duckdb as it is the central sink
+        if 'huntington_data_lake.duckdb' in db_path:
+            continue
+            
+        logger.info(f"="*50)
+        logger.info(f"Processing database: {os.path.basename(db_path)}")
+        process_database(db_path)
+        process_treatments_database(db_path)
+        process_idascore_database(db_path)
+        process_embryo_data_database(db_path)
+        logger.info(f"Finished processing database: {os.path.basename(db_path)}")
+        logger.info(f"="*50)
+
+if __name__ == '__main__':
+    main()
 script_name = os.path.splitext(os.path.basename(__file__))[0]  # Get filename without extension
 log_dir = os.path.join(script_dir, 'logs')
 os.makedirs(log_dir, exist_ok=True)

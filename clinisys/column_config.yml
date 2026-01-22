@@ -1,0 +1,136 @@
+# Column Configuration for Bronze to Silver Transformations
+# This file centralizes column type definitions and transformation rules
+
+# Date columns - will be parsed with format '%d/%m/%Y' and validated
+date_columns:
+  - data
+  - data_inicial
+  - data_final
+  - Data
+  - DataCongelamento
+  - DataDescongelamento
+  - DataTransferencia
+  - data_entrega
+  - data_pagamento
+  - data_entrega_orcamento
+  - data_ultima_modificacao
+  - data_agendamento_original
+  - responsavel_recebimento_data
+  - responsavel_armazenamento_data
+  - Data_DL
+  - data_procedimento
+  - data_dum
+  - data_inicio_inducao
+  - data_transferencia
+  - data_congelamento
+  - data_descongelamento
+
+# Time columns - will be parsed with format '%H:%M'
+time_columns:
+  - hora
+  - Hora
+  - inicio
+
+# Integer columns - will be cast to INTEGER
+int_columns:
+  - id
+  - codigo
+  - prontuario
+  - ficha_id
+  - medicamento
+  - quantidade
+  - duracao
+  - registro
+  - unidade_origem
+  - unidade
+  - idade_esposa
+  - Unidade
+  - NEmbrioes
+  - NOvulos
+  - doadora
+  - Transferencia
+  - Prateleira
+  - responsavel_recebimento
+  - responsavel_armazenamento
+  - BiologoResponsavel
+  - responsavel_congelamento_d5
+  - responsavel_checagem_d5
+  - responsavel_congelamento_d6
+  - responsavel_checagem_d6
+  - responsavel_congelamento_d7
+  - responsavel_checagem_d7
+  - id_oocito
+  - id_congelamento
+  - id_descongelamento
+  - agendamento_id
+  - medico
+  - medico2
+  - evento
+  - centro_custos
+  - agenda
+  - confirmado
+  - paciente_codigo
+  - codigo_ficha
+  - IdadeEsposa_DG
+  - id_micromanipulacao
+
+# Float columns - will be cast to DOUBLE
+float_columns:
+  - rqe
+  - intervalo
+  - ovulo
+  - d2
+  - d3
+  - d4
+  - d5
+  - d6
+  - d7
+  - rack2
+  - rack3
+  - rack4
+  - responsavel_transferencia
+  - valor
+  - IdadeEsposa_DG
+
+# Special handling columns - require custom transformation logic
+special_columns:
+  # Peso/Altura columns - extract numeric values, handle comma as decimal
+  peso_altura:
+    - peso_paciente
+    - altura_paciente
+    - peso_conjuge
+    - altura_conjuge
+    - peso
+    - altura
+  
+  # Currency column - remove dots, replace comma with dot
+  currency:
+    - valor
+  
+  # Prontuario columns - keep as VARCHAR initially, cleaned in separate step
+  prontuario:
+    - prontuario
+
+# Primary keys for each table (used for deduplication)
+primary_keys:
+  view_micromanipulacao: codigo_ficha
+  view_micromanipulacao_oocitos: id
+  view_tratamentos: id
+  view_medicamentos_prescricoes: id
+  view_pacientes: codigo
+  view_medicos: id
+  view_unidades: id
+  view_medicamentos: id
+  view_procedimentos_financas: id
+  view_orcamentos: id
+  view_extrato_atendimentos_central: agendamento_id
+  view_congelamentos_embrioes: id
+  view_congelamentos_ovulos: id
+  view_descongelamentos_embrioes: id
+  view_descongelamentos_ovulos: id
+  view_embrioes_congelados: id
+  view_congelamentos_semen: id
+  view_congelamentos_semen_doador: id
+  view_exames: id
+  view_ovulos_congelados: id
+  view_tratamentos_us_anexos: id

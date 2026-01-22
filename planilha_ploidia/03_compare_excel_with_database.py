@@ -195,10 +195,17 @@ def normalize_value(value, column_name=None):
             # Oocyte Source mappings
             'fresco': 'fresh',
             'fresh': 'fresh',
+            'descongelado': 'thawed',
+            'thawed': 'thawed',
             'autólogo': 'autologous',
             'autologous': 'autologous',
             'homólogo': 'autologous',  # Portuguese for autologous
             'homologous': 'autologous',
+            'heterólogo': 'donor',  # Portuguese for donor/heterologous
+            'heterologous': 'donor',
+            'donor': 'donor',
+            'ambos': 'both',  # Portuguese for both
+            'both': 'both',
             
             # Unit mappings
             'ibirapuera': 'ibi',
@@ -404,6 +411,10 @@ def compare_datasets(df_excel, excel_filter_keys, df_database, db_filter_keys):
                 
                 # Skip Patient Comments (not relevant for comparison)
                 if col == "Patient Comments":
+                    continue
+                
+                # Skip Diagnosis (translation differences are expected)
+                if col == "Diagnosis":
                     continue
                 
                 # Handle NaN comparisons first (before normalization)

@@ -11,6 +11,11 @@ with open(CONFIG_PATH, 'r') as f:
 logging_level_str = config.get('logging_level', 'INFO').upper()
 logging_level = getattr(logging, logging_level_str, logging.INFO)
 
+# Load gold column configuration
+GOLD_COLUMN_CONFIG_PATH = os.path.join(os.path.dirname(__file__), 'gold_column_config.yml')
+with open(GOLD_COLUMN_CONFIG_PATH, 'r') as f:
+    gold_column_config = yaml.safe_load(f)
+
 # Setup logging
 LOGS_DIR = os.path.join(os.path.dirname(__file__), 'logs')
 os.makedirs(LOGS_DIR, exist_ok=True)
@@ -32,8 +37,48 @@ logger.info(f'Loaded logging level: {logging_level_str}')
 source_db_path = os.path.join('..', 'database', 'clinisys_all.duckdb')
 target_db_path = os.path.join('..', 'database', 'huntington_data_lake.duckdb')
 
+
+def build_select_columns():
+    """
+    Build SELECT clause with only specified columns from gold_column_config.yml
+    Handles view_tratamentos being joined twice with different aliases (trat1 and trat2)
+    
+    Returns:
+        List of select column strings
+    """
+    # Table name to alias mapping (alias is used for both SQL alias and column prefix)
+    table_aliases = {
+        'view_micromanipulacao_oocitos': 'oocito',
+        'view_micromanipulacao': 'micro',
+        'view_congelamentos_embrioes': 'cong_em',
+        'view_descongelamentos_embrioes': 'descong_em',
+        'view_embrioes_congelados': 'emb_cong',
+        'view_tratamentos': 'trat1',
+        'view_tratamentos_transfer': 'trat2'
+    }
+    
+    select_columns = []
+    
+    for table_name, columns in gold_column_config.items():
+        if table_name not in table_aliases:
+            logger.warning(f"Table {table_name} not found in table aliases, skipping")
+            continue
+            
+        alias = table_aliases[table_name]
+        
+        logger.info(f"Adding {len(columns)} columns from {table_name} (alias: {alias})")
+        
+        for column in columns:
+            # Use alias for both SQL alias and column prefix
+            select_columns.append(f"{alias}.{column} AS {alias}_{column}")
+    
+    logger.info(f"Total columns in SELECT clause: {len(select_columns)}")
+    
+    return select_columns
+
+
 def main():
-    logger.info('Starting gold loader for clinisys_embrioes')
+    logger.info('Starting gold loader for clinisys_embrioes (selective columns)')
     logger.info(f'Source database path: {source_db_path}')
     logger.info(f'Target database path: {target_db_path}')
     
@@ -42,201 +87,59 @@ def main():
         logger.error(f'Source database not found: {source_db_path}')
         return
     
-    # Low-fill column filtering is done in bronze-to-silver, so we use all columns here
-    # # First, identify columns with low fill rates from each table
-    # logger.info('Analyzing column fill rates in source tables...')
-    # 
-    # def get_low_fill_columns(table_name, schema='silver', min_fill_rate=10.0):
-    #     """Get columns with fill rate below threshold from a specific table"""
-    #     with duckdb.connect(source_db_path) as temp_con:
-    #         # Get all columns from the table
-    #         columns_query = f"""
-    #         SELECT column_name 
-    #         FROM information_schema.columns 
-    #         WHERE table_schema = '{schema}' 
-    #         AND table_name = '{table_name}'
-    #         ORDER BY ordinal_position
-    #         """
-    #         columns_df = temp_con.execute(columns_query).df()
-    #         
-    #         if columns_df.empty:
-    #             return []
-    #         
-    #         # Get total row count
-    #         total_rows_query = f"SELECT COUNT(*) FROM {schema}.{table_name}"
-    #         total_rows = temp_con.execute(total_rows_query).fetchone()[0]
-    #         
-    #         low_fill_columns = []
-    #         for _, row in columns_df.iterrows():
-    #             column_name = row['column_name']
-    #             
-    #             # Count non-null values
-    #             non_null_query = f"SELECT COUNT({column_name}) FROM {schema}.{table_name}"
-    #             non_null_count = temp_con.execute(non_null_query).fetchone()[0]
-    #             
-    #             # Calculate fill rate
-    #             fill_rate = (non_null_count / total_rows) * 100 if total_rows > 0 else 0
-    #             
-    #             if fill_rate < min_fill_rate:
-    #                 low_fill_columns.append(column_name)
-    #         
-    #         return low_fill_columns
-    # 
-    # # Get low-fill columns from each table (only tables we're using in the new JOIN logic)
-    # ooc_low_fill = get_low_fill_columns('view_micromanipulacao_oocitos')
-    # mic_low_fill = get_low_fill_columns('view_micromanipulacao')
-    # vce_low_fill = get_low_fill_columns('view_congelamentos_embrioes')
-    # vde_low_fill = get_low_fill_columns('view_descongelamentos_embrioes')
-    # vec_low_fill = get_low_fill_columns('view_embrioes_congelados')
-    # tr_low_fill = get_low_fill_columns('view_tratamentos')
-    # 
-    # logger.info(f'Low-fill columns found:')
-    # logger.info(f'  - view_micromanipulacao_oocitos: {len(ooc_low_fill)} columns')
-    # logger.info(f'  - view_micromanipulacao: {len(mic_low_fill)} columns')
-    # logger.info(f'  - view_congelamentos_embrioes: {len(vce_low_fill)} columns')
-    # logger.info(f'  - view_descongelamentos_embrioes: {len(vde_low_fill)} columns')
-    # logger.info(f'  - view_embrioes_congelados: {len(vec_low_fill)} columns')
-    # logger.info(f'  - view_tratamentos: {len(tr_low_fill)} columns')
-    # 
-    # # Build column lists excluding low-fill columns
-    # def build_column_list(table_alias, low_fill_columns):
-    #     with duckdb.connect(source_db_path) as temp_con:
-    #         # Map table aliases to actual table names
-    #         table_name_map = {
-    #             'ooc': 'view_micromanipulacao_oocitos',
-    #             'mic': 'view_micromanipulacao',
-    #             'vce': 'view_congelamentos_embrioes',
-    #             'vde': 'view_descongelamentos_embrioes',
-    #             'vec': 'view_embrioes_congelados',
-    #             'tr': 'view_tratamentos'
-    #         }
-    #         
-    #         table_name = table_name_map.get(table_alias, table_alias)
-    #         
-    #         all_columns_query = f"""
-    #         SELECT column_name 
-    #         FROM information_schema.columns 
-    #         WHERE table_schema = 'silver' 
-    #         AND table_name = '{table_name}'
-    #         ORDER BY ordinal_position
-    #         """
-    #         all_columns = temp_con.execute(all_columns_query).df()['column_name'].tolist()
-    #         
-    #         # Filter out low-fill columns
-    #         filtered_columns = [col for col in all_columns if col not in low_fill_columns]
-    #         logger.info(f'Table {table_alias}: {len(all_columns)} total columns, {len(filtered_columns)} after filtering')
-    #         return filtered_columns
-    # 
-    # # Get filtered column lists
-    # ooc_columns = build_column_list('ooc', ooc_low_fill)
-    # mic_columns = build_column_list('mic', mic_low_fill)
-    # vce_columns = build_column_list('vce', vce_low_fill)
-    # vde_columns = build_column_list('vde', vde_low_fill)
-    # vec_columns = build_column_list('vec', vec_low_fill)
-    # tr_columns = build_column_list('tr', tr_low_fill)
-    # 
-    # # Build the SELECT clause with only high-fill columns
-    # select_columns = []
-    # if ooc_columns:
-    #     select_columns.extend([f"ooc.{col}" for col in ooc_columns])
-    # if mic_columns:
-    #     select_columns.extend([f"mic.{col}" for col in mic_columns])
-    # if vce_columns:
-    #     select_columns.extend([f"vce.{col}" for col in vce_columns])
-    # if vde_columns:
-    #     select_columns.extend([f"vde.{col}" for col in vde_columns])
-    # if vec_columns:
-    #     select_columns.extend([f"vec.{col}" for col in vec_columns])
-    # if tr_columns:
-    #     select_columns.extend([f"tr.{col}" for col in tr_columns])
-    # 
-    # logger.info(f'Selected {len(select_columns)} columns for join (excluding low-fill columns)')
+    # Build SELECT clause with only specified columns
+    select_columns = build_select_columns()
     
-    # Build column lists (all columns, no filtering - filtering done in bronze-to-silver)
-    def build_column_list(table_alias):
-        with duckdb.connect(source_db_path) as temp_con:
-            # Map table aliases to actual table names
-            table_name_map = {
-                'ooc': 'view_micromanipulacao_oocitos',
-                'mic': 'view_micromanipulacao',
-                'vce': 'view_congelamentos_embrioes',
-                'vde': 'view_descongelamentos_embrioes',
-                'vec': 'view_embrioes_congelados',
-                'tr': 'view_tratamentos'
-            }
-            
-            table_name = table_name_map.get(table_alias, table_alias)
-            
-            all_columns_query = f"""
-            SELECT column_name 
-            FROM information_schema.columns 
-            WHERE table_schema = 'silver' 
-            AND table_name = '{table_name}'
-            ORDER BY ordinal_position
-            """
-            all_columns = temp_con.execute(all_columns_query).df()['column_name'].tolist()
-            logger.info(f'Table {table_alias}: {len(all_columns)} total columns')
-            return all_columns
-    
-    # Get all column lists (no filtering)
-    ooc_columns = build_column_list('ooc')
-    mic_columns = build_column_list('mic')
-    vce_columns = build_column_list('vce')
-    vde_columns = build_column_list('vde')
-    vec_columns = build_column_list('vec')
-    tr_columns = build_column_list('tr')
-    
-    # Build the SELECT clause with all columns, aliasing them with table prefixes
-    # This ensures columns from different tables with the same name are properly distinguished
-    select_columns = []
-    if ooc_columns:
-        select_columns.extend([f"ooc.{col} AS oocito_{col}" for col in ooc_columns])
-    if mic_columns:
-        select_columns.extend([f"mic.{col} AS micro_{col}" for col in mic_columns])
-    if vce_columns:
-        select_columns.extend([f"vce.{col} AS cong_em_{col}" for col in vce_columns])
-    if vde_columns:
-        select_columns.extend([f"vde.{col} AS descong_em_{col}" for col in vde_columns])
-    if vec_columns:
-        select_columns.extend([f"vec.{col} AS emb_cong_{col}" for col in vec_columns])
-    if tr_columns:
-        select_columns.extend([f"tr.{col} AS trat_{col}" for col in tr_columns])
-        
-        # Add flag column for match strategy
-        select_columns.append("""CASE 
-            WHEN vde.prontuario = tr.prontuario AND tr.data_procedimento = vde.DataTransferencia THEN 'THAWING_DATE'
-            WHEN mic.prontuario = tr.prontuario AND tr.data_procedimento = mic.Data_DL THEN 'MICRO_DATE'
-            ELSE NULL 
-        END AS flag_match_tratamento""")
-    
-    logger.info(f'Selected {len(select_columns)} columns for join (all columns from silver layer)')
-    
-    # New JOIN logic as specified:
-    # 1. Start from ooc
-    # 2. LEFT JOIN vec on ooc.id = vec.id_oocito
-    # 3. LEFT JOIN vce on vec.id_congelamento = vce.id and vec.prontuario = vce.prontuario
-    # 4. LEFT JOIN vde on vec.id_descongelamento = vde.id and vec.prontuario = vde.prontuario
-    # 5. LEFT JOIN mic on ooc.id_micromanipulacao = mic.codigo_ficha and mic.prontuario = vec.prontuario
-    # 6. LEFT JOIN tr on PRIMARY (vde.DataTransferencia) OR SECONDARY (mic.Data_DL)
+    # New join logic with view_tratamentos joined twice:
+    # Use CTE with deduplication hierarchy to select best tratamento per (prontuario, data_procedimento)
+    # Hierarchy: 1) non-null resultado_tratamento, 2) non-null tipo_procedimento, 3) higher tentativa, 4) lower id
     query = f'''
+    WITH trat_clean AS (
+        SELECT *,
+               ROW_NUMBER() OVER (
+                   PARTITION BY prontuario, data_procedimento 
+                   ORDER BY 
+                       CASE WHEN resultado_tratamento IS NOT NULL THEN 0 ELSE 1 END,
+                       CASE WHEN tipo_procedimento IS NOT NULL THEN 0 ELSE 1 END,
+                       tentativa DESC NULLS LAST,
+                       id ASC
+               ) as rn
+        FROM silver.view_tratamentos
+        WHERE prontuario IS NOT NULL AND data_procedimento IS NOT NULL
+    )
     SELECT
         {', '.join(select_columns)}
-    FROM silver.view_micromanipulacao_oocitos ooc
-    LEFT JOIN silver.view_embrioes_congelados vec 
-        ON vec.id_oocito = ooc.id
-    LEFT JOIN silver.view_congelamentos_embrioes vce 
-        ON vec.id_congelamento = vce.id 
-        AND vec.prontuario = vce.prontuario
-    LEFT JOIN silver.view_descongelamentos_embrioes vde 
-        ON vec.id_descongelamento = vde.id 
-        AND vec.prontuario = vde.prontuario
-    LEFT JOIN silver.view_micromanipulacao mic 
-        ON ooc.id_micromanipulacao = mic.codigo_ficha
-        AND (vec.prontuario IS NULL OR mic.prontuario = vec.prontuario)
-    LEFT JOIN silver.view_tratamentos tr 
-        ON (vde.prontuario = tr.prontuario AND tr.data_procedimento = vde.DataTransferencia)
-        OR (mic.prontuario = tr.prontuario AND tr.data_procedimento = mic.Data_DL)
-    ORDER BY ooc.id_micromanipulacao, ooc.id 
+    FROM silver.view_micromanipulacao_oocitos oocito
+    
+    LEFT JOIN silver.view_micromanipulacao micro 
+        ON oocito.id_micromanipulacao = micro.codigo_ficha
+    
+    LEFT JOIN trat_clean trat1 
+        ON micro.prontuario = trat1.prontuario 
+        AND trat1.data_procedimento = micro.Data_DL
+        AND trat1.rn = 1
+    
+    LEFT JOIN silver.view_embrioes_congelados emb_cong 
+        ON emb_cong.id_oocito = oocito.id
+        
+    LEFT JOIN silver.view_congelamentos_embrioes cong_em 
+        ON emb_cong.id_congelamento = cong_em.id 
+        AND emb_cong.prontuario = cong_em.prontuario
+        AND cong_em.id IS NOT NULL
+        AND emb_cong.id_congelamento IS NOT NULL
+    
+    LEFT JOIN silver.view_descongelamentos_embrioes descong_em 
+        ON emb_cong.id_descongelamento = descong_em.id 
+        AND emb_cong.prontuario = descong_em.prontuario
+        AND descong_em.id IS NOT NULL
+        AND emb_cong.id_descongelamento IS NOT NULL
+    
+    LEFT JOIN trat_clean trat2
+        ON micro.prontuario = trat2.prontuario 
+        AND trat2.data_procedimento = descong_em.DataTransferencia
+        AND trat2.rn = 1
+        
+    ORDER BY oocito.id_micromanipulacao, oocito.id 
     '''
     
     try:
@@ -256,17 +159,6 @@ def main():
             if df.empty:
                 logger.warning('No data found in source database')
                 return
-                
-            # Column filtering (prefixes are already applied in the SELECT clause)
-            logger.info('Applying column filtering...')
-            
-            # Remove all hash and extraction_timestamp columns
-            columns_to_remove = [col for col in df.columns if 'hash' in col.lower() or 'extraction_timestamp' in col.lower()]
-            if columns_to_remove:
-                df = df.drop(columns=columns_to_remove)
-                logger.info(f'Removed {len(columns_to_remove)} hash/extraction_timestamp columns: {columns_to_remove}')
-            else:
-                logger.info('No hash/extraction_timestamp columns found')
             
             logger.info(f'Final column count: {len(df.columns)}')
             
@@ -292,8 +184,8 @@ def main():
             index_queries = [
                 "CREATE INDEX IF NOT EXISTS idx_clinisys_micro_data_dl ON gold.clinisys_embrioes(micro_Data_DL)",
                 "CREATE INDEX IF NOT EXISTS idx_clinisys_micro_prontuario ON gold.clinisys_embrioes(micro_prontuario)",
-                "CREATE INDEX IF NOT EXISTS idx_clinisys_oocito_flag_embryoscope ON gold.clinisys_embrioes(oocito_flag_embryoscope)",
-                 "CREATE INDEX IF NOT EXISTS idx_clinisys_trat_id ON gold.clinisys_embrioes(trat_id)"
+                "CREATE INDEX IF NOT EXISTS idx_clinisys_trat1_id ON gold.clinisys_embrioes(trat1_id)",
+                "CREATE INDEX IF NOT EXISTS idx_clinisys_trat2_id ON gold.clinisys_embrioes(trat2_id)"
             ]
             
             for idx_query in index_queries:
@@ -303,12 +195,106 @@ def main():
                     logger.warning(f'Index creation failed (may already exist): {e}')
             
             logger.info('Indexes created successfully')
-
-
             
             # Validate row count
             row_count = target_con.execute("SELECT COUNT(*) FROM gold.clinisys_embrioes").fetchone()[0]
             logger.info(f'gold.clinisys_embrioes row count: {row_count}')
+            
+            # ============================================================
+            # MATCHING QUALITY REPORT
+            # ============================================================
+            logger.info('=' * 80)
+            logger.info('MATCHING QUALITY REPORT')
+            logger.info('=' * 80)
+            
+            # 1. Base table validation
+            with duckdb.connect(source_db_path) as source_con:
+                base_table_count = source_con.execute("SELECT COUNT(*) FROM silver.view_micromanipulacao_oocitos").fetchone()[0]
+            
+            logger.info(f'\n1. BASE TABLE VALIDATION:')
+            logger.info(f'   Base table (view_micromanipulacao_oocitos): {base_table_count:,} rows')
+            logger.info(f'   Result table (gold.clinisys_embrioes): {row_count:,} rows')
+            
+            if base_table_count == row_count:
+                logger.info(f'   [PASS] Row count matches - No rows lost in joins')
+            else:
+                logger.warning(f'   [!] Row count mismatch - {abs(base_table_count - row_count):,} rows difference')
+            
+            # 2. Join match statistics - query the created table
+            logger.info(f'\n2. JOIN MATCH STATISTICS:')
+            
+            # Join 1: view_micromanipulacao (mic)
+            mic_matched = target_con.execute("""
+                SELECT COUNT(*) FROM gold.clinisys_embrioes 
+                WHERE micro_numero_caso IS NOT NULL OR micro_prontuario IS NOT NULL OR micro_Data_DL IS NOT NULL OR micro_data_procedimento IS NOT NULL
+            """).fetchone()[0]
+            mic_match_rate = (mic_matched / row_count * 100) if row_count > 0 else 0
+            logger.info(f'\n   Join 1: view_micromanipulacao (mic)')
+            logger.info(f'   - Key: ooc.id_micromanipulacao = mic.codigo_ficha')
+            logger.info(f'   - Matched: {mic_matched:,} / {row_count:,} ({mic_match_rate:.2f}%)')
+            logger.info(f'   - Unmatched: {row_count - mic_matched:,}')
+            
+            # Join 2: view_tratamentos (trat1)
+            trat1_matched = target_con.execute("""
+                SELECT COUNT(*) FROM gold.clinisys_embrioes 
+                WHERE trat1_tentativa IS NOT NULL OR trat1_tipo_procedimento IS NOT NULL
+            """).fetchone()[0]
+            trat1_match_rate = (trat1_matched / row_count * 100) if row_count > 0 else 0
+            logger.info(f'\n   Join 2: view_tratamentos (trat1) - micromanipulation date')
+            logger.info(f'   - Keys: mic.prontuario = trat1.prontuario AND trat1.data_procedimento = mic.data_procedimento')
+            logger.info(f'   - Matched: {trat1_matched:,} / {row_count:,} ({trat1_match_rate:.2f}%)')
+            logger.info(f'   - Unmatched: {row_count - trat1_matched:,}')
+            
+            # Join 3: view_embrioes_congelados (vec)
+            vec_matched = target_con.execute("""
+                SELECT COUNT(*) FROM gold.clinisys_embrioes 
+                WHERE emb_cong_qualidade IS NOT NULL OR emb_cong_transferidos IS NOT NULL
+            """).fetchone()[0]
+            vec_match_rate = (vec_matched / row_count * 100) if row_count > 0 else 0
+            logger.info(f'\n   Join 3: view_embrioes_congelados (vec)')
+            logger.info(f'   - Key: vec.id_oocito = ooc.id')
+            logger.info(f'   - Matched: {vec_matched:,} / {row_count:,} ({vec_match_rate:.2f}%)')
+            logger.info(f'   - Unmatched: {row_count - vec_matched:,}')
+            
+            # Join 4: view_congelamentos_embrioes (vce)
+            vce_matched = target_con.execute("""
+                SELECT COUNT(*) FROM gold.clinisys_embrioes 
+                WHERE cong_em_CodCongelamento IS NOT NULL
+            """).fetchone()[0]
+            vce_match_rate = (vce_matched / row_count * 100) if row_count > 0 else 0
+            logger.info(f'\n   Join 4: view_congelamentos_embrioes (vce)')
+            logger.info(f'   - Keys: vec.id_congelamento = vce.id AND vec.prontuario = vce.prontuario')
+            logger.info(f'   - Matched: {vce_matched:,} / {row_count:,} ({vce_match_rate:.2f}%)')
+            logger.info(f'   - Unmatched: {row_count - vce_matched:,}')
+            
+            # Join 5: view_descongelamentos_embrioes (vde)
+            vde_matched = target_con.execute("""
+                SELECT COUNT(*) FROM gold.clinisys_embrioes 
+                WHERE descong_em_CodDescongelamento IS NOT NULL OR descong_em_DataTransferencia IS NOT NULL
+            """).fetchone()[0]
+            vde_match_rate = (vde_matched / row_count * 100) if row_count > 0 else 0
+            logger.info(f'\n   Join 5: view_descongelamentos_embrioes (vde)')
+            logger.info(f'   - Keys: vec.id_descongelamento = vde.id AND vec.prontuario = vde.prontuario')
+            logger.info(f'   - Matched: {vde_matched:,} / {row_count:,} ({vde_match_rate:.2f}%)')
+            logger.info(f'   - Unmatched: {row_count - vde_matched:,}')
+            
+            # Join 6: view_tratamentos (trat2)
+            trat2_matched = target_con.execute("""
+                SELECT COUNT(*) FROM gold.clinisys_embrioes 
+                WHERE trat2_tentativa IS NOT NULL OR trat2_tipo_procedimento IS NOT NULL
+            """).fetchone()[0]
+            trat2_match_rate = (trat2_matched / row_count * 100) if row_count > 0 else 0
+            logger.info(f'\n   Join 6: view_tratamentos (trat2) - transfer date')
+            logger.info(f'   - Keys: mic.prontuario = trat2.prontuario AND trat2.data_procedimento = vde.DataTransferencia')
+            logger.info(f'   - Matched: {trat2_matched:,} / {row_count:,} ({trat2_match_rate:.2f}%)')
+            logger.info(f'   - Unmatched: {row_count - trat2_matched:,}')
+            
+            # Summary
+            logger.info(f'\n3. SUMMARY:')
+            logger.info(f'   - Total rows: {row_count:,}')
+            logger.info(f'   - Base table match: {"[PASS]" if base_table_count == row_count else "[FAIL]"}')
+            
+            logger.info('=' * 80)
             
     except Exception as e:
         logger.error(f'Error in gold loader: {e}', exc_info=True)
@@ -316,5 +302,6 @@ def main():
         
     logger.info('Gold loader finished successfully')
 
+
 if __name__ == '__main__':
-    main() 
+    main()

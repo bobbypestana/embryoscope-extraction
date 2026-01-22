@@ -1,0 +1,63 @@
+# Gold Layer Column Selection Configuration
+# Based on the user's example query
+
+# Columns from view_micromanipulacao_oocitos (oocito_*)
+view_micromanipulacao_oocitos:
+  - id
+  - id_micromanipulacao
+  - TCD
+  - embryo_number
+  - OrigemOocito
+
+# Columns from view_micromanipulacao (micro_*)
+view_micromanipulacao:
+  - numero_caso
+  - prontuario
+  - Data_DL
+  - data_procedimento
+  - oocitos
+
+# Columns from view_tratamentos (trat1_*) - First join on mic.data_procedimento
+view_tratamentos:
+  - id
+  - tentativa
+  - tipo_procedimento
+  - data_inicio_inducao
+  - motivo_nao_transferir
+  - data_transferencia
+  - resultado_tratamento
+  - fator_infertilidade1
+  - origem_ovulo
+  - bmi
+  - previous_et
+  - previous_et_od
+
+# Columns from view_embrioes_congelados (emb_cong_*)
+view_embrioes_congelados:
+  - id
+  - qualidade
+  - transferidos
+
+# Columns from view_congelamentos_embrioes (cong_em_*)
+view_congelamentos_embrioes:
+  - id
+  - CodCongelamento
+
+# Columns from view_descongelamentos_embrioes (descong_em_*)
+view_descongelamentos_embrioes:
+  - id
+  - CodDescongelamento
+  - DataTransferencia
+
+# Columns from view_tratamentos (transfer_*) - Second join on vde.DataTransferencia
+view_tratamentos_transfer:
+  - id
+  - tentativa
+  - tipo_procedimento
+  - data_inicio_inducao
+  - motivo_nao_transferir
+  - data_transferencia
+  - resultado_tratamento
+  - bmi
+  - previous_et
+  - previous_et_od

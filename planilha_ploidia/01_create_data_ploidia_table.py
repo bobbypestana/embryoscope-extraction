@@ -82,100 +82,8 @@ def build_select_clause(target_columns, column_mapping, available_columns):
     missing_source_columns = []
     
     for target_col in target_columns:
-        # Special handling for Age - calculate from date difference (must come before None check)
-        if target_col == "Age":
-            fertilization_col = "embryo_FertilizationTime"
-            birth_col = "patient_DateOfBirth"
-            if fertilization_col in available_columns and birth_col in available_columns:
-                # Calculate age in years with 2 decimal places: difference between fertilization time and birth date
-                # Calculate days difference and divide by 365.25 (accounting for leap years), then round to 2 decimals
-                select_parts.append(f'ROUND(CAST(DATE_DIFF(\'day\', "{birth_col}", "{fertilization_col}") AS DOUBLE) / 365.25, 2) as "{target_col}"')
-            else:
-                missing_cols = []
-                if fertilization_col not in available_columns:
-                    missing_cols.append(fertilization_col)
-                if birth_col not in available_columns:
-                    missing_cols.append(birth_col)
-                logger.warning(f"Missing columns for Age calculation: {missing_cols}. Using NULL.")
-                select_parts.append(f'NULL as "{target_col}"')
-                missing_source_columns.append((target_col, ', '.join(missing_cols)))
-        # Special handling for BMI - calculate from weight and height (must come before None check)
-        elif target_col == "BMI":
-            weight_col = "trat_peso_paciente"
-            height_col = "trat_altura_paciente"
-            if weight_col in available_columns and height_col in available_columns:
-                # Calculate BMI: weight / (height)^2
-                # Weight and height are patient+slide-level attributes, so use MAX() to get non-NULL values
-                # Group by Patient ID and Slide ID (everything before "-" in embryo_EmbryoID)
-                # Height is in meters, BMI = weight(kg) / height(m)^2
-                select_parts.append(f'''CASE 
-                    WHEN MAX("{weight_col}") OVER (PARTITION BY "micro_prontuario", SPLIT_PART("embryo_EmbryoID", '-', 1)) IS NOT NULL 
-                         AND MAX("{height_col}") OVER (PARTITION BY "micro_prontuario", SPLIT_PART("embryo_EmbryoID", '-', 1)) IS NOT NULL 
-                         AND CAST(MAX("{height_col}") OVER (PARTITION BY "micro_prontuario", SPLIT_PART("embryo_EmbryoID", '-', 1)) AS DOUBLE) > 0 
-                    THEN ROUND(CAST(MAX("{weight_col}") OVER (PARTITION BY "micro_prontuario", SPLIT_PART("embryo_EmbryoID", '-', 1)) AS DOUBLE) / 
-                                  POWER(CAST(MAX("{height_col}") OVER (PARTITION BY "micro_prontuario", SPLIT_PART("embryo_EmbryoID", '-', 1)) AS DOUBLE), 2), 2)
-                    ELSE NULL 
-                END as "{target_col}"''')
-            else:
-                missing_cols = []
-                if weight_col not in available_columns:
-                    missing_cols.append(weight_col)
-                if height_col not in available_columns:
-                    missing_cols.append(height_col)
-                logger.warning(f"Missing columns for BMI calculation: {missing_cols}. Using NULL.")
-                select_parts.append(f'NULL as "{target_col}"')
-                missing_source_columns.append((target_col, ', '.join(missing_cols)))
-        # Special handling for Previus ET: rank ET cycles per patient by Slide ID groups
-        elif target_col == "Previus ET":
-            # Use minimum trat_tentativa - 1 per patient + slide group if available
-            if "trat_tentativa" in available_columns:
-                select_parts.append(
-                    f'COALESCE(MIN(CAST("trat_tentativa" AS INTEGER) - 1) OVER ('
-                    f'PARTITION BY "micro_prontuario", SPLIT_PART("embryo_EmbryoID", \'-\', 1)'
-                    f'), 0) as "{target_col}"'
-                )
-            else:
-                logger.warning("trat_tentativa not found for Previus ET. Using DENSE_RANK fallback.")
-                # We want: oldest slide group = 0, next = 1, etc. (monotonic by slide prefix)
-                # Let r = DENSE_RANK over slide prefixes ASC (oldest = 1, newest = N)
-                # Then Previus ET = r - 1 → oldest: 1-1=0, next: 2-1=1, ...
-                select_parts.append(
-                    'DENSE_RANK() OVER ('
-                    'PARTITION BY "micro_prontuario" '
-                    'ORDER BY SPLIT_PART("embryo_EmbryoID", \'-\', 1) ASC'
-                    ') - 1 as "Previus ET"'
-                )
-        # Special handling for patient+slide-level columns that need MAX() aggregation
-        elif target_col in ["Diagnosis", "Patient Comments", "Previus OD ET"]:
-            source_col = column_mapping.get(target_col)
-            if source_col is not None and source_col in available_columns:
-                # Use MAX() window function to get non-NULL values grouped by Patient ID and Slide ID
-                select_parts.append(f'MAX("{source_col}") OVER (PARTITION BY "micro_prontuario", SPLIT_PART("embryo_EmbryoID", \'-\', 1)) as "{target_col}"')
-            else:
-                if source_col is None:
-                    # Special case: Previus OD ET should be 0 instead of NULL
-                    if target_col == "Previus OD ET":
-                        select_parts.append(f'0 as "{target_col}"')
-                    else:
-                        select_parts.append(f'NULL as "{target_col}"')
-                    unmapped_columns.append(target_col)
-                else:
-                    logger.warning(f"Source column '{source_col}' not found for target '{target_col}'. Using NULL.")
-                    select_parts.append(f'NULL as "{target_col}"')
-                    missing_source_columns.append((target_col, source_col))
-        
-        # Special handling for Oocyte Source - Logic: If contains 'OR' then Heterologous else Autologous
-        elif target_col == "Oocyte Source":
-            if "oocito_OrigemOocito" in available_columns:
-                select_parts.append(f'''CASE 
-                    WHEN "oocito_OrigemOocito" LIKE '%OR%' THEN 'Heterologous'
-                    ELSE 'Autologous'
-                END as "{target_col}"''')
-            else:
-                logger.warning("oocito_OrigemOocito not found for Oocyte Source. Using Autologous as default.")
-                select_parts.append(f"'Autologous' as \"{target_col}\"")
         # Special handling for Video ID - concatenate Patient ID and Slide ID
-        elif target_col == "Video ID":
+        if target_col == "Video ID":
             # Video ID = Patient ID (micro_prontuario) + "_" + Slide ID (full embryo_EmbryoID)
             if "micro_prontuario" in available_columns and "embryo_EmbryoID" in available_columns:
                 select_parts.append(
@@ -185,6 +93,7 @@ def build_select_clause(target_columns, column_mapping, available_columns):
                 logger.warning("micro_prontuario or embryo_EmbryoID not found for Video ID. Using NULL.")
                 select_parts.append(f'NULL as "{target_col}"')
                 missing_source_columns.append((target_col, "micro_prontuario, embryo_EmbryoID"))
+        
         elif target_col in column_mapping:
             source_col = column_mapping[target_col]
             
@@ -192,13 +101,6 @@ def build_select_clause(target_columns, column_mapping, available_columns):
             if source_col is None:
                 select_parts.append(f'NULL as "{target_col}"')
                 unmapped_columns.append(target_col)
-            # Special handling for Birth Year - extract year from date
-            elif target_col == "Birth Year" and source_col == "patient_DateOfBirth":
-                if source_col in available_columns:
-                    select_parts.append(f'EXTRACT(YEAR FROM "{source_col}") as "{target_col}"')
-                else:
-                    select_parts.append(f'NULL as "{target_col}"')
-                    missing_source_columns.append((target_col, source_col))
             # Check if source column exists
             elif source_col in available_columns:
                 # Escape column name properly (handle special characters)
@@ -275,12 +177,10 @@ def create_data_ploidia_table(conn):
         where_conditions.append(f'"embryo_EmbryoID" IN ({embryo_ids_str})')
         logger.info(f"Filter: Embryo ID IN ({', '.join(FILTER_EMBRYO_IDS)})")
     
-    # Always exclude NULL embryo IDs to avoid incomplete records
-    where_conditions.append('"embryo_EmbryoID" IS NOT NULL')
-    
     where_clause = " WHERE " + " AND ".join(where_conditions) if where_conditions else ""
     
-    # Create table with mapped columns and calculated values from view_tratamentos
+    # Create table with CTE for Previous ET calculation when NULL
+    # Most columns come directly from mapping, but Previous ET needs calculation fallback
     create_query = f"""
     CREATE TABLE gold.data_ploidia AS
     WITH base_data AS (
@@ -318,55 +218,24 @@ def create_data_ploidia_table(conn):
             ON e."Patient ID" = t.prontuario 
             AND COALESCE(t.data_transferencia, t.data_procedimento, t.data_dum) < e.ref_date
         GROUP BY e."Patient ID", e."Slide ID", e.ref_date
-    ),
-    most_recent_treatment AS (
-        SELECT 
-            e."Patient ID",
-            e."Slide ID",
-            e.ref_date,
-            t.peso_paciente,
-            t.altura_paciente,
-            ROUND(t.peso_paciente / POWER(t.altura_paciente, 2), 2) as calc_bmi,
-            t.fator_infertilidade1 as calc_diagnosis,
-            t.origem_ovulo as calc_oocyte_source,
-            ROW_NUMBER() OVER (
-                PARTITION BY e."Patient ID", e."Slide ID"
-                ORDER BY t.data_transferencia DESC
-            ) as rn
-        FROM embryo_ref_dates e
-        LEFT JOIN clinisys.silver.view_tratamentos t 
-            ON e."Patient ID" = t.prontuario 
-            AND t.peso_paciente IS NOT NULL
-            AND t.altura_paciente IS NOT NULL
-            AND t.altura_paciente > 0
-    ),
-    fallback_treatment AS (
-        SELECT 
-            e."Patient ID",
-            e."Slide ID",
-            t.fator_infertilidade1 as fallback_diagnosis,
-            t.origem_ovulo as fallback_oocyte_source,
-            ROW_NUMBER() OVER (
-                PARTITION BY e."Patient ID", e."Slide ID"
-                ORDER BY t.data_transferencia DESC
-            ) as rn
-        FROM embryo_ref_dates e
-        LEFT JOIN clinisys.silver.view_tratamentos t 
-            ON e."Patient ID" = t.prontuario
     )
     SELECT 
         e."Unidade",
         e."Video ID",
         e."Age",
-        COALESCE(mrt.calc_bmi, e."BMI") as "BMI",
+        e."BMI",
         e."Birth Year",
-        COALESCE(mrt.calc_diagnosis, ft.fallback_diagnosis, e."Diagnosis") as "Diagnosis",
+        e."Diagnosis",
         e."Patient Comments",
         e."Patient ID",
-        COALESCE(tc.prev_et_count, 0) as "Previus ET",
-        COALESCE(tc.prev_od_et_count, 0) as "Previus OD ET",
+        COALESCE(e."Previus ET", tc.prev_et_count, 0) as "Previus ET",
+        COALESCE(e."Previus OD ET", tc.prev_od_et_count, 0) as "Previus OD ET",
         e."Oocyte History",
-        e."Oocyte Source",
+        CASE 
+            WHEN e."Oocyte Source" IS NOT NULL THEN e."Oocyte Source"
+            WHEN e."Oocyte History" LIKE '%OR%' THEN 'Heterólogo'  -- Egg donation (OR = Ovodoação Recepção)
+            ELSE 'Homólogo'  -- Default to Homólogo (Autologous) for NULL values
+        END as "Oocyte Source",
         e."Oocytes Aspirated",
         e."Slide ID",
         e."Well",
@@ -398,14 +267,6 @@ def create_data_ploidia_table(conn):
     LEFT JOIN treatment_counts tc 
         ON e."Patient ID" = tc."Patient ID" 
         AND e."Slide ID" = tc."Slide ID"
-    LEFT JOIN most_recent_treatment mrt 
-        ON e."Patient ID" = mrt."Patient ID" 
-        AND e."Slide ID" = mrt."Slide ID"
-        AND mrt.rn = 1
-    LEFT JOIN fallback_treatment ft
-        ON e."Patient ID" = ft."Patient ID"
-        AND e."Slide ID" = ft."Slide ID"
-        AND ft.rn = 1
     """
     
     logger.info("Executing CREATE TABLE query...")

@@ -45,7 +45,7 @@ def test_join_strategies(con):
                 AND c.micro_prontuario = e.prontuario
                 AND e.embryo_embryo_number = c.oocito_embryo_number
                 AND e.prontuario IS NOT NULL
-                AND c.oocito_flag_embryoscope = 1
+                -- AND c.oocito_flag_embryoscope = 1  -- Flag no longer used
             WHERE e.embryo_EmbryoID IS NOT NULL
         '''
     }
@@ -86,10 +86,10 @@ def main():
             # Test exact day matching strategy
             join_results = test_join_strategies(con)
             
-            # Use exact day matching with properly typed DATE columns for better performance
+            # Use simple FertilizationTime condition (OR condition is too slow)
             # Cast embryo_FertilizationTime (TIMESTAMP) to DATE for comparison with micro_Data_DL (DATE)
             date_condition = "c.micro_Data_DL = DATE(e.embryo_FertilizationTime)"
-            logger.info(f"Using exact day matching strategy with DATE() casting")
+            logger.info(f"Using simple date matching: FertilizationTime only (OR condition too slow)")
             
             # CURRENT LOGIC (COMMENTED OUT) - Selective columns only
             # query = f'''
@@ -135,7 +135,7 @@ def main():
             SELECT 
                 {', '.join(select_columns)}
             FROM gold.clinisys_embrioes c
-            FULL OUTER JOIN (
+            LEFT JOIN (
                 SELECT *
                 FROM gold.embryoscope_embrioes
                 WHERE prontuario IS NOT NULL
@@ -146,7 +146,7 @@ def main():
             ORDER BY COALESCE(CAST(c.oocito_id AS VARCHAR), e.embryo_EmbryoID)
             '''
             
-            logger.info(f"Using FULL OUTER JOIN with exact day matching: {date_condition} + prontuario + embryo_number")
+            logger.info(f"Using LEFT JOIN with simple date matching: {date_condition} + prontuario + embryo_number")
             
             # Execute query to get data
             df = con.execute(query).df()
@@ -181,23 +181,19 @@ def main():
             
             # Check join statistics
             clinisys_count = con.execute("SELECT COUNT(*) FROM gold.clinisys_embrioes").fetchone()[0]
-            clinisys_embryos_count = con.execute("SELECT COUNT(*) FROM gold.clinisys_embrioes WHERE oocito_flag_embryoscope = 1").fetchone()[0]
             embryoscope_count = con.execute("SELECT COUNT(*) FROM gold.embryoscope_embrioes").fetchone()[0]
             matched_count = con.execute("SELECT COUNT(*) FROM gold.embryoscope_clinisys_combined WHERE embryo_EmbryoID IS NOT NULL AND oocito_id IS NOT NULL").fetchone()[0]
             clinisys_only_count = con.execute("SELECT COUNT(*) FROM gold.embryoscope_clinisys_combined WHERE embryo_EmbryoID IS NULL AND oocito_id IS NOT NULL").fetchone()[0]
-            embryoscope_only_count = con.execute("SELECT COUNT(*) FROM gold.embryoscope_clinisys_combined WHERE embryo_EmbryoID IS NOT NULL AND oocito_id IS NULL").fetchone()[0]
             
-            logger.info(f'FULL OUTER JOIN statistics:')
-            logger.info(f'  - Total clinisys records: {clinisys_count}')
-            logger.info(f'  - Clinisys embryos (flag_embryoscope=1): {clinisys_embryos_count}')
-            logger.info(f'  - Embryoscope records: {embryoscope_count}')
-            logger.info(f'  - Combined records: {row_count}')
-            logger.info(f'  - Matched records (both sides): {matched_count}')
-            logger.info(f'  - Clinisys only records: {clinisys_only_count}')
-            logger.info(f'  - Embryoscope only records: {embryoscope_only_count}')
+            logger.info(f'LEFT JOIN statistics:')
+            logger.info(f'  - Total clinisys records: {clinisys_count:,}')
+            logger.info(f'  - Total embryoscope records: {embryoscope_count:,}')
+            logger.info(f'  - Combined records (all from Clinisys): {row_count:,}')
+            logger.info(f'  - Matched records (with Embryoscope data): {matched_count:,}')
+            logger.info(f'  - Clinisys only records (no Embryoscope): {clinisys_only_count:,}')
             logger.info(f'  - Match rate (vs total clinisys): {(matched_count/clinisys_count*100):.2f}%')
-            logger.info(f'  - Match rate (vs clinisys embryos): {(matched_count/clinisys_embryos_count*100):.2f}%')
             logger.info(f'  - Match rate (vs embryoscope): {(matched_count/embryoscope_count*100):.2f}%')
+
             
     except Exception as e:
         logger.error(f'Error in combined gold loader: {e}', exc_info=True)

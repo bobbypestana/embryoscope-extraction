@@ -26,6 +26,11 @@ OOCYTE_SOURCE_MAP = {
     'autologous': 'autologous',
     'homólogo': 'autologous',  # Portuguese for autologous
     'homologous': 'autologous',
+    'heterólogo': 'heterologous',  # Portuguese for donor/heterologous
+    'heterologous': 'heterologous',
+    'donor': 'heterologous',
+    'ambos': 'both',  # Portuguese for both
+    'both': 'both',
 }
 
 # Unit mappings
