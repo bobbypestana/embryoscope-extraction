@@ -19,7 +19,7 @@ echo.
 echo ========================================
 echo STEP %PARENT_STEP%.1: Planilha Embriologia to Bronze
 echo ========================================
-python planilha_embriologia/01_data_ingestion/01_01_planilha_embriologia_to_bronze.py
+python planilha_embriologia/01_data_ingestion/01_planilha_embriologia_to_bronze.py
 if %errorlevel% neq 0 (
     echo ERROR: Step %PARENT_STEP%.1 failed
     pause
@@ -30,7 +30,7 @@ echo.
 echo ========================================
 echo STEP %PARENT_STEP%.2: Planilha Embriologia Bronze to Silver
 echo ========================================
-python planilha_embriologia/01_data_ingestion/01_02_planilha_embriologia_to_silver.py
+python planilha_embriologia/01_data_ingestion/02_planilha_embriologia_to_silver.py
 if %errorlevel% neq 0 (
     echo ERROR: Step %PARENT_STEP%.2 failed
     pause

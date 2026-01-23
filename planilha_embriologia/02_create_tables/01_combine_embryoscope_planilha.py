@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """
-Combine gold.embryoscope_clinisys_combined with silver.planilha_embriologia
+Combine gold.embryoscope_clinisys_combined with silver.planilha_embriologia_fresh
 Join conditions:
-- micro_prontuario = PIN
-- descong_em_DataTransferencia = DATA DA FET
+- micro_prontuario = prontuario (normalized)
+- micro_Data_DL = "DATA DA PUNÇÃO"
 """
 
 import duckdb as db
@@ -11,7 +11,6 @@ import pandas as pd
 from datetime import datetime
 import os
 import logging
-import re
 
 # Setup logging
 LOGS_DIR = os.path.join(os.path.dirname(__file__), 'logs')
@@ -32,190 +31,104 @@ logger = logging.getLogger(__name__)
 
 def get_database_connection(read_only=False):
     """Create and return a connection to the huntington_data_lake database"""
-    # Resolve DB path relative to repository root
     repo_root = os.path.dirname(os.path.dirname(os.path.dirname(__file__)))
     path_to_db = os.path.join(repo_root, 'database', 'huntington_data_lake.duckdb')
     conn = db.connect(path_to_db, read_only=read_only)
-    
     logger.info(f"Connected to database: {path_to_db} (read_only={read_only})")
     return conn
 
 def create_combined_table(conn):
-    """Create the gold.planilha_embryoscope_combined table"""
+    """Create the gold.planilha_embryoscope_combined table with both LEFT and RIGHT join metrics"""
     
     logger.info("Creating gold.planilha_embryoscope_combined table...")
     
     # Drop table if it exists
     conn.execute("DROP TABLE IF EXISTS gold.planilha_embryoscope_combined")
-    logger.info("Dropped existing gold.planilha_embryoscope_combined table if it existed")
     
-    # Get column lists from both tables to handle potential conflicts
-    logger.info("Getting column lists from source tables...")
-    embryoscope_cols = conn.execute("DESCRIBE gold.embryoscope_clinisys_combined").df()['column_name'].tolist()
-    planilha_cols = conn.execute("DESCRIBE silver.planilha_embriologia").df()['column_name'].tolist()
-    
-    logger.info(f"Embryoscope columns: {len(embryoscope_cols)}")
-    logger.info(f"Planilha columns: {len(planilha_cols)}")
-    
-    # Build SELECT clause with explicit column references
-    # Use table aliases to avoid conflicts
-    # Clean column names for aliases (replace spaces and special chars)
-    def clean_column_alias(col_name):
-        """Clean column name for use as alias (remove spaces, special chars)"""
-        # Replace spaces and special characters with underscores
-        cleaned = re.sub(r'[^a-zA-Z0-9_]', '_', col_name)
-        # Remove multiple consecutive underscores
-        cleaned = re.sub(r'_+', '_', cleaned)
-        # Remove leading/trailing underscores
-        cleaned = cleaned.strip('_')
-        return cleaned
-    
-    select_columns = []
-    for col in embryoscope_cols:
-        # Remove embryoscope_ prefix, just use cleaned column name
-        alias = clean_column_alias(col)
-        select_columns.append(f'e."{col}" as "{alias}"')
-    
-    for col in planilha_cols:
-        alias = f'planilha_{clean_column_alias(col)}'
-        select_columns.append(f'p."{col}" as "{alias}"')
-    
-    # Create the combined table
-    # Join on:
-    # - micro_prontuario (embryoscope_clinisys_combined) = PIN (planilha_embriologia)
-    # - descong_em_DataTransferencia (embryoscope_clinisys_combined) = DATA DA FET (planilha_embriologia)
-    create_table_query = f"""
+    # 1. First, create the combined table using a FULL OUTER JOIN to calculate metrics for both sides
+    # We include all columns from embryoscope and specific columns from planilha
+    create_table_query = """
     CREATE TABLE gold.planilha_embryoscope_combined AS
     SELECT 
-        {', '.join(select_columns)}
+        e.*,
+        p."FATOR 1" as planilha_fator_1,
+        p."INCUBADORA" as planilha_incubadora,
+        p.prontuario as planilha_prontuario,
+        p."DATA DA PUNÇÃO" as planilha_data_puncao
     FROM gold.embryoscope_clinisys_combined e
-    FULL OUTER JOIN silver.planilha_embriologia p
-        ON CAST(CAST(e.micro_prontuario AS INTEGER) AS VARCHAR) = CAST(CAST(p."PIN" AS INTEGER) AS VARCHAR)
-        AND DATE(e.descong_em_DataTransferencia) = DATE(p."DATA DA FET")
+    FULL OUTER JOIN silver.planilha_embriologia_fresh p
+        ON e.micro_prontuario = p.prontuario
+        AND CAST(e.micro_Data_DL AS DATE) = CAST(p."DATA DA PUNÇÃO" AS DATE)
     """
     
-    logger.info("Executing join query...")
-    logger.info("Join conditions:")
-    logger.info("  - micro_prontuario = PIN")
-    logger.info("  - descong_em_DataTransferencia = DATA DA FET")
-    
+    logger.info("Executing Full Outer Join to build the combined table and metrics...")
     conn.execute(create_table_query)
-    logger.info("Table gold.planilha_embryoscope_combined created successfully")
     
-    # Get statistics
-    # Column aliases: embryoscope columns have no prefix, planilha columns have planilha_ prefix
+    # 2. Calculate Metrics
     stats = conn.execute("""
         SELECT 
             COUNT(*) as total_rows,
-            COUNT(CASE WHEN "micro_prontuario" IS NOT NULL THEN 1 END) as rows_with_embryoscope,
-            COUNT(CASE WHEN "planilha_PIN" IS NOT NULL THEN 1 END) as rows_with_planilha,
-            COUNT(CASE WHEN "micro_prontuario" IS NOT NULL AND "planilha_PIN" IS NOT NULL THEN 1 END) as matched_rows,
-            COUNT(CASE WHEN "micro_prontuario" IS NOT NULL AND "planilha_PIN" IS NULL THEN 1 END) as embryoscope_only,
-            COUNT(CASE WHEN "micro_prontuario" IS NULL AND "planilha_PIN" IS NOT NULL THEN 1 END) as planilha_only
+            -- Coverage for Left Join (Embryoscope rows found in Planilha)
+            COUNT(CASE WHEN micro_prontuario IS NOT NULL THEN 1 END) as total_embryoscope,
+            COUNT(CASE WHEN micro_prontuario IS NOT NULL AND planilha_prontuario IS NOT NULL THEN 1 END) as embryoscope_matched,
+            
+            -- Coverage for Right Join (Planilha rows found in Embryoscope)
+            COUNT(CASE WHEN planilha_prontuario IS NOT NULL THEN 1 END) as total_planilha,
+            COUNT(CASE WHEN planilha_prontuario IS NOT NULL AND micro_prontuario IS NOT NULL THEN 1 END) as planilha_matched
         FROM gold.planilha_embryoscope_combined
-    """).fetchdf()
+    """).df()
     
-    # Calculate matching rates
-    total_rows = stats['total_rows'].iloc[0]
-    rows_with_embryoscope = stats['rows_with_embryoscope'].iloc[0]
-    rows_with_planilha = stats['rows_with_planilha'].iloc[0]
-    matched_rows = stats['matched_rows'].iloc[0]
-    embryoscope_only = stats['embryoscope_only'].iloc[0]
-    planilha_only = stats['planilha_only'].iloc[0]
+    total_embryoscope = stats['total_embryoscope'].iloc[0]
+    embryoscope_matched = stats['embryoscope_matched'].iloc[0]
+    total_planilha = stats['total_planilha'].iloc[0]
+    planilha_matched = stats['planilha_matched'].iloc[0]
     
-    # Calculate relative matching rates
-    match_rate_embryoscope = (matched_rows / rows_with_embryoscope * 100) if rows_with_embryoscope > 0 else 0
-    match_rate_planilha = (matched_rows / rows_with_planilha * 100) if rows_with_planilha > 0 else 0
-    overall_match_rate = (matched_rows / total_rows * 100) if total_rows > 0 else 0
+    embryoscope_coverage = (embryoscope_matched / total_embryoscope * 100) if total_embryoscope > 0 else 0
+    planilha_coverage = (planilha_matched / total_planilha * 100) if total_planilha > 0 else 0
     
-    logger.info("Table Statistics:")
-    logger.info(f"   - Total rows: {total_rows:,}")
-    logger.info(f"   - Rows with embryoscope data: {rows_with_embryoscope:,}")
-    logger.info(f"   - Rows with planilha data: {rows_with_planilha:,}")
-    logger.info(f"   - Matched rows (both sides): {matched_rows:,}")
-    logger.info(f"   - Embryoscope only rows: {embryoscope_only:,}")
-    logger.info(f"   - Planilha only rows: {planilha_only:,}")
-    logger.info("")
-    logger.info("Matching Rates:")
-    logger.info(f"   - Match rate (from embryoscope perspective): {match_rate_embryoscope:.2f}% ({matched_rows:,}/{rows_with_embryoscope:,})")
-    logger.info(f"   - Match rate (from planilha perspective): {match_rate_planilha:.2f}% ({matched_rows:,}/{rows_with_planilha:,})")
-    logger.info(f"   - Overall match rate: {overall_match_rate:.2f}% ({matched_rows:,}/{total_rows:,})")
+    logger.info("=" * 60)
+    logger.info("COMBINATION METRICS")
+    logger.info("=" * 60)
+    logger.info(f"LEFT JOIN (Embryoscope -> Planilha):")
+    logger.info(f"   Total Embryoscope Rows: {total_embryoscope:,}")
+    logger.info(f"   Matched in Planilha:    {embryoscope_matched:,}")
+    logger.info(f"   Coverage Rate:          {embryoscope_coverage:.2f}%")
+    logger.info("-" * 60)
+    logger.info(f"RIGHT JOIN (Planilha -> Embryoscope):")
+    logger.info(f"   Total Planilha Rows:    {total_planilha:,}")
+    logger.info(f"   Matched in Embryoscope: {planilha_matched:,}")
+    logger.info(f"   Coverage Rate:          {planilha_coverage:.2f}%")
+    logger.info("=" * 60)
     
-    return stats
-
-def analyze_combined_data(conn):
-    """Analyze the combined data"""
+    # 3. According to request, we want the LEFT join result as the final table (Embryoscope is the left table)
+    # However, since we already did a FULL OUTER JOIN, the user might want a filtered version or keep all
+    # Usually, a combined table in gold is the result of the desired join direction.
+    # The user said "embryoscope_clinisys_combined is the left table in the join".
+    # I will recreate it as a LEFT JOIN to keep only Embryoscope records (enriched with Planilha data where found)
     
-    logger.info("\nAnalyzing combined data...")
+    logger.info("Recreating table as LEFT JOIN (keeping all Embryoscope records)...")
+    conn.execute("DROP TABLE gold.planilha_embryoscope_combined")
     
-    # Sample data
-    # Column aliases: embryoscope columns have no prefix, planilha columns have planilha_ prefix
-    sample_data = conn.execute("""
-        SELECT 
-            "micro_prontuario",
-            "planilha_PIN",
-            "descong_em_DataTransferencia",
-            "planilha_DATA_DA_FET",
-            "oocito_id",
-            "embryo_EmbryoID"
-        FROM gold.planilha_embryoscope_combined
-        WHERE "micro_prontuario" IS NOT NULL AND "planilha_PIN" IS NOT NULL
-        LIMIT 10
-    """).fetchdf()
-    
-    logger.info("\nSample Data (Top 10 matched rows):")
-    logger.info(sample_data.to_string(index=False))
-    
-    # Check for unmatched rows
-    unmatched_embryoscope = conn.execute("""
-        SELECT COUNT(*) as count
-        FROM gold.planilha_embryoscope_combined
-        WHERE "micro_prontuario" IS NOT NULL AND "planilha_PIN" IS NULL
-    """).fetchdf()
-    
-    unmatched_planilha = conn.execute("""
-        SELECT COUNT(*) as count
-        FROM gold.planilha_embryoscope_combined
-        WHERE "micro_prontuario" IS NULL AND "planilha_PIN" IS NOT NULL
-    """).fetchdf()
-    
-    logger.info(f"\nUnmatched rows:")
-    logger.info(f"   - Embryoscope only: {unmatched_embryoscope['count'].iloc[0]:,}")
-    logger.info(f"   - Planilha only: {unmatched_planilha['count'].iloc[0]:,}")
+    final_join_query = """
+    CREATE TABLE gold.planilha_embryoscope_combined AS
+    SELECT 
+        e.*,
+        p."FATOR 1" as planilha_fator_1,
+        p."INCUBADORA" as planilha_incubadora
+    FROM gold.embryoscope_clinisys_combined e
+    LEFT JOIN silver.planilha_embriologia_fresh p
+        ON e.micro_prontuario = p.prontuario
+        AND CAST(e.micro_Data_DL AS DATE) = CAST(p."DATA DA PUNÇÃO" AS DATE)
+    """
+    conn.execute(final_join_query)
+    logger.info(f"Final table gold.planilha_embryoscope_combined created with {total_embryoscope:,} rows")
 
 def main():
-    """Main function to create the combined table"""
-    
-    logger.info("=== COMBINING EMBRYOSCOPE_CLINISYS_COMBINED WITH PLANILHA_EMBRIOLOGIA ===")
-    logger.info(f"Timestamp: {datetime.now()}")
-    logger.info("")
-    
+    logger.info("=== JOINING EMBRYOSCOPE WITH PLANILHA FRESH ===")
     try:
-        # Connect to database
-        logger.info("Connecting to database...")
         conn = get_database_connection()
-        
-        # Create the table
-        logger.info("Creating combined table...")
-        table_stats = create_combined_table(conn)
-        
-        # Analyze the data
-        analyze_combined_data(conn)
-        
-        # Calculate matching rates for final summary
-        total_rows = table_stats['total_rows'].iloc[0]
-        rows_with_embryoscope = table_stats['rows_with_embryoscope'].iloc[0]
-        rows_with_planilha = table_stats['rows_with_planilha'].iloc[0]
-        matched_rows = table_stats['matched_rows'].iloc[0]
-        
-        match_rate_embryoscope = (matched_rows / rows_with_embryoscope * 100) if rows_with_embryoscope > 0 else 0
-        match_rate_planilha = (matched_rows / rows_with_planilha * 100) if rows_with_planilha > 0 else 0
-        
-        logger.info(f"\nSuccessfully created gold.planilha_embryoscope_combined table")
-        logger.info(f"Table contains {total_rows:,} rows")
-        logger.info(f"Matched rows: {matched_rows:,}")
-        logger.info(f"Match rate (embryoscope): {match_rate_embryoscope:.2f}% | Match rate (planilha): {match_rate_planilha:.2f}%")
-        
+        create_combined_table(conn)
+        logger.info("Success!")
     except Exception as e:
         logger.error(f"Error: {e}")
         import traceback
@@ -227,4 +140,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-

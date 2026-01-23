@@ -54,10 +54,3 @@ COLUMN_MAPPING = OrderedDict([
 
 # Derived: Target columns list (for backward compatibility)
 TARGET_COLUMNS = list(COLUMN_MAPPING.keys())
-
-
-# Filter configuration for table creation
-# Set to None to include all rows, or specify filters
-FILTER_PATIENT_ID = None  # Filter by Patient ID (micro_prontuario) - set to None to disable
-FILTER_EMBRYO_IDS = None  # Filter by Embryo ID (embryo_EmbryoID)
-

@@ -12,6 +12,7 @@ import duckdb
 from datetime import datetime
 import os
 import glob
+import re
 
 # Setup logging
 LOGS_DIR = os.path.join(os.path.dirname(__file__), 'logs')
@@ -33,7 +34,7 @@ logger = logging.getLogger(__name__)
 # Configuration
 DUCKDB_PATH = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), 'database', 'huntington_data_lake.duckdb')
 DATA_INPUT_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'data_input')
-SHEET_NAME = 'FET'  # Read from FET sheet
+SHEETS_TO_LOAD = ['FET', 'FRESH']
 
 def get_duckdb_connection():
     """Create DuckDB connection"""
@@ -81,23 +82,39 @@ def check_sheet_exists(file_path, sheet_name):
     """Check if the specified sheet exists in the Excel file"""
     try:
         xl_file = pd.ExcelFile(file_path, engine='openpyxl')
-        return sheet_name in xl_file.sheet_names
+        # Case insensitive check
+        sheet_names_lower = [s.lower() for s in xl_file.sheet_names]
+        return sheet_name.lower() in sheet_names_lower
     except Exception as e:
         logger.warning(f"Could not check sheets in {os.path.basename(file_path)}: {e}")
         return False
 
-def sanitize_table_name(file_name):
-    """Convert file name to a valid SQL table name"""
-    # Remove extension
-    table_name = os.path.splitext(file_name)[0]
-    # Replace spaces and special characters with underscores
-    table_name = table_name.replace(' ', '_').replace('-', '_').replace('.', '_')
-    # Remove any other invalid characters
-    table_name = ''.join(c if c.isalnum() or c == '_' else '_' for c in table_name)
-    # Ensure it starts with a letter or underscore
-    if table_name and not (table_name[0].isalpha() or table_name[0] == '_'):
-        table_name = '_' + table_name
-    return table_name
+def generate_table_name(file_path, sheet_name):
+    """Generate standardized table name: planilha_{year}_{location}_{sheet}"""
+    try:
+        # Extract year from parent folder name
+        year = os.path.basename(os.path.dirname(file_path))
+        
+        # Extract location/name from filename
+        # Filename example: "CASOS 2024 IBI.xlsx" -> "ibi"
+        filename = os.path.basename(file_path)
+        name_no_ext = os.path.splitext(filename)[0]
+        
+        # Clean up the name
+        # Remove "CASOS", year, spaces, dashes
+        clean_name = name_no_ext.lower().replace('casos', '').replace(year, '')
+        clean_name = re.sub(r'[^a-z0-9]', '_', clean_name)
+        clean_name = re.sub(r'_+', '_', clean_name).strip('_')
+        
+        # Construct table name
+        table_name = f"planilha_{year}_{clean_name}_{sheet_name.lower()}"
+        return table_name
+    except Exception as e:
+        logger.warning(f"Could not generate standard name, falling back to safe filename: {e}")
+        # Fallback
+        base = os.path.splitext(os.path.basename(file_path))[0]
+        safe_base = re.sub(r'[^a-zA-Z0-9_]', '_', base).lower()
+        return f"planilha_{safe_base}_{sheet_name.lower()}"
 
 def create_bronze_table(con, table_name, columns):
     """Create a bronze table for a specific file - drops and recreates for fresh data"""
@@ -134,7 +151,8 @@ def create_bronze_table(con, table_name, columns):
     sql_columns.extend([
         'line_number INTEGER',
         'extraction_timestamp VARCHAR',
-        'file_name VARCHAR'
+        'file_name VARCHAR',
+        'sheet_name VARCHAR'
     ])
     
     create_table_sql = f"""
@@ -147,97 +165,103 @@ def create_bronze_table(con, table_name, columns):
     logger.info(f"Table bronze.{table_name} created successfully with {len(columns)} data columns")
 
 def process_excel_file(file_path, con):
-    """Process a single Excel file and load data to its own bronze table"""
+    """Process a single Excel file and load data from all configured sheets"""
     file_name = os.path.basename(file_path)
-    table_name = sanitize_table_name(file_name)
-    logger.info(f"Processing file: {file_name} -> table: {table_name}")
+    total_loaded = 0
     
-    try:
-        # Check if FET sheet exists
-        if not check_sheet_exists(file_path, SHEET_NAME):
-            logger.warning(f"Sheet '{SHEET_NAME}' not found in {file_name}, skipping...")
-            return 0
+    for sheet in SHEETS_TO_LOAD:
+        # Generate table name for this sheet
+        table_name = generate_table_name(file_path, sheet)
+        logger.info(f"Processing file: {file_name} [{sheet}] -> table: {table_name}")
         
-        logger.info(f"Reading sheet '{SHEET_NAME}' from {file_name} (header in row 2)")
-        
-        # Use optimized reading settings
-        # header=1 means row 2 in Excel (0-indexed, so row 1 = header=0, row 2 = header=1)
-        df = pd.read_excel(
-            file_path, 
-            sheet_name=SHEET_NAME,
-            engine='openpyxl',
-            header=1,  # Column names are in row 2
-            dtype=str  # Read all as strings to avoid type issues
-        )
-        
-        logger.info(f"Read {len(df)} rows from {file_name}")
-        
-        if len(df) == 0:
-            logger.warning(f"No data found in {file_name}")
-            return 0
-        
-        # Get original column names (preserve order from sheet)
-        original_columns = df.columns.tolist()
-        
-        # Create bronze table for this file with its columns
-        create_bronze_table(con, table_name, original_columns)
-        
-        # Make column names unique for SQL (handle duplicates within this file)
-        used_names = set()
-        column_mapping = {}
-        unique_columns = []
-        
-        for col in original_columns:
-            original_col = col
-            counter = 0
-            unique_col = col
+        try:
+            # Check if sheet exists
+            if not check_sheet_exists(file_path, sheet):
+                logger.warning(f"Sheet '{sheet}' not found in {file_name}, skipping...")
+                continue
             
-            # Keep trying until we find a unique name (case-insensitive check for DuckDB)
-            while unique_col.lower() in [n.lower() for n in used_names]:
-                counter += 1
-                unique_col = f"{original_col}_{counter}"
+            logger.info(f"Reading sheet '{sheet}' from {file_name} (header in row 2)")
             
-            column_mapping[col] = unique_col
-            unique_columns.append(unique_col)
-            used_names.add(unique_col)
-        
-        # Rename columns to unique names for SQL compatibility
-        df = df.rename(columns=column_mapping)
-        
-        # Reorder columns to match unique_columns order
-        df = df[unique_columns]
-        
-        # Clean data - replace empty strings with None
-        for col in df.columns:
-            df[col] = df[col].replace('', None)
-        
-        # Add metadata columns
-        extraction_timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        
-        # Create new DataFrame with all columns to avoid fragmentation
-        new_df = df.copy()
-        new_df['line_number'] = new_df.index  # Add line number based on DataFrame index
-        new_df['extraction_timestamp'] = extraction_timestamp
-        new_df['file_name'] = file_name
-        df = new_df
-        
-        logger.info(f"Inserting {len(df)} rows from {file_name} into bronze.{table_name}")
-        
-        # Use the same efficient strategy as mesclada - direct DataFrame insertion
-        # All data is already strings from dtype=str
-        con.execute(f"INSERT INTO bronze.{table_name} SELECT * FROM df")
-        
-        logger.info(f"Successfully inserted {len(df)} rows from {file_name} into bronze.{table_name}")
-        return len(df)
-        
-    except Exception as e:
-        logger.error(f"Error processing file {file_name}: {e}")
-        raise
+            # Use optimized reading settings
+            df = pd.read_excel(
+                file_path, 
+                sheet_name=sheet,
+                engine='openpyxl',
+                header=1,  # Column names are in row 2
+                dtype=str  # Read all as strings to avoid type issues
+            )
+            
+            logger.info(f"Read {len(df)} rows from {file_name} [{sheet}]")
+            
+            if len(df) == 0:
+                logger.warning(f"No data found in {file_name} [{sheet}]")
+                continue
+            
+            # Get original column names (preserve order from sheet)
+            original_columns = df.columns.tolist()
+            
+            # Create bronze table for this file/sheet
+            create_bronze_table(con, table_name, original_columns)
+            
+            # Make column names unique for SQL (handle duplicates within this file)
+            used_names = set()
+            column_mapping = {}
+            unique_columns = []
+            
+            for col in original_columns:
+                original_col = col
+                counter = 0
+                unique_col = col
+                
+                # Keep trying until we find a unique name (case-insensitive check for DuckDB)
+                while unique_col.lower() in [n.lower() for n in used_names]:
+                    counter += 1
+                    unique_col = f"{original_col}_{counter}"
+                
+                column_mapping[col] = unique_col
+                unique_columns.append(unique_col)
+                used_names.add(unique_col)
+            
+            # Rename columns to unique names for SQL compatibility
+            df = df.rename(columns=column_mapping)
+            
+            # Reorder columns to match unique_columns order
+            df = df[unique_columns]
+            
+            # Clean data - replace empty strings with None
+            for col in df.columns:
+                df[col] = df[col].replace('', None)
+            
+            # Add metadata columns
+            extraction_timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            
+            # Create new DataFrame with all columns to avoid fragmentation
+            new_df = df.copy()
+            new_df['line_number'] = new_df.index  # Add line number based on DataFrame index
+            new_df['extraction_timestamp'] = extraction_timestamp
+            new_df['file_name'] = file_name
+            new_df['sheet_name'] = sheet
+            df = new_df
+            
+            logger.info(f"Inserting {len(df)} rows from {file_name} [{sheet}] into bronze.{table_name}")
+            
+            # Direct DataFrame insertion
+            con.execute(f"INSERT INTO bronze.{table_name} SELECT * FROM df")
+            
+            logger.info(f"Successfully inserted {len(df)} rows")
+            total_loaded += len(df)
+            
+        except Exception as e:
+            logger.error(f"Error processing {file_name} [{sheet}]: {e}")
+            # Continue with next sheet
+            continue
+            
+    return total_loaded
 
 def main():
-    """Main function to load all planilha_embriologia Excel files to bronze.planilha_embriologia"""
+    """Main function to load all planilha_embriologia Excel files to bronze tables"""
     logger.info("Starting Planilha Embriologia data loader")
-    logger.info(f"Reading from sheet: {SHEET_NAME}")
+    logger.info(f"Target sheets: {SHEETS_TO_LOAD}")
     logger.info(f"DuckDB path: {DUCKDB_PATH}")
     logger.info(f"Data input directory: {DATA_INPUT_DIR}")
     
@@ -250,44 +274,28 @@ def main():
         # Get all Excel files from year subfolders
         excel_files = get_all_excel_files()
         
-        # Process each file - each file gets its own table
+        # Process each file
         total_rows = 0
         files_processed = 0
-        table_names = []
+        
+        # Import regex module since we used it in generate_table_name but forgot to import it at top level if it wasn't there
+        import re 
         
         for file_path in excel_files:
             try:
                 rows = process_excel_file(file_path, con)
                 total_rows += rows
                 files_processed += 1
-                table_name = sanitize_table_name(os.path.basename(file_path))
-                table_names.append(table_name)
             except Exception as e:
                 logger.error(f"Failed to process {os.path.basename(file_path)}: {e}")
-                # Continue with next file instead of stopping
                 continue
-        
-        # Get final statistics for all tables
-        total_rows_all_tables = 0
-        for table_name in table_names:
-            try:
-                result = con.execute(f'SELECT COUNT(*) FROM bronze.{table_name}').fetchone()
-                count = result[0] if result else 0
-                total_rows_all_tables += count
-                logger.info(f"  bronze.{table_name}: {count:,} rows")
-            except Exception as e:
-                logger.warning(f"Could not get count for bronze.{table_name}: {e}")
         
         # Final summary
         logger.info("=" * 50)
         logger.info("LOADING SUMMARY")
         logger.info("=" * 50)
-        logger.info(f"Sheet name: {SHEET_NAME}")
-        logger.info(f"Files found: {len(excel_files)}")
-        logger.info(f"Files processed successfully: {files_processed}")
+        logger.info(f"Files processed: {files_processed}/{len(excel_files)}")
         logger.info(f"Total rows loaded to bronze: {total_rows:,}")
-        logger.info(f"Total rows across all tables: {total_rows_all_tables:,}")
-        logger.info(f"Tables created: {len(table_names)}")
         logger.info("=" * 50)
         
         # Close connection

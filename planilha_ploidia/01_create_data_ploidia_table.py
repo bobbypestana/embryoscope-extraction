@@ -24,8 +24,6 @@ column_mapping_module = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(column_mapping_module)
 TARGET_COLUMNS = column_mapping_module.TARGET_COLUMNS
 COLUMN_MAPPING = column_mapping_module.COLUMN_MAPPING
-FILTER_PATIENT_ID = column_mapping_module.FILTER_PATIENT_ID
-FILTER_EMBRYO_IDS = column_mapping_module.FILTER_EMBRYO_IDS
 
 # Setup logging
 LOGS_DIR = os.path.join(os.path.dirname(__file__), 'logs')
@@ -166,17 +164,6 @@ def create_data_ploidia_table(conn):
     where_conditions.append('"embryo_EmbryoID" IS NOT NULL')
     logger.info("Filter: Embryo ID (embryo_EmbryoID) IS NOT NULL")
     
-    if FILTER_PATIENT_ID is not None:
-        # Filter by Patient ID (micro_prontuario)
-        where_conditions.append(f'"micro_prontuario" = {FILTER_PATIENT_ID}')
-        logger.info(f"Filter: Patient ID = {FILTER_PATIENT_ID}")
-    
-    if FILTER_EMBRYO_IDS is not None and len(FILTER_EMBRYO_IDS) > 0:
-        # Filter by Embryo ID (embryo_EmbryoID)
-        embryo_ids_str = ', '.join([f"'{eid}'" for eid in FILTER_EMBRYO_IDS])
-        where_conditions.append(f'"embryo_EmbryoID" IN ({embryo_ids_str})')
-        logger.info(f"Filter: Embryo ID IN ({', '.join(FILTER_EMBRYO_IDS)})")
-    
     where_clause = " WHERE " + " AND ".join(where_conditions) if where_conditions else ""
     
     # Create table with CTE for Previous ET calculation when NULL
@@ -287,75 +274,9 @@ def create_data_ploidia_table(conn):
     logger.info("=" * 80)
     logger.info(f"Rows: {row_count:,}")
     logger.info(f"Columns: {col_count}")
+    
     logger.info("")
-    
-    # Show column list
-    logger.info("Columns in gold.data_ploidia (in order):")
-    for i, col in enumerate(TARGET_COLUMNS, 1):
-        # Special handling for Age (calculated dynamically)
-        if col == "Age":
-            source_col = "ROUND(CAST(DATE_DIFF('day', patient_DateOfBirth, embryo_FertilizationTime) AS DOUBLE) / 365.25, 2)"
-            status = "[OK]" if "embryo_FertilizationTime" in available_columns and "patient_DateOfBirth" in available_columns else "[--]"
-        # Special handling for Video ID (concatenation of Patient ID and Slide ID)
-        elif col == "Video ID":
-            if "micro_prontuario" in available_columns and "embryo_EmbryoID" in available_columns:
-                source_col = "CAST(micro_prontuario AS VARCHAR) || '_' || embryo_EmbryoID"
-                status = "[OK]"
-            else:
-                source_col = "NULL (missing: micro_prontuario or embryo_EmbryoID)"
-                status = "[--]"
-        # Special handling for BMI (calculated dynamically with patient+slide-level aggregation)
-        elif col == "BMI":
-            source_col = "ROUND(MAX(trat_peso_paciente) OVER (PARTITION BY micro_prontuario, SPLIT_PART(embryo_EmbryoID, '-', 1)) / POWER(MAX(trat_altura_paciente) OVER (PARTITION BY micro_prontuario, SPLIT_PART(embryo_EmbryoID, '-', 1)), 2), 2)"
-            status = "[OK]" if "trat_peso_paciente" in available_columns and "trat_altura_paciente" in available_columns else "[--]"
-        # Special handling for patient+slide-level columns with MAX() aggregation
-        elif col in ["Diagnosis", "Patient Comments", "Previus OD ET", "Oocyte Source"]:
-            source_col_mapped = COLUMN_MAPPING.get(col)
-            if source_col_mapped is not None and source_col_mapped in available_columns:
-                source_col = f"MAX({source_col_mapped}) OVER (PARTITION BY micro_prontuario, SPLIT_PART(embryo_EmbryoID, '-', 1))"
-                status = "[OK]"
-            else:
-                # Special case: Previus OD ET shows 0 instead of NULL
-                if col == "Previus OD ET":
-                    source_col = "0 (unmapped)"
-                else:
-                    source_col = "NULL (unmapped or missing)" if source_col_mapped is None else f"NULL (missing: {source_col_mapped})"
-                status = "[--]"
-        # Special handling for Previus ET ranking
-        elif col == "Previus ET":
-            if "trat_tentativa" in available_columns:
-                source_col = "COALESCE(MIN(trat_tentativa - 1) OVER (PARTITION BY micro_prontuario, SPLIT_PART(embryo_EmbryoID, '-', 1)), 0)"
-                status = "[OK]"
-            else:
-                source_col = (
-                    "DENSE_RANK() OVER ("
-                    "PARTITION BY micro_prontuario "
-                    "ORDER BY SPLIT_PART(embryo_EmbryoID, '-', 1) ASC"
-                    ") - 1 (Fallback)"
-                )
-                status = "[WARN]"
-        else:
-            source_col = COLUMN_MAPPING.get(col, "NULL (unmapped)")
-            if source_col == "NULL (unmapped)":
-                status = "[--]"
-            elif source_col is None:
-                status = "[--]"
-                source_col = "NULL (explicitly unmapped)"
-            elif col == "Birth Year" and source_col == "patient_DateOfBirth":
-                status = "[OK]" if source_col in available_columns else "[--]"
-                source_col = f"EXTRACT(YEAR FROM {source_col})"
-            else:
-                status = "[OK]" if source_col in available_columns else "[--]"
-        logger.info(f"  {i:2d}. {status} {col:35s} <- {source_col}")
-    
-    if unmapped:
-        logger.info("")
-        logger.info(f"Unmapped columns ({len(unmapped)}): {unmapped}")
-    if missing:
-        logger.info("")
-        logger.info(f"Missing source columns ({len(missing)}):")
-        for target, source in missing:
-            logger.info(f"  {target} <- {source} (not found in source table)")
+    logger.info("Successfully created gold.data_ploidia table")
 
 def main():
     """Main function"""

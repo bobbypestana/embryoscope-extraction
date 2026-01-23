@@ -35,8 +35,8 @@ logger = logging.getLogger(__name__)
 
 # Configuration
 DUCKDB_PATH = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), 'database', 'huntington_data_lake.duckdb')
-BRONZE_PATTERN = 'CASOS_%'  # Pattern to match all CASOS tables
-SILVER_TABLE = 'planilha_embriologia'
+BRONZE_PATTERN = 'planilha_%'  # Pattern to match all Planilha tables
+SHEET_TYPES = ['fet', 'fresh']  # Process each sheet type separately
 
 def get_duckdb_connection():
     """Create DuckDB connection"""
@@ -72,8 +72,8 @@ def normalize_column_name(col_name):
     
     return col_str
 
-def get_bronze_tables(con):
-    """Get all bronze tables matching the CASOS pattern"""
+def get_bronze_tables(con, sheet_type=None):
+    """Get all bronze tables matching the pattern, optionally filtered by sheet type"""
     try:
         query = f"""
         SELECT table_name 
@@ -84,7 +84,14 @@ def get_bronze_tables(con):
         """
         result = con.execute(query).fetchall()
         tables = [row[0] for row in result]
-        logger.info(f"Found {len(tables)} bronze tables matching pattern '{BRONZE_PATTERN}': {tables}")
+        
+        # Filter by sheet type if specified
+        if sheet_type:
+            tables = [t for t in tables if t.endswith(f'_{sheet_type}')]
+            logger.info(f"Found {len(tables)} bronze tables for sheet type '{sheet_type}': {tables}")
+        else:
+            logger.info(f"Found {len(tables)} bronze tables matching pattern '{BRONZE_PATTERN}': {tables}")
+        
         return tables
     except Exception as e:
         logger.error(f"Error getting bronze tables: {e}")
@@ -103,7 +110,7 @@ def collect_all_columns_from_tables(con, bronze_tables):
             columns_info = con.execute(f"DESCRIBE bronze.{table_name}").fetchdf()
             # Exclude metadata columns
             original_cols = [col for col in columns_info['column_name'].tolist() 
-                           if col not in ['line_number', 'extraction_timestamp', 'file_name']]
+                           if col not in ['line_number', 'extraction_timestamp', 'file_name', 'sheet_name']]
             table_columns[table_name] = original_cols
             
             # Normalize each column name
@@ -162,7 +169,7 @@ def detect_column_types(df, sample_size=1000):
     """Detect column types by analyzing data patterns"""
     logger.info("Detecting column data types...")
     
-    data_columns = [col for col in df.columns if col not in ['line_number', 'extraction_timestamp', 'file_name']]
+    data_columns = [col for col in df.columns if col not in ['line_number', 'extraction_timestamp', 'file_name', 'sheet_name']]
     column_types = {}
     
     # Sample data for analysis (to speed up detection)
@@ -246,7 +253,7 @@ def standardize_dataframe_columns(df, standardization_map):
     used_standard_names = {}  # Track how many times we've used each standard name
     
     for orig_col in df.columns:
-        if orig_col in ['line_number', 'extraction_timestamp', 'file_name']:
+        if orig_col in ['line_number', 'extraction_timestamp', 'file_name', 'sheet_name']:
             # Keep metadata columns as-is
             column_mapping[orig_col] = orig_col
         else:
@@ -280,17 +287,80 @@ def standardize_dataframe_columns(df, standardization_map):
     
     return df_renamed
 
-def clean_data(df):
-    """Clean data by removing only fully blank lines"""
+def clean_data(df, sheet_type):
+    """Clean data by removing blank lines, rows with AUXILIAR = 0, and rows missing both PIN and procedure date"""
     logger.info("Cleaning data...")
     
     initial_count = len(df)
     
-    # Remove completely blank lines only
-    df_clean = df.dropna(how='all')
-    logger.info(f"Removed {initial_count - len(df_clean)} completely blank lines")
+    # Get data columns (exclude metadata AND AUXILIAR)
+    # AUXILIAR is excluded because rows with only AUXILIAR are considered blank
+    metadata_cols = ['line_number', 'extraction_timestamp', 'file_name', 'sheet_name']
+    auxiliar_cols = ['AUXILIAR', 'Auxiliar', 'auxiliar']  # Handle different casings
+    exclude_cols = metadata_cols + auxiliar_cols
+    data_cols = [col for col in df.columns if col not in exclude_cols]
     
-    logger.info(f"Total rows after cleaning: {len(df_clean):,} (removed {initial_count - len(df_clean):,} fully blank rows)")
+    # Step 1: Remove rows where AUXILIAR = 0 or '0'
+    auxiliar_col = None
+    for col in auxiliar_cols:
+        if col in df.columns:
+            auxiliar_col = col
+            break
+    
+    if auxiliar_col:
+        # Remove rows where AUXILIAR is 0 or '0'
+        mask_auxiliar = ~((df[auxiliar_col] == 0) | (df[auxiliar_col] == '0'))
+        df = df[mask_auxiliar].copy()
+        auxiliar_removed = initial_count - len(df)
+        if auxiliar_removed > 0:
+            logger.info(f"Removed {auxiliar_removed:,} rows with {auxiliar_col} = 0")
+    
+    # Step 2: Remove completely blank rows (excluding AUXILIAR from check)
+    # Create a mask for rows where ALL data columns are blank (NaN or empty string)
+    # A row is considered blank if all data columns are either NaN, None, or empty string
+    def is_blank(val):
+        if pd.isna(val):
+            return True
+        if isinstance(val, str) and val.strip() == '':
+            return True
+        return False
+    
+    # Check each row - keep only rows that have at least one non-blank data value
+    mask = df[data_cols].apply(lambda row: not all(is_blank(val) for val in row), axis=1)
+    df_clean = df[mask].copy()
+    
+    blank_removed = len(df) - len(df_clean)
+    if blank_removed > 0:
+        logger.info(f"Removed {blank_removed:,} completely blank rows")
+    
+    # Step 3: Remove rows where both PIN and procedure date are blank
+    df = df_clean.copy()
+    initial_step3_count = len(df)
+    
+    # Find PIN column
+    pin_col = next((col for col in df.columns if normalize_column_name(col) == normalize_column_name('PIN')), 'PIN')
+    
+    # Determine procedure date column based on sheet type
+    if sheet_type.upper() == 'FRESH':
+        date_col = next((col for col in df.columns if normalize_column_name(col) == normalize_column_name('DATA DA PUNÇÃO')), 'DATA DA PUNÇÃO')
+    else:  # FET
+        date_col = next((col for col in df.columns if normalize_column_name(col) == normalize_column_name('DATA DA FET')), 'DATA DA FET')
+    
+    if pin_col in df.columns and date_col in df.columns:
+        # A row is kept if either PIN or date is NOT blank
+        mask_keys = ~(df[pin_col].apply(is_blank) & df[date_col].apply(is_blank))
+        df_clean = df[mask_keys].copy()
+        keys_removed = initial_step3_count - len(df_clean)
+        if keys_removed > 0:
+            logger.info(f"Removed {keys_removed:,} rows missing both {pin_col} and {date_col}")
+    else:
+        logger.warning(f"Could not find {pin_col} or {date_col} for key-based cleaning (Columns present: {pin_col in df.columns}, {date_col in df.columns})")
+        df_clean = df
+
+    total_removed = initial_count - len(df_clean)
+    logger.info(f"Total rows removed: {total_removed:,}")
+    logger.info(f"Total rows after cleaning: {len(df_clean):,}")
+    
     return df_clean
 
 def transform_data_types(df, column_types):
@@ -298,7 +368,7 @@ def transform_data_types(df, column_types):
     logger.info("Transforming data types...")
     
     df_transformed = df.copy()
-    data_columns = [col for col in df.columns if col not in ['line_number', 'extraction_timestamp', 'file_name']]
+    data_columns = [col for col in df.columns if col not in ['line_number', 'extraction_timestamp', 'file_name', 'sheet_name']]
     
     for col in data_columns:
         col_type = column_types.get(col, 'VARCHAR')
@@ -336,19 +406,88 @@ def transform_data_types(df, column_types):
     logger.info("Data type transformation completed")
     return df_transformed
 
-def create_silver_table(con, df, column_types):
+def add_prontuario_column(con, silver_table):
+    """Add and populate prontuario column by matching PIN with view_pacientes"""
+    logger.info(f"Matching PIN values with view_pacientes to populate prontuario column...")
+    
+    try:
+        # Attach clinisys_all database
+        clinisys_db_path = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), 'database', 'clinisys_all.duckdb')
+        logger.info(f"Attaching clinisys_all database from: {clinisys_db_path}")
+        con.execute(f"ATTACH '{clinisys_db_path}' AS clinisys_all (READ_ONLY)")
+        
+        # Update prontuario column using PIN matching
+        # Try matching PIN against all prontuario fields in view_pacientes
+        update_sql = f"""
+        WITH pin_matches AS (
+            SELECT DISTINCT
+                p.PIN,
+                COALESCE(
+                    -- Try direct match with codigo (main prontuario)
+                    (SELECT codigo FROM clinisys_all.silver.view_pacientes v 
+                     WHERE CAST(p.PIN AS INTEGER) = v.codigo AND v.inativo = 0 LIMIT 1),
+                    -- Try match with prontuario_esposa
+                    (SELECT codigo FROM clinisys_all.silver.view_pacientes v 
+                     WHERE CAST(p.PIN AS INTEGER) = v.prontuario_esposa AND v.inativo = 0 LIMIT 1),
+                    -- Try match with prontuario_marido
+                    (SELECT codigo FROM clinisys_all.silver.view_pacientes v 
+                     WHERE CAST(p.PIN AS INTEGER) = v.prontuario_marido AND v.inativo = 0 LIMIT 1),
+                    -- Try match with prontuario_responsavel1
+                    (SELECT codigo FROM clinisys_all.silver.view_pacientes v 
+                     WHERE CAST(p.PIN AS INTEGER) = v.prontuario_responsavel1 AND v.inativo = 0 LIMIT 1),
+                    -- Try match with prontuario_responsavel2
+                    (SELECT codigo FROM clinisys_all.silver.view_pacientes v 
+                     WHERE CAST(p.PIN AS INTEGER) = v.prontuario_responsavel2 AND v.inativo = 0 LIMIT 1)
+                ) as matched_prontuario
+            FROM silver.{silver_table} p
+            WHERE p.PIN IS NOT NULL
+        )
+        UPDATE silver.{silver_table}
+        SET prontuario = m.matched_prontuario
+        FROM pin_matches m
+        WHERE silver.{silver_table}.PIN = m.PIN
+          AND m.matched_prontuario IS NOT NULL
+        """
+        
+        con.execute(update_sql)
+        
+        # Get statistics
+        stats = con.execute(f"""
+            SELECT 
+                COUNT(*) as total,
+                COUNT(CASE WHEN prontuario IS NOT NULL THEN 1 END) as matched,
+                COUNT(CASE WHEN prontuario IS NULL THEN 1 END) as unmatched
+            FROM silver.{silver_table}
+            WHERE PIN IS NOT NULL
+        """).fetchone()
+        
+        if stats[0] > 0:
+            match_rate = (stats[1] / stats[0] * 100)
+            logger.info(f"Prontuario matching results for {silver_table}:")
+            logger.info(f"  Total rows with PIN: {stats[0]:,}")
+            logger.info(f"  Matched: {stats[1]:,} ({match_rate:.2f}%)")
+            logger.info(f"  Unmatched: {stats[2]:,} ({100-match_rate:.2f}%)")
+        
+        # Detach database
+        con.execute("DETACH clinisys_all")
+        
+    except Exception as e:
+        logger.error(f"Error adding prontuario column: {e}")
+        raise
+
+def create_silver_table(con, df, column_types, silver_table):
     """Create silver table with proper schema based on detected column types"""
-    logger.info(f"Creating silver table: {SILVER_TABLE}")
+    logger.info(f"Creating silver table: {silver_table}")
     
     # Create silver schema if it doesn't exist
     con.execute("CREATE SCHEMA IF NOT EXISTS silver")
     
     # Drop existing table to ensure fresh data
-    con.execute(f"DROP TABLE IF EXISTS silver.{SILVER_TABLE}")
-    logger.info(f"Dropped existing silver.{SILVER_TABLE} table")
+    con.execute(f"DROP TABLE IF EXISTS silver.{silver_table}")
+    logger.info(f"Dropped existing silver.{silver_table} table")
     
     # Get all columns from DataFrame (excluding metadata columns)
-    data_columns = [col for col in df.columns if col not in ['line_number', 'extraction_timestamp', 'file_name']]
+    data_columns = [col for col in df.columns if col not in ['line_number', 'extraction_timestamp', 'file_name', 'sheet_name']]
     
     # Create column definitions based on detected types
     column_definitions = []
@@ -364,24 +503,30 @@ def create_silver_table(con, df, column_types):
     column_definitions.extend([
         'line_number INTEGER',
         'extraction_timestamp VARCHAR',
-        'file_name VARCHAR'
+        'file_name VARCHAR',
+        'sheet_name VARCHAR',
+        'prontuario INTEGER'  # Add prontuario column
     ])
     
     create_table_sql = f"""
-    CREATE TABLE silver.{SILVER_TABLE} (
+    CREATE TABLE silver.{silver_table} (
         {', '.join(column_definitions)}
     )
     """
     
     con.execute(create_table_sql)
-    logger.info(f"Table silver.{SILVER_TABLE} created successfully with {len(data_columns)} data columns")
+    logger.info(f"Table silver.{silver_table} created successfully with {len(data_columns)} data columns")
 
-def process_bronze_to_silver(con):
-    """Process all bronze tables and combine into single silver table"""
-    logger.info("Starting bronze to silver transformation")
+def process_bronze_to_silver(con, sheet_type):
+    """Process bronze tables for a specific sheet type and create corresponding silver table"""
+    silver_table = f'planilha_embriologia_{sheet_type}'
+    
+    logger.info("=" * 50)
+    logger.info(f"BRONZE TO SILVER TRANSFORMATION - {sheet_type.upper()}")
+    logger.info("=" * 50)
     
     # Get all bronze tables
-    bronze_tables = get_bronze_tables(con)
+    bronze_tables = get_bronze_tables(con, sheet_type)
     
     if not bronze_tables:
         logger.warning("No bronze tables found matching pattern")
@@ -426,15 +571,24 @@ def process_bronze_to_silver(con):
     for df in all_dataframes:
         all_columns_set.update(df.columns)
     
-    # Get column order from CASOS_2025_IBI bronze table (before standardization)
-    reference_table_name = 'CASOS_2025_IBI'
-    metadata_cols = ['line_number', 'extraction_timestamp', 'file_name']
-    
-    # Get original column order from the reference bronze table
-    reference_cols_original = None
+    # Get column order from reference table
+    # Since we changed table names, we'll try to find any 'planilha_..._fet' table as reference
     reference_table_found = False
+    metadata_cols = ['line_number', 'extraction_timestamp', 'file_name', 'sheet_name']
     
-    if reference_table_name in bronze_tables:
+    # Look for a reference table (prefer ..._ibi_fet as it usually has good columns)
+    possible_references = [t for t in bronze_tables if 'ibi' in t.lower() and 'fet' in t.lower()]
+    if not possible_references:
+        # Fallback to any FET table
+        possible_references = [t for t in bronze_tables if 'fet' in t.lower()]
+    if not possible_references:
+        # Fallback to any table
+        possible_references = bronze_tables
+        
+    reference_cols_original = None
+    
+    if possible_references:
+        reference_table_name = possible_references[0]
         try:
             # Get original columns from bronze table (before standardization)
             columns_info = con.execute(f"DESCRIBE bronze.{reference_table_name}").fetchdf()
@@ -445,21 +599,6 @@ def process_bronze_to_silver(con):
             logger.info(f"Using {reference_table_name} as reference for column order ({len(original_cols)} columns)")
         except Exception as e:
             logger.warning(f"Could not get columns from {reference_table_name}: {e}")
-    
-    # If not found, try alternative names
-    if not reference_table_found:
-        for alt_name in ['CASOS_2025_IBIRA']:
-            if alt_name in bronze_tables:
-                try:
-                    columns_info = con.execute(f"DESCRIBE bronze.{alt_name}").fetchdf()
-                    original_cols = [col for col in columns_info['column_name'].tolist() 
-                                   if col not in metadata_cols]
-                    reference_cols_original = original_cols
-                    reference_table_found = True
-                    logger.info(f"Using {alt_name} as reference for column order ({len(original_cols)} columns)")
-                    break
-                except Exception as e:
-                    logger.warning(f"Could not get columns from {alt_name}: {e}")
     
     # If we found the reference table, use its column order (after standardization)
     if reference_cols_original is not None:
@@ -489,7 +628,7 @@ def process_bronze_to_silver(con):
         data_cols = reference_cols_standardized + sorted(other_cols)  # Add missing columns in alphabetical order
     else:
         # Fallback to alphabetical if reference table not found
-        logger.warning(f"Reference table {reference_table_name} not found, using alphabetical order")
+        logger.warning("No reference table found, using alphabetical order")
         all_columns_ordered = sorted(list(all_columns_set))
         data_cols = [col for col in all_columns_ordered if col not in metadata_cols]
         # Move PIN to first if it exists
@@ -516,7 +655,7 @@ def process_bronze_to_silver(con):
     logger.info(f"Combined {len(all_dataframes)} tables into {len(df_combined)} rows with {len(final_column_order)} columns")
     
     # Clean data
-    df_clean = clean_data(df_combined)
+    df_clean = clean_data(df_combined, sheet_type)
     
     if len(df_clean) == 0:
         logger.warning("No data remaining after cleaning")
@@ -529,7 +668,7 @@ def process_bronze_to_silver(con):
     df_transformed = transform_data_types(df_clean, column_types)
     
     # Create silver table
-    create_silver_table(con, df_transformed, column_types)
+    create_silver_table(con, df_transformed, column_types, silver_table)
     
     logger.info(f"Inserting {len(df_transformed)} rows to silver layer")
     
@@ -537,8 +676,8 @@ def process_bronze_to_silver(con):
     con.register('temp_silver_data', df_transformed)
     
     # Build INSERT statement with proper type casting
-    data_columns = [col for col in df_transformed.columns if col not in ['line_number', 'extraction_timestamp', 'file_name']]
-    all_columns = data_columns + ['line_number', 'extraction_timestamp', 'file_name']
+    data_columns = [col for col in df_transformed.columns if col not in ['line_number', 'extraction_timestamp', 'file_name', 'sheet_name']]
+    all_columns = data_columns + ['line_number', 'extraction_timestamp', 'file_name', 'sheet_name']
     
     # Build column list and select list with proper casting
     column_list = ', '.join([f'"{col}"' if col in data_columns else col for col in all_columns])
@@ -563,7 +702,7 @@ def process_bronze_to_silver(con):
     select_list = ', '.join(select_parts)
     
     insert_sql = f"""
-    INSERT INTO silver.{SILVER_TABLE} ({column_list})
+    INSERT INTO silver.{silver_table} ({column_list})
     SELECT {select_list}
     FROM temp_silver_data
     """
@@ -573,13 +712,20 @@ def process_bronze_to_silver(con):
     # Clean up temporary table
     con.execute("DROP VIEW IF EXISTS temp_silver_data")
     
-    logger.info(f"Successfully inserted {len(df_transformed)} rows to silver.{SILVER_TABLE}")
+    logger.info(f"Successfully inserted {len(df_transformed)} rows to silver.{silver_table}")
+    
+    # Add prontuario column matching
+    logger.info(f"Adding prontuario column to silver.{silver_table}...")
+    add_prontuario_column(con, silver_table)
+    
+    logger.info(f"Successfully inserted {len(df_transformed)} rows to silver.{silver_table}")
     return len(df_transformed), problematic_columns
 
 def main():
     """Main function to transform planilha_embriologia to silver"""
     logger.info("Starting Planilha Embriologia silver transformation")
     logger.info(f"DuckDB path: {DUCKDB_PATH}")
+    logger.info(f"Processing sheet types: {SHEET_TYPES}")
     
     try:
         # Create DuckDB connection
@@ -587,30 +733,49 @@ def main():
         con = get_duckdb_connection()
         logger.info("DuckDB connection created successfully")
         
-        # Process bronze to silver
-        new_rows, problematic_columns = process_bronze_to_silver(con)
+        # Process each sheet type separately
+        total_new_rows = 0
+        all_problematic_columns = {}
         
-        # Get final table statistics
-        result = con.execute(f'SELECT COUNT(*) FROM silver.{SILVER_TABLE}').fetchone()
-        total_rows = result[0] if result else 0
+        for sheet_type in SHEET_TYPES:
+            logger.info("")
+            logger.info("#" * 50)
+            logger.info(f"Processing {sheet_type.upper()} tables")
+            logger.info("#" * 50)
+            
+            new_rows, problematic_columns = process_bronze_to_silver(con, sheet_type)
+            total_new_rows += new_rows
+            
+            if problematic_columns:
+                all_problematic_columns[sheet_type] = problematic_columns
+            
+            # Get final table statistics for this sheet type
+            silver_table = f'planilha_embriologia_{sheet_type}'
+            result = con.execute(f'SELECT COUNT(*) FROM silver.{silver_table}').fetchone()
+            total_rows = result[0] if result else 0
+            
+            logger.info(f"Rows inserted to silver.{silver_table}: {new_rows:,}")
+            logger.info(f"Total rows in silver.{silver_table}: {total_rows:,}")
         
         # Final summary
+        logger.info("")
         logger.info("=" * 50)
         logger.info("SILVER TRANSFORMATION SUMMARY")
         logger.info("=" * 50)
-        logger.info(f"Rows inserted: {new_rows:,}")
-        logger.info(f"Total rows in silver.{SILVER_TABLE}: {total_rows:,}")
+        logger.info(f"Total rows inserted across all tables: {total_new_rows:,}")
         
-        # Report problematic columns
-        if problematic_columns:
+        # Report problematic columns for each sheet type
+        if all_problematic_columns:
             logger.info("=" * 50)
             logger.info("COLUMNS WITH MULTIPLE VARIANTS (standardization issues):")
             logger.info("=" * 50)
-            for item in problematic_columns:
-                logger.info(f"Normalized: '{item['normalized']}'")
-                logger.info(f"  Variants found: {item['variants']}")
-                logger.info(f"  Chosen standard: '{item['chosen']}'")
-                logger.info("")
+            for sheet_type, problematic_columns in all_problematic_columns.items():
+                logger.info(f"\n{sheet_type.upper()} sheet:")
+                for item in problematic_columns:
+                    logger.info(f"Normalized: '{item['normalized']}'")
+                    logger.info(f"  Variants found: {item['variants']}")
+                    logger.info(f"  Chosen standard: '{item['chosen']}'")
+                    logger.info("")
         else:
             logger.info("All columns standardized successfully!")
         
