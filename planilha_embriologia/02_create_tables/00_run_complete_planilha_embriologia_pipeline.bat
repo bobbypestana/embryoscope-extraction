@@ -17,9 +17,9 @@ call conda activate try_request
 
 echo.
 echo ========================================
-echo STEP %PARENT_STEP%.1: Combining Embryoscope and Planilha Embriologia
+echo STEP %PARENT_STEP%.1: Combining Fresh and FET (Clinical Data)
 echo ========================================
-python planilha_embriologia/02_create_tables/01_combine_embryoscope_planilha.py
+python planilha_embriologia/02_create_tables/01_combine_fresh_fet.py
 if %errorlevel% neq 0 (
     echo ERROR: Step %PARENT_STEP%.1 failed
     pause
@@ -28,11 +28,22 @@ if %errorlevel% neq 0 (
 
 echo.
 echo ========================================
-echo STEP %PARENT_STEP%.2: Exporting Combined Table to Excel
+echo STEP %PARENT_STEP%.2: Combining Embryoscope and Planilha (Lab-Clinical)
 echo ========================================
-python planilha_embriologia/02_create_tables/02_export_to_excel.py
+python planilha_embriologia/02_create_tables/02_combine_embryoscope_planilha.py
 if %errorlevel% neq 0 (
     echo ERROR: Step %PARENT_STEP%.2 failed
+    pause
+    exit /b 1
+)
+
+echo.
+echo ========================================
+echo STEP %PARENT_STEP%.3: Exporting Combined Table to Excel
+echo ========================================
+python planilha_embriologia/02_create_tables/03_export_to_excel.py
+if %errorlevel% neq 0 (
+    echo ERROR: Step %PARENT_STEP%.3 failed
     pause
     exit /b 1
 )

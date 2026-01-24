@@ -38,6 +38,225 @@ DUCKDB_PATH = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__fil
 BRONZE_PATTERN = 'planilha_%'  # Pattern to match all Planilha tables
 SHEET_TYPES = ['fet', 'fresh']  # Process each sheet type separately
 
+# Refinement Configuration (All available years)
+YEARS_TO_PROCESS = ['2022', '2023', '2024', '2025']
+REFERENCE_TABLES = {
+    'fresh': 'planilha_2025_ibi_fresh',
+    'fet': 'planilha_2025_ibi_fet'
+}
+
+# Column Whitelist (normalized names as snake_case)
+WHITELIST = {
+    'fresh': [
+        'pin', 
+        'data_da_puncao', 
+        'fator_1', 
+        'incubadora', 
+        'data_crio',
+        'tipo_1'
+    ],
+    'fet': [
+        'pin', 
+        'data_da_fet', 
+        'data_crio', 
+        'result', 
+        'tipo_do_resultado', 
+        'no_nascidos',
+        'tipo_1'
+    ]
+}
+
+# Values for TIPO 1 filtering (used as prefixes)
+TIPO_FILTERS = {
+    'fresh': ['FIC/ICSI', 'FIV/ICSI', 'FOT', 'FOT OR', 'OR', 'FRESH'],
+    'fet': ['FET', 'FET/OR', 'FET/ER']
+}
+
+# Explicit Synonyms (Global heuristics)
+SYNONYMS = {
+    'resultado': 'result',
+    'n_nascidos': 'no_nascidos',
+    'num_nascidos': 'no_nascidos',
+    'no_nascidos': 'no_nascidos',
+    'n_nascidos': 'no_nascidos',
+    'na_nascidos': 'no_nascidos',
+    'n_o_nascidos': 'no_nascidos',
+    'data_crio_somente_a_primeira_data_do_cong': 'data_crio',
+    'tipo_de_tratamento': 'tipo_1',
+    'data_cryo': 'data_crio'
+}
+
+# ==============================================================================
+# EXPLICT PER-TABLE CONFIGURATIONS ("BY HAND")
+# ==============================================================================
+# Use this section to map specific columns and set filters for individual tables.
+# If a table is listed here, it overrides the global heuristics.
+# ==============================================================================
+TABLE_CONFIGS = {
+    'planilha_2022_ibira_total': {
+        'sheet_name': 'TOTAL',
+        'header_row': 1,
+        'fresh': {
+            'mapping': {
+                'pin': 'PIN',
+                'tipo_1': 'TIPO 1',
+                'data_da_puncao': 'DIA',
+                'fator_1': 'FATOR 1',
+                'incubadora': 'INCUB',
+                'data_crio': 'DATA CRIO'
+            },
+            'filters': ['FIC/ICSI', 'FIV/ICSI', 'FOT', 'FOT OR', 'OR', 'FRESH']
+        },
+        'fet': {
+            'mapping': {
+                'pin': 'PIN',
+                'tipo_1': 'TIPO 1',
+                'data_da_fet': 'DIA',
+                'data_crio': 'DATA CRIO',
+                'result': 'RESULT',
+                'tipo_do_resultado': 'ADMINSTRAÇÃO 1',
+                'no_nascidos': ''
+            },
+            'filters': ['FET', 'FET/OR', 'FET/ER']
+        }
+    },
+    'planilha_2022_sj_total_2022': {
+        'sheet_name': 'TOTAL 2022',
+        'header_row': 2,
+        'fresh': {
+            'mapping': {
+                'pin': 'PIN',
+                'tipo_1': 'TIPO 1',
+                'data_da_puncao': 'DATA',
+                'fator_1': 'FATOR 1',
+                'incubadora': 'INCUB',
+                'data_crio': 'DATA CRIO'
+            },
+            'filters': ['FIC/ICSI', 'FIV/ICSI', 'FOT', 'FOT OR', 'OR', 'FRESH']
+        },
+        'fet': {
+            'mapping': {
+                'pin': 'PIN',
+                'tipo_1': 'TIPO 1',
+                'data_da_fet': 'DATA',
+                'data_crio': 'DATA CRIO',
+                'result': 'RESULT',
+                'tipo_do_resultado': '',
+                'no_nascidos': ''
+            },
+            'filters': ['FET', 'FET/OR', 'FET/ER']
+        }
+    },
+    'planilha_2022_vm_total': {
+        'sheet_name': 'TOTAL',
+        'header_row': 2,
+        'fresh': {
+            'mapping': {
+                'pin': 'PIN',
+                'tipo_1': 'TIPO 1',
+                'data_da_puncao': 'DIA',
+                'fator_1': 'FATOR 1',
+                'incubadora': 'INCUB D5',
+                'data_crio': 'DATA CRIO'
+            },
+            'filters': ['FIC/ICSI', 'FIV/ICSI', 'FOT', 'FOT OR', 'OR', 'FRESH']
+        },
+        'fet': {
+            'mapping': {
+                'pin': 'PIN',
+                'tipo_1': 'TIPO 1',
+                'data_da_fet': 'DIA',
+                'data_crio': 'DATA CRIO',
+                'result': 'RESULT',
+                'tipo_do_resultado': 'ADMINSTRAÇÃO 1',
+                'no_nascidos': ''
+            },
+            'filters': ['FET', 'FET/OR', 'FET/ER']
+        }
+    },
+    'planilha_2023_ibira_total_2023': {
+        'sheet_name': 'TOTAL 2023 Nova',
+        'header_row': 1,
+        'fresh': {
+            'mapping': {
+                'pin': 'PIN',
+                'tipo_1': 'TIPO 1',
+                'data_da_puncao': 'DIA',
+                'fator_1': 'FATOR 1',
+                'incubadora': 'INCUB',
+                'data_crio': 'DATA CRIO'
+            },
+            'filters': ['FIC/ICSI', 'FIV/ICSI', 'FOT', 'FOT OR', 'OR', 'FRESH']
+        },
+        'fet': {
+            'mapping': {
+                'pin': 'PIN',
+                'tipo_1': 'TIPO 1',
+                'data_da_fet': 'DIA',
+                'data_crio': 'DATA CRIO',
+                'result': 'RESULT',
+                'tipo_do_resultado': 'ADMINSTRAÇÃO 1',
+                'no_nascidos': ''
+            },
+            'filters': ['FET', 'FET/OR', 'FET/ER']
+        }
+    },
+    'planilha_2023_sj_total_2023': {
+        'sheet_name': 'TOTAL 2023',
+        'header_row': 2,
+        'fresh': {
+            'mapping': {
+                'pin': 'PIN',
+                'tipo_1': 'TIPO 1',
+                'data_da_puncao': 'DATA',
+                'fator_1': 'FATOR 1',
+                'incubadora': 'INCUB',
+                'data_crio': 'DATA CRIO'
+            },
+            'filters': ['FIC/ICSI', 'FIV/ICSI', 'FOT', 'FOT OR', 'OR', 'FRESH']
+        },
+        'fet': {
+            'mapping': {
+                'pin': 'PIN',
+                'tipo_1': 'TIPO 1',
+                'data_da_fet': 'DATA',
+                'data_crio': 'DATA CRIO',
+                'result': 'RESULT',
+                'tipo_do_resultado': 'ADMINSTRAÇÃO 1',
+                'no_nascidos': ''
+            },
+            'filters': ['FET', 'FET/OR', 'FET/ER']
+        }
+    },
+    'planilha_2023_vm_geral_2023': {
+        'sheet_name': 'GERAL 2023',
+        'header_row': 2,
+        'fresh': {
+            'mapping': {
+                'pin': 'PIN',
+                'tipo_1': 'TIPO 1',
+                'data_da_puncao': 'DIA',
+                'fator_1': 'FATOR 1',
+                'incubadora': 'INCUB D5',
+                'data_crio': 'DATA CRIO'
+            },
+            'filters': ['FIC/ICSI', 'FIV/ICSI', 'FOT', 'FOT OR', 'OR', 'FRESH']
+        },
+        'fet': {
+            'mapping': {
+                'pin': 'PIN',
+                'tipo_1': 'TIPO 1',
+                'data_da_fet': 'DIA',
+                'data_crio': 'DATA CRIO',
+                'result': 'RESULT',
+                'tipo_do_resultado': 'ADMINSTRAÇÃO 1',
+                'no_nascidos': ''
+            },
+            'filters': ['FET', 'FET/OR', 'FET/ER']
+        }
+    }
+}
+
 def get_duckdb_connection():
     """Create DuckDB connection"""
     try:
@@ -55,7 +274,10 @@ def normalize_column_name(col_name):
         return None
     
     # Convert to string
-    col_str = str(col_name).strip()
+    col_str = str(col_name)
+    
+    # Replace all whitespace characters (including newlines) with a single space
+    col_str = re.sub(r'\s+', ' ', col_str).strip()
     
     # Remove accents/diacritics
     col_str = unicodedata.normalize('NFD', col_str)
@@ -63,105 +285,118 @@ def normalize_column_name(col_name):
     
     # Convert to lowercase
     col_str = col_str.lower()
+
+    # Convert to snake_case: replace any non-alphanumeric with underscores, then collapse
+    col_str = re.sub(r'[^a-z0-9]', '_', col_str)
+    col_str = re.sub(r'_+', '_', col_str).strip('_')
     
-    # Replace multiple spaces with single space
-    col_str = re.sub(r'\s+', ' ', col_str)
+    # Handle specific common variations to ensure they normalize to the same key
+    # 1. Spacing variations in "1 PN"
+    if col_str == "1pn":
+        col_str = "1_pn"
     
-    # Trim spaces
-    col_str = col_str.strip()
+    # 2. Known direct synonyms (including user-defined)
+    synonyms = {
+        'idade do espermatozoide ': 'idade espermatozoide'
+    }
+    synonyms.update(SYNONYMS)
+    
+    if col_str in synonyms:
+        col_str = synonyms[col_str]
     
     return col_str
 
 def get_bronze_tables(con, sheet_type=None):
-    """Get all bronze tables matching the pattern, optionally filtered by sheet type"""
+    """Get all bronze tables matching the pattern, optionally filtered by sheet type, including '_total' tables."""
     try:
+        # Search for bronze tables for this sheet type
+        # 2024-2025 use _fet and _fresh
+        # 2022-2023 use _total
+        # The query now explicitly includes tables ending with the sheet_type OR containing '_total'
         query = f"""
-        SELECT table_name 
-        FROM information_schema.tables 
-        WHERE table_schema = 'bronze' 
-        AND table_name LIKE '{BRONZE_PATTERN}'
-        ORDER BY table_name
+            SELECT table_name 
+            FROM information_schema.tables 
+            WHERE table_schema = 'bronze' 
+            AND table_name LIKE '{BRONZE_PATTERN}'
+            AND (table_name LIKE '%_{sheet_type}' OR table_name LIKE '%_total%' OR table_name LIKE '%_geral%')
+            ORDER BY table_name
         """
-        result = con.execute(query).fetchall()
-        tables = [row[0] for row in result]
+        bronze_tables = con.execute(query).fetchdf()['table_name'].tolist()
         
-        # Filter by sheet type if specified
+        # Filter for years we want to process
+        bronze_tables = [
+            t for t in bronze_tables 
+            if any(year in t for year in YEARS_TO_PROCESS)
+        ]
+        
         if sheet_type:
-            tables = [t for t in tables if t.endswith(f'_{sheet_type}')]
-            logger.info(f"Found {len(tables)} bronze tables for sheet type '{sheet_type}': {tables}")
-        else:
-            logger.info(f"Found {len(tables)} bronze tables matching pattern '{BRONZE_PATTERN}': {tables}")
+            logger.info(f"Found {len(bronze_tables)} bronze tables for '{sheet_type}' (including shared) for years {YEARS_TO_PROCESS}")
         
-        return tables
+        return bronze_tables
     except Exception as e:
         logger.error(f"Error getting bronze tables: {e}")
         return []
 
-def collect_all_columns_from_tables(con, bronze_tables):
-    """Collect all unique columns from all bronze tables and create standardization mapping"""
-    logger.info("Collecting columns from all bronze tables...")
+def collect_all_columns_from_tables(con, bronze_tables, sheet_type):
+    """Collect all unique columns and create standardization mapping, prioritizing Ibirapuera 2024"""
+    logger.info(f"Collecting columns from all bronze tables for {sheet_type}...")
     
     all_original_columns = {}  # normalized_name -> list of original names
     table_columns = {}  # table_name -> list of original columns
+    
+    # Identify reference table
+    reference_table = REFERENCE_TABLES.get(sheet_type)
+    reference_columns_map = {} # normalized -> original_name from reference table
+    
+    logger.info(f"Using reference table: {reference_table}")
     
     for table_name in bronze_tables:
         try:
             # Get column names from table
             columns_info = con.execute(f"DESCRIBE bronze.{table_name}").fetchdf()
-            # Exclude metadata columns
             original_cols = [col for col in columns_info['column_name'].tolist() 
                            if col not in ['line_number', 'extraction_timestamp', 'file_name', 'sheet_name']]
             table_columns[table_name] = original_cols
             
-            # Normalize each column name
+            # Normalize and collect
             for orig_col in original_cols:
                 normalized = normalize_column_name(orig_col)
-                if normalized:
+                # Filter by whitelist
+                if normalized in WHITELIST.get(sheet_type, []):
                     if normalized not in all_original_columns:
                         all_original_columns[normalized] = []
                     if orig_col not in all_original_columns[normalized]:
                         all_original_columns[normalized].append(orig_col)
+                    
+                    # Store as reference if this is the reference table
+                    if table_name == reference_table:
+                        reference_columns_map[normalized] = orig_col
             
-            logger.info(f"  {table_name}: {len(original_cols)} columns")
+            # logger.info(f"  {table_name}: {len(original_cols)} columns") # Too noisy
         except Exception as e:
             logger.warning(f"Could not get columns from {table_name}: {e}")
-    
-    # Create standardization mapping: choose the most common original name for each normalized name
-    standardization_map = {}  # normalized -> standard_name (most common original)
+
+    # Create standardization mapping
+    standardization_map = {}
     problematic_columns = []
     
     for normalized, original_list in all_original_columns.items():
-        if len(original_list) == 1:
-            # Only one variant - use it
-            standardization_map[normalized] = original_list[0]
-        else:
-            # Multiple variants - choose the most common one
-            # Count occurrences across all tables
-            counts = {}
-            for table_name, cols in table_columns.items():
-                for orig in original_list:
-                    if orig in cols:
-                        counts[orig] = counts.get(orig, 0) + 1
-            
-            if counts:
-                # Use the most common original name
-                standard_name = max(counts.items(), key=lambda x: x[1])[0]
-                standardization_map[normalized] = standard_name
-                
-                # Report if there are multiple variants
-                if len(set(original_list)) > 1:
-                    problematic_columns.append({
-                        'normalized': normalized,
-                        'variants': original_list,
-                        'chosen': standard_name
-                    })
-            else:
-                # Fallback: use first original
-                standardization_map[normalized] = original_list[0]
+        # User requested snake_case for normalized names.
+        # We use the 'normalized' key itself as the standard name.
+        standardization_map[normalized] = normalized
+        
+        # If there were multiple variants, log them for awareness
+        if len(set(original_list)) > 1:
+            problematic_columns.append({
+                'normalized': normalized,
+                'variants': list(set(original_list)),
+                'chosen': normalized,
+                'reason': 'Standardized to snake_case normalized name'
+            })
     
     logger.info(f"Total unique normalized columns: {len(standardization_map)}")
     if problematic_columns:
-        logger.warning(f"Found {len(problematic_columns)} columns with multiple variants")
+        logger.info(f"Standardized {len(problematic_columns)} columns with multiple variants.")
     
     return standardization_map, problematic_columns, table_columns
 
@@ -262,7 +497,8 @@ def standardize_dataframe_columns(df, standardization_map):
             if normalized and normalized in standardization_map:
                 standard_name = standardization_map[normalized]
                 
-                # Handle duplicates: if we've already used this standard name, append counter
+                # Handle duplicates within a single table: 
+                # if we've already used this standard name, append counter
                 if standard_name in used_standard_names:
                     used_standard_names[standard_name] += 1
                     unique_standard_name = f"{standard_name}_{used_standard_names[standard_name]}"
@@ -272,12 +508,12 @@ def standardize_dataframe_columns(df, standardization_map):
                     used_standard_names[standard_name] = 0
                     column_mapping[orig_col] = standard_name
             else:
-                # If normalization fails or not in map, keep original
-                logger.warning(f"Could not standardize column '{orig_col}' (normalized: {normalized})")
-                column_mapping[orig_col] = orig_col
+                # If not in map (not whitelisted), drop it (don't add to mapping)
+                continue
     
-    # Rename columns
-    df_renamed = df.rename(columns=column_mapping)
+    # Rename and filter columns
+    # cols_to_keep are those that were mapped plus existing metadata columns
+    df_renamed = df[list(column_mapping.keys())].rename(columns=column_mapping)
     
     # Verify no duplicates
     if len(df_renamed.columns) != len(set(df_renamed.columns)):
@@ -295,9 +531,9 @@ def clean_data(df, sheet_type):
     
     # Get data columns (exclude metadata AND AUXILIAR)
     # AUXILIAR is excluded because rows with only AUXILIAR are considered blank
-    metadata_cols = ['line_number', 'extraction_timestamp', 'file_name', 'sheet_name']
+    metadata_cols = ['file_name', 'sheet_name']
     auxiliar_cols = ['AUXILIAR', 'Auxiliar', 'auxiliar']  # Handle different casings
-    exclude_cols = metadata_cols + auxiliar_cols
+    exclude_cols = metadata_cols + auxiliar_cols + ['line_number', 'extraction_timestamp']
     data_cols = [col for col in df.columns if col not in exclude_cols]
     
     # Step 1: Remove rows where AUXILIAR = 0 or '0'
@@ -368,7 +604,8 @@ def transform_data_types(df, column_types):
     logger.info("Transforming data types...")
     
     df_transformed = df.copy()
-    data_columns = [col for col in df.columns if col not in ['line_number', 'extraction_timestamp', 'file_name', 'sheet_name']]
+    exclude_cols = ['line_number', 'extraction_timestamp', 'file_name', 'sheet_name']
+    data_columns = [col for col in df.columns if col not in exclude_cols]
     
     for col in data_columns:
         col_type = column_types.get(col, 'VARCHAR')
@@ -487,7 +724,8 @@ def create_silver_table(con, df, column_types, silver_table):
     logger.info(f"Dropped existing silver.{silver_table} table")
     
     # Get all columns from DataFrame (excluding metadata columns)
-    data_columns = [col for col in df.columns if col not in ['line_number', 'extraction_timestamp', 'file_name', 'sheet_name']]
+    exclude_cols = ['line_number', 'extraction_timestamp', 'file_name', 'sheet_name']
+    data_columns = [col for col in df.columns if col not in exclude_cols]
     
     # Create column definitions based on detected types
     column_definitions = []
@@ -501,8 +739,6 @@ def create_silver_table(con, df, column_types, silver_table):
     
     # Add metadata columns
     column_definitions.extend([
-        'line_number INTEGER',
-        'extraction_timestamp VARCHAR',
         'file_name VARCHAR',
         'sheet_name VARCHAR',
         'prontuario INTEGER'  # Add prontuario column
@@ -533,30 +769,73 @@ def process_bronze_to_silver(con, sheet_type):
         return 0, []
     
     # Collect and standardize columns
-    standardization_map, problematic_columns, table_columns = collect_all_columns_from_tables(con, bronze_tables)
+    standardization_map, problematic_columns, table_columns = collect_all_columns_from_tables(con, bronze_tables, sheet_type)
     
     # Read and combine all bronze tables
     all_dataframes = []
     table_dataframe_map = {}  # Map table_name to dataframe
     
     for table_name in bronze_tables:
+        logger.info(f"Reading data from bronze.{table_name}...")
         try:
-            logger.info(f"Reading data from bronze.{table_name}...")
-            df = con.execute(f"SELECT * FROM bronze.{table_name}").df()
-            logger.info(f"  Read {len(df)} rows from {table_name}")
+            df = con.execute(f"SELECT * FROM bronze.{table_name}").fetchdf()
             
-            if len(df) == 0:
-                logger.warning(f"  No data in {table_name}, skipping")
-                continue
+            # 1. Apply Per-Table Config or Global Heuristic
+            table_config = TABLE_CONFIGS.get(table_name)
             
-            # Standardize column names
-            df_standardized = standardize_dataframe_columns(df, standardization_map)
+            # Check if there is a specific config for this sheet_type inside the table_config
+            type_config = None
+            if table_config:
+                if sheet_type in table_config:
+                    type_config = table_config[sheet_type]
+                elif 'mapping' in table_config:
+                    # Fallback for old structure or shared mapping
+                    type_config = table_config
             
-            all_dataframes.append(df_standardized)
-            table_dataframe_map[table_name] = df_standardized
+            if type_config:
+                logger.info(f"  Using explicit 'by hand' configuration for {table_name} ({sheet_type})")
+                # Manual Mapping
+                manual_map = type_config.get('mapping', {})
+                # Create a local map for this table's columns
+                cols_in_table = df.columns.tolist()
+                rename_map = {}
+                for silver_col, bronze_col in manual_map.items():
+                    # Support both explicit and normalized matching for the config key
+                    match = next((c for c in cols_in_table if c == bronze_col or normalize_column_name(c) == normalize_column_name(bronze_col)), None)
+                    if match:
+                        rename_map[match] = silver_col
+                
+                df_standardized = df.rename(columns=rename_map)
+                # Keep only columns that were renamed (whitelisted in the config) or metadata
+                keep_cols = list(rename_map.values()) + ['file_name', 'sheet_name', 'line_number', 'extraction_timestamp']
+                df_standardized = df_standardized[[c for c in df_standardized.columns if c in keep_cols]]
+                
+                # Manual Filters
+                allowed_types = type_config.get('filters', [])
+            else:
+                # Global Standardization logic
+                df_standardized = standardize_dataframe_columns(df, standardization_map)
+                allowed_types = TIPO_FILTERS.get(sheet_type, [])
+
+            # 2. Filter by TIPO 1 (Prefix matching) immediately
+            if 'tipo_1' in df_standardized.columns and allowed_types:
+                initial_count = len(df_standardized)
+                mask_tipo = df_standardized['tipo_1'].fillna('').apply(
+                    lambda x: any(str(x).upper().strip().startswith(t.upper()) for t in allowed_types)
+                )
+                df_standardized = df_standardized[mask_tipo].copy()
+                removed = initial_count - len(df_standardized)
+                if removed > 0:
+                    logger.info(f"  Removed {removed:,} rows not matching {sheet_type} prefixes {allowed_types}")
             
+            if len(df_standardized) > 0:
+                all_dataframes.append(df_standardized)
+                logger.info(f"  Read {len(df):,} rows, kept {len(df_standardized):,} after TIPO 1 filtering")
+            else:
+                logger.info(f"  No rows remaining after TIPO 1 filtering")
+                
         except Exception as e:
-            logger.error(f"Error reading from {table_name}: {e}")
+            logger.error(f"Error processing table {table_name}: {e}")
             continue
     
     if not all_dataframes:
@@ -574,13 +853,14 @@ def process_bronze_to_silver(con, sheet_type):
     # Get column order from reference table
     # Since we changed table names, we'll try to find any 'planilha_..._fet' table as reference
     reference_table_found = False
-    metadata_cols = ['line_number', 'extraction_timestamp', 'file_name', 'sheet_name']
+    metadata_cols = ['file_name', 'sheet_name']
+    all_metadata_cols = ['line_number', 'extraction_timestamp', 'file_name', 'sheet_name']
     
-    # Look for a reference table (prefer ..._ibi_fet as it usually has good columns)
-    possible_references = [t for t in bronze_tables if 'ibi' in t.lower() and 'fet' in t.lower()]
+    # Look for a reference table (prefer ..._ibi_fet / ..._ibi_fresh)
+    possible_references = [t for t in bronze_tables if 'ibi' in t.lower() and sheet_type in t.lower()]
     if not possible_references:
-        # Fallback to any FET table
-        possible_references = [t for t in bronze_tables if 'fet' in t.lower()]
+        # Fallback to any FET/FRESH table
+        possible_references = [t for t in bronze_tables if sheet_type in t.lower()]
     if not possible_references:
         # Fallback to any table
         possible_references = bronze_tables
@@ -593,7 +873,7 @@ def process_bronze_to_silver(con, sheet_type):
             # Get original columns from bronze table (before standardization)
             columns_info = con.execute(f"DESCRIBE bronze.{reference_table_name}").fetchdf()
             original_cols = [col for col in columns_info['column_name'].tolist() 
-                           if col not in metadata_cols]
+                           if col not in all_metadata_cols]
             reference_cols_original = original_cols
             reference_table_found = True
             logger.info(f"Using {reference_table_name} as reference for column order ({len(original_cols)} columns)")
@@ -611,10 +891,7 @@ def process_bronze_to_silver(con, sheet_type):
                 standard_name = standardization_map[normalized]
                 if standard_name not in reference_cols_standardized:
                     reference_cols_standardized.append(standard_name)
-            else:
-                # If not in map, use original (shouldn't happen, but handle it)
-                if orig_col not in reference_cols_standardized:
-                    reference_cols_standardized.append(orig_col)
+            # ELSE: If not in map, it's not whitelisted. DROP IT.
         
         # Move PIN to first position if it exists
         pin_cols = [col for col in reference_cols_standardized if normalize_column_name(col) == normalize_column_name('PIN')]
@@ -676,8 +953,9 @@ def process_bronze_to_silver(con, sheet_type):
     con.register('temp_silver_data', df_transformed)
     
     # Build INSERT statement with proper type casting
-    data_columns = [col for col in df_transformed.columns if col not in ['line_number', 'extraction_timestamp', 'file_name', 'sheet_name']]
-    all_columns = data_columns + ['line_number', 'extraction_timestamp', 'file_name', 'sheet_name']
+    exclude_cols = ['line_number', 'extraction_timestamp', 'file_name', 'sheet_name']
+    data_columns = [col for col in df_transformed.columns if col not in exclude_cols]
+    all_columns = data_columns + ['file_name', 'sheet_name']
     
     # Build column list and select list with proper casting
     column_list = ', '.join([f'"{col}"' if col in data_columns else col for col in all_columns])
@@ -694,8 +972,6 @@ def process_bronze_to_silver(con, sheet_type):
                 select_parts.append(f'CAST("{col}" AS DOUBLE) as "{col}"')
             else:
                 select_parts.append(f'CAST("{col}" AS VARCHAR) as "{col}"')
-        elif col == 'line_number':
-            select_parts.append(f'CAST(line_number AS INTEGER) as line_number')
         else:
             select_parts.append(f'CAST({col} AS VARCHAR) as {col}')
     
@@ -775,6 +1051,7 @@ def main():
                     logger.info(f"Normalized: '{item['normalized']}'")
                     logger.info(f"  Variants found: {item['variants']}")
                     logger.info(f"  Chosen standard: '{item['chosen']}'")
+                    logger.info(f"  Reason: {item['reason']}")
                     logger.info("")
         else:
             logger.info("All columns standardized successfully!")

@@ -36,6 +36,22 @@ DUCKDB_PATH = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__fil
 DATA_INPUT_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'data_input')
 SHEETS_TO_LOAD = ['FET', 'FRESH']
 
+# Year-specific configurations
+YEAR_CONFIGS = {
+    'DEFAULT': {
+        'sheets': ['FET', 'FRESH'],
+        'header': 1
+    },
+    '2022': {
+        'sheets': ['TOTAL', 'TOTAL 2022'],
+        'header': 1
+    },
+    '2023': {
+        'sheets': ['TOTAL 2023', 'GERAL 2023'],
+        'header': 1
+    }
+}
+
 def get_duckdb_connection():
     """Create DuckDB connection"""
     try:
@@ -78,6 +94,24 @@ def get_all_excel_files():
     logger.info(f"Total Excel files found: {len(excel_files)}")
     return sorted(excel_files)  # Sort for consistent processing order
 
+def detect_header_row(file_path, sheet_name, max_rows=5):
+    """
+    Attempt to detect the header row by looking for 'PIN' or 'DATA DA PUNÇÃO' (normalized)
+    in the first few rows. Returns the 0-indexed row number.
+    """
+    try:
+        # Read first few rows without header
+        df_top = pd.read_excel(file_path, sheet_name=sheet_name, nrows=max_rows, header=None, engine='openpyxl')
+        for i, row in df_top.iterrows():
+            # Normalize and check for key columns
+            row_vals = [str(val).upper().strip() for val in row if pd.notna(val)]
+            # Match common clinical columns
+            if any(col in row_vals for col in ['PIN', 'PRONTUARIO', 'DATA DA PUNCAO', 'DATA DA PUNÇÃO', 'DATA DA FET', 'TIPO 1']):
+                return i
+    except Exception as e:
+        logger.warning(f"Header detection failed for {file_path} [{sheet_name}]: {e}")
+    return None
+
 def check_sheet_exists(file_path, sheet_name):
     """Check if the specified sheet exists in the Excel file"""
     try:
@@ -106,9 +140,10 @@ def generate_table_name(file_path, sheet_name):
         clean_name = re.sub(r'[^a-z0-9]', '_', clean_name)
         clean_name = re.sub(r'_+', '_', clean_name).strip('_')
         
-        # Construct table name
+        # Construct table name and sanitize spaces
         table_name = f"planilha_{year}_{clean_name}_{sheet_name.lower()}"
-        return table_name
+        safe_table_name = re.sub(r'[^a-zA-Z0-9_]', '_', table_name).lower()
+        return safe_table_name
     except Exception as e:
         logger.warning(f"Could not generate standard name, falling back to safe filename: {e}")
         # Fallback
@@ -132,9 +167,9 @@ def create_bronze_table(con, table_name, columns):
     used_names = set()  # Track all column names we've used (case-insensitive for DuckDB)
     
     for col in columns:
-        original_col = col
+        original_col = str(col)  # Ensure it's a string
         counter = 0
-        unique_col = col
+        unique_col = original_col
         
         # Keep trying until we find a unique name (case-insensitive check for DuckDB)
         while unique_col.lower() in [n.lower() for n in used_names]:
@@ -169,25 +204,61 @@ def process_excel_file(file_path, con):
     file_name = os.path.basename(file_path)
     total_loaded = 0
     
-    for sheet in SHEETS_TO_LOAD:
+    year = os.path.basename(os.path.dirname(file_path))
+    config = YEAR_CONFIGS.get(year, YEAR_CONFIGS['DEFAULT'])
+    sheets_to_try = config['sheets']
+    header_row = config['header']
+    
+    # Get actual sheet names present in file
+    try:
+        xl_file = pd.ExcelFile(file_path, engine='openpyxl')
+        actual_sheets = xl_file.sheet_names
+        actual_sheets_lower = [s.lower() for s in actual_sheets]
+    except Exception as e:
+        logger.error(f"Could not read excel file {file_name}: {e}")
+        return 0
+
+    # Determine which sheets to process (find actual case-sensitive name)
+    sheets_to_process = []
+    for sheet_pattern in sheets_to_try:
+        try:
+            # Case insensitive match
+            idx = actual_sheets_lower.index(sheet_pattern.lower())
+            actual_name = actual_sheets[idx]
+            if actual_name not in sheets_to_process:
+                sheets_to_process.append(actual_name)
+        except ValueError:
+            continue
+
+    if not sheets_to_process:
+        logger.warning(f"None of the configured sheets {sheets_to_try} found in {file_name}")
+        return 0
+
+    for sheet in sheets_to_process:
         # Generate table name for this sheet
         table_name = generate_table_name(file_path, sheet)
-        logger.info(f"Processing file: {file_name} [{sheet}] -> table: {table_name}")
+        
+        # Determine header row - prefer detection for 2022/2023
+        actual_header_row = header_row
+        if year in ['2022', '2023']:
+            detected = detect_header_row(file_path, sheet)
+            if detected is not None:
+                actual_header_row = detected
+                logger.info(f"Detected header for {file_name} [{sheet}] at row {actual_header_row}")
+            else:
+                logger.info(f"Could not detect header for {file_name} [{sheet}], using default {actual_header_row}")
+        
+        logger.info(f"Processing file: {file_name} [{sheet}] (Year: {year}, Header Row: {actual_header_row}) -> table: {table_name}")
         
         try:
-            # Check if sheet exists
-            if not check_sheet_exists(file_path, sheet):
-                logger.warning(f"Sheet '{sheet}' not found in {file_name}, skipping...")
-                continue
-            
-            logger.info(f"Reading sheet '{sheet}' from {file_name} (header in row 2)")
+            logger.info(f"Reading sheet '{sheet}' from {file_name} (header in row {actual_header_row + 1})")
             
             # Use optimized reading settings
             df = pd.read_excel(
                 file_path, 
                 sheet_name=sheet,
                 engine='openpyxl',
-                header=1,  # Column names are in row 2
+                header=actual_header_row,
                 dtype=str  # Read all as strings to avoid type issues
             )
             
@@ -209,9 +280,9 @@ def process_excel_file(file_path, con):
             unique_columns = []
             
             for col in original_columns:
-                original_col = col
+                original_col = str(col)
                 counter = 0
-                unique_col = col
+                unique_col = original_col
                 
                 # Keep trying until we find a unique name (case-insensitive check for DuckDB)
                 while unique_col.lower() in [n.lower() for n in used_names]:
