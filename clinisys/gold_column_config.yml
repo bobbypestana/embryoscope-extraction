@@ -42,12 +42,15 @@ view_embrioes_congelados:
 view_congelamentos_embrioes:
   - id
   - CodCongelamento
+  - Data
 
 # Columns from view_descongelamentos_embrioes (descong_em_*)
 view_descongelamentos_embrioes:
   - id
   - CodDescongelamento
   - DataTransferencia
+  - DataCongelamento
+  - DataDescongelamento
 
 # Columns from view_tratamentos (transfer_*) - Second join on vde.DataTransferencia
 view_tratamentos_transfer:

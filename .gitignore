@@ -71,6 +71,7 @@ env/
 .Trashes
 ehthumbs.db
 Thumbs.db
+*.ini
 
 # Data output files
 **/data_output/
