@@ -64,7 +64,11 @@ def create_combined_table(conn):
         FROM silver.planilha_embriologia_combined e
         LEFT JOIN silver.redlara_unified r
           ON e.prontuario = r.prontuario
-          AND e.fet_data_da_fet = r.date_of_embryo_transfer
+          AND (
+               (r.date_of_embryo_transfer = e.fet_data_da_fet AND r.date_of_embryo_transfer IS NOT NULL)
+               OR (r.date_when_embryos_were_cryopreserved = e.fet_data_crio AND r.date_when_embryos_were_cryopreserved IS NOT NULL)
+               OR (r.date_when_embryos_were_cryopreserved = e.fresh_data_crio AND r.date_when_embryos_were_cryopreserved IS NOT NULL)
+          )
     """).df().iloc[0]
     
     # 2. Right Join: Redlara -> Planilha
@@ -75,22 +79,62 @@ def create_combined_table(conn):
         FROM silver.redlara_unified r
         LEFT JOIN silver.planilha_embriologia_combined e
           ON r.prontuario = e.prontuario
-          AND r.date_of_embryo_transfer = e.fet_data_da_fet
+          AND (
+               (r.date_of_embryo_transfer = e.fet_data_da_fet AND r.date_of_embryo_transfer IS NOT NULL)
+               OR (r.date_when_embryos_were_cryopreserved = e.fet_data_crio AND r.date_when_embryos_were_cryopreserved IS NOT NULL)
+               OR (r.date_when_embryos_were_cryopreserved = e.fresh_data_crio AND r.date_when_embryos_were_cryopreserved IS NOT NULL)
+          )
     """).df().iloc[0]
     
-    # Create the result table (Full Join to keep everything)
+    # Create the result table using a priority-based multi-step join
     join_query = """
     CREATE TABLE gold.redlara_planilha_combined AS
+    WITH redlara_with_id AS (
+        SELECT *, row_number() OVER() as r_unique_id FROM silver.redlara_unified
+    ),
+    planilha_with_id AS (
+        SELECT *, row_number() OVER() as e_unique_id FROM silver.planilha_embriologia_combined
+    ),
+    potential_matches AS (
+        SELECT 
+            r.r_unique_id,
+            e.e_unique_id,
+            CASE 
+                WHEN r.date_of_embryo_transfer = e.fet_data_da_fet AND r.date_of_embryo_transfer IS NOT NULL THEN 1
+                WHEN r.date_when_embryos_were_cryopreserved = e.fet_data_crio AND r.date_when_embryos_were_cryopreserved IS NOT NULL THEN 2
+                WHEN r.date_when_embryos_were_cryopreserved = e.fresh_data_crio AND r.date_when_embryos_were_cryopreserved IS NOT NULL THEN 3
+                ELSE 99
+            END as match_priority
+        FROM redlara_with_id r
+        JOIN planilha_with_id e ON r.prontuario = e.prontuario
+        WHERE match_priority < 99
+    ),
+    best_matches AS (
+        SELECT * FROM (
+            SELECT 
+                *,
+                -- Select best match for each Redlara record
+                ROW_NUMBER() OVER(PARTITION BY r_unique_id ORDER BY match_priority) as r_rank,
+                -- Select best match for each Planilha record
+                ROW_NUMBER() OVER(PARTITION BY e_unique_id ORDER BY match_priority) as e_rank
+            FROM potential_matches
+        ) WHERE r_rank = 1 AND e_rank = 1
+    )
     SELECT 
         COALESCE(r.prontuario, e.prontuario) as prontuario,
         COALESCE(r.date_of_embryo_transfer, e.fet_data_da_fet) as transfer_date,
         COALESCE(TRY_CAST(r.number_of_newborns AS INTEGER), TRY_CAST(e.fet_no_nascidos AS INTEGER)) as merged_numero_de_nascidos,
-        r.* EXCLUDE (prontuario, date_of_embryo_transfer, number_of_newborns),
-        e.* EXCLUDE (prontuario, fet_data_da_fet, fet_no_nascidos)
-    FROM silver.redlara_unified r
-    FULL OUTER JOIN silver.planilha_embriologia_combined e
-      ON r.prontuario = e.prontuario
-      AND r.date_of_embryo_transfer = e.fet_data_da_fet
+        CASE 
+            WHEN e.fresh_incubadora ILIKE '%ES%' THEN 'Embryoscope'
+            WHEN e.fresh_incubadora ILIKE '%THERMO%' THEN 'THERMO'
+            WHEN e.fresh_incubadora IS NOT NULL THEN 'K-SYSTEM'
+            ELSE NULL 
+        END as incubadora_padronizada,
+        r.* EXCLUDE (prontuario, date_of_embryo_transfer, number_of_newborns, r_unique_id),
+        e.* EXCLUDE (prontuario, fet_data_da_fet, fet_no_nascidos, e_unique_id)
+    FROM redlara_with_id r
+    FULL OUTER JOIN best_matches m ON r.r_unique_id = m.r_unique_id
+    FULL OUTER JOIN planilha_with_id e ON m.e_unique_id = e.e_unique_id
     """
     
     logger.info("Executing Full Outer Join to create gold table...")

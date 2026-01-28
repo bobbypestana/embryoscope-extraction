@@ -41,8 +41,8 @@ SHEET_TYPES = ['fet', 'fresh']  # Process each sheet type separately
 # Refinement Configuration (All available years)
 YEARS_TO_PROCESS = ['2022', '2023', '2024', '2025']
 REFERENCE_TABLES = {
-    'fresh': 'planilha_2025_ibi_fresh',
-    'fet': 'planilha_2025_ibi_fet'
+    'fresh': 'planilha_2024_ibira_fresh',
+    'fet': 'planilha_2024_ibira_fet'
 }
 
 # Column Whitelist (normalized names as snake_case)
@@ -92,6 +92,7 @@ WHITELIST = {
         'no_et',
         'gravidez_bioquimica',
         'gravidez_clinica'
+        'obs'
     ]
 }
 
@@ -133,22 +134,23 @@ TABLE_CONFIGS = {
                 'fator_1': 'FATOR 1',
                 'incubadora': 'INCUB',
                 'data_crio': 'DATA CRIO',
-                'tipo_de_inseminacao': '',
-                'tipo_biopsia': '',
-                'altura': '',
-                'peso': '',
-                'data_de_nasc': '',
-                'idade_espermatozoide': '',
-                'origem': '',
-                'tipo': '',
-                'opu': '',
-                'total_de_mii': '',
-                'qtd_blasto': '',
-                'qtd_blasto_tq_a_e_b': '',
-                'no_biopsiados': '',
-                'qtd_analisados': '',
-                'qtd_normais': '',
-                'dia_cryo': ''
+                # New columns - suggested mappings:
+                'tipo_de_inseminacao': 'TIPO 2',  
+                'tipo_biopsia': 'TIPO 3',  
+                'altura': 'ALTURA',
+                'peso': 'PESO',
+                'data_de_nasc': 'DATA DE NASC.',
+                'idade_espermatozoide': '', 
+                'origem_espermatozoide': '',
+                'tipo_espermatozoide': '',
+                'opu': 'OPU',
+                'total_de_mii': 'MII',
+                'qtd_blasto': '# BLASTO',
+                'qtd_blasto_tq_a_e_b': '# BLASTO TQ',  
+                'no_biopsiados': '# DPI',  
+                'qtd_analisados': 'N° ANALISADOS', 
+                'qtd_normais': '# DPI NL', 
+                'dia_cryo': 'DIA CRIO'
             },
             'filters': ['FIC/ICSI', 'FIV/ICSI', 'FOT', 'FOT OR', 'OR', 'FRESH']
         },
@@ -159,21 +161,22 @@ TABLE_CONFIGS = {
                 'data_da_fet': 'DIA',
                 'data_crio': 'DATA CRIO',
                 'result': 'RESULT',
-                'tipo_do_resultado': 'ADMINSTRAÇÃO 1',
+                'tipo_do_resultado': 'ADMINISTRAÇÃO 1',
                 'no_nascidos': '',
-                'tipo_de_tratamento': '',
-                'tipo_de_fet': '',
-                'tipo_biopsia': '',
-                'tipo_da_doacao': '',
-                'idade_mulher': '',
-                'idade_do_cong_de_embriao': '',
+                'tipo_de_tratamento': 'TIPO 1',
+                'tipo_de_fet': 'TIPO 2',
+                'tipo_biopsia': 'TIPO 3',
+                'tipo_da_doacao': 'TIPO 1',
+                'idade_mulher': 'IDADE',
+                'idade_do_cong_de_embriao': 'IDADE OÓ NO CONG (PARA FET OU FOT)',
                 'preparo_para_transferencia': '',
-                'dia_cryo': '',
+                'dia_cryo': 'DIA CRIO',
                 'no_da_transfer_1a_2a_3a': '',
-                'dia_et': '',
-                'no_et': '',
+                'dia_et': 'DIA ET',
+                'no_et': 'NºET',
                 'gravidez_bioquimica': '',
-                'gravidez_clinica': ''
+                'gravidez_clinica': '',
+                'obs': 'OBS'
             },
             'filters': ['FET', 'FET/OR', 'FET/ER']
         }
@@ -185,26 +188,27 @@ TABLE_CONFIGS = {
             'mapping': {
                 'pin': 'PIN',
                 'tipo_1': 'TIPO 1',
-                'data_da_puncao': 'DATA',
+                'data_da_puncao': 'DIA',
                 'fator_1': 'FATOR 1',
                 'incubadora': 'INCUB',
                 'data_crio': 'DATA CRIO',
-                'tipo_de_inseminacao': '',
-                'tipo_biopsia': '',
-                'altura': '',
-                'peso': '',
-                'data_de_nasc': '',
-                'idade_espermatozoide': '',
-                'origem': '',
-                'tipo': '',
-                'opu': '',
-                'total_de_mii': '',
-                'qtd_blasto': '',
-                'qtd_blasto_tq_a_e_b': '',
-                'no_biopsiados': '',
-                'qtd_analisados': '',
-                'qtd_normais': '',
-                'dia_cryo': ''
+                # New columns - suggested mappings:
+                'tipo_de_inseminacao': 'TIPO 2',  
+                'tipo_biopsia': 'TIPO 3',  
+                'altura': 'ALTURA',
+                'peso': 'PESO',
+                'data_de_nasc': 'DATA DE NASC.',
+                'idade_espermatozoide': '', 
+                'origem_espermatozoide': '',
+                'tipo_espermatozoide': '',
+                'opu': 'OPU',
+                'total_de_mii': 'MII',
+                'qtd_blasto': '# BLASTO',
+                'qtd_blasto_tq_a_e_b': '# BLASTO TQ',  
+                'no_biopsiados': '# DPI',  
+                'qtd_analisados': '#ANALISADOS DPI', 
+                'qtd_normais': '# DPI NL', 
+                'dia_cryo': 'DIA CRYO'
             },
             'filters': ['FIC/ICSI', 'FIV/ICSI', 'FOT', 'FOT OR', 'OR', 'FRESH']
         },
@@ -212,24 +216,25 @@ TABLE_CONFIGS = {
             'mapping': {
                 'pin': 'PIN',
                 'tipo_1': 'TIPO 1',
-                'data_da_fet': 'DATA',
+                'data_da_fet': 'DIA',
                 'data_crio': 'DATA CRIO',
                 'result': 'RESULT',
-                'tipo_do_resultado': '',
+                'tipo_do_resultado': 'ADMINISTRAÇÃO 1',
                 'no_nascidos': '',
-                'tipo_de_tratamento': '',
-                'tipo_de_fet': '',
-                'tipo_biopsia': '',
-                'tipo_da_doacao': '',
-                'idade_mulher': '',
-                'idade_do_cong_de_embriao': '',
+                'tipo_de_tratamento': 'TIPO 1',
+                'tipo_de_fet': 'TIPO 2',
+                'tipo_biopsia': 'TIPO 3',
+                'tipo_da_doacao': 'TIPO 1',
+                'idade_mulher': 'IDADE',
+                'idade_do_cong_de_embriao': 'IDADE OÓ NO CONG',
                 'preparo_para_transferencia': '',
-                'dia_cryo': '',
+                'dia_cryo': 'DIA CRYO',
                 'no_da_transfer_1a_2a_3a': '',
-                'dia_et': '',
-                'no_et': '',
+                'dia_et': 'DIA ET',
+                'no_et': 'NºET',
                 'gravidez_bioquimica': '',
-                'gravidez_clinica': ''
+                'gravidez_clinica': '',
+                'obs': 'OBS'
             },
             'filters': ['FET', 'FET/OR', 'FET/ER']
         }
@@ -243,24 +248,25 @@ TABLE_CONFIGS = {
                 'tipo_1': 'TIPO 1',
                 'data_da_puncao': 'DIA',
                 'fator_1': 'FATOR 1',
-                'incubadora': 'INCUB D5',
+                'incubadora': 'INCUB',
                 'data_crio': 'DATA CRIO',
-                'tipo_de_inseminacao': '',
-                'tipo_biopsia': '',
-                'altura': '',
-                'peso': '',
-                'data_de_nasc': '',
-                'idade_espermatozoide': '',
-                'origem': '',
-                'tipo': '',
-                'opu': '',
-                'total_de_mii': '',
-                'qtd_blasto': '',
-                'qtd_blasto_tq_a_e_b': '',
-                'no_biopsiados': '',
-                'qtd_analisados': '',
-                'qtd_normais': '',
-                'dia_cryo': ''
+                # New columns - suggested mappings:
+                'tipo_de_inseminacao': 'TIPO 2',  
+                'tipo_biopsia': 'TIPO 3',  
+                'altura': 'ALTURA',
+                'peso': 'PESO',
+                'data_de_nasc': 'DATA DE NASC.',
+                'idade_espermatozoide': '', 
+                'origem_espermatozoide': '',
+                'tipo_espermatozoide': '',
+                'opu': 'OPU',
+                'total_de_mii': 'MII',
+                'qtd_blasto': '# BLASTO',
+                'qtd_blasto_tq_a_e_b': '# BLASTO TQ',  
+                'no_biopsiados': '# DPI',  
+                'qtd_analisados': 'Nº analisados', 
+                'qtd_normais': '# DPI NL', 
+                'dia_cryo': 'DIA CRYO'
             },
             'filters': ['FIC/ICSI', 'FIV/ICSI', 'FOT', 'FOT OR', 'OR', 'FRESH']
         },
@@ -273,19 +279,20 @@ TABLE_CONFIGS = {
                 'result': 'RESULT',
                 'tipo_do_resultado': 'ADMINSTRAÇÃO 1',
                 'no_nascidos': '',
-                'tipo_de_tratamento': '',
-                'tipo_de_fet': '',
-                'tipo_biopsia': '',
-                'tipo_da_doacao': '',
-                'idade_mulher': '',
+                'tipo_de_tratamento': 'TIPO 1',
+                'tipo_de_fet': 'TIPO 2',
+                'tipo_biopsia': 'TIPO 3',
+                'tipo_da_doacao': 'TIPO 1',
+                'idade_mulher': 'IDADE',
                 'idade_do_cong_de_embriao': '',
                 'preparo_para_transferencia': '',
-                'dia_cryo': '',
+                'dia_cryo': 'DIA CRYO',
                 'no_da_transfer_1a_2a_3a': '',
-                'dia_et': '',
-                'no_et': '',
+                'dia_et': 'DIA ET',
+                'no_et': 'NºET',
                 'gravidez_bioquimica': '',
-                'gravidez_clinica': ''
+                'gravidez_clinica': '',
+                'obs': 'OBS'
             },
             'filters': ['FET', 'FET/OR', 'FET/ER']
         }
@@ -301,22 +308,81 @@ TABLE_CONFIGS = {
                 'fator_1': 'FATOR 1',
                 'incubadora': 'INCUB',
                 'data_crio': 'DATA CRIO',
-                'tipo_de_inseminacao': '',
-                'tipo_biopsia': '',
-                'altura': '',
-                'peso': '',
-                'data_de_nasc': '',
-                'idade_espermatozoide': '',
-                'origem': '',
-                'tipo': '',
-                'opu': '',
-                'total_de_mii': '',
-                'qtd_blasto': '',
-                'qtd_blasto_tq_a_e_b': '',
-                'no_biopsiados': '',
-                'qtd_analisados': '',
-                'qtd_normais': '',
-                'dia_cryo': ''
+                # New columns - suggested mappings:
+                'tipo_de_inseminacao': 'TIPO 2',  
+                'tipo_biopsia': 'TIPO 3',  
+                'altura': 'ALTURA',
+                'peso': 'PESO',
+                'data_de_nasc': 'DATA DE NASC.',
+                'idade_espermatozoide': '', 
+                'origem_espermatozoide': '',
+                'tipo_espermatozoide': '',
+                'opu': 'OPU',
+                'total_de_mii': 'MII',
+                'qtd_blasto': '# BLASTO',
+                'qtd_blasto_tq_a_e_b': '# BLASTO TQ',  
+                'no_biopsiados': '# DPI',  
+                'qtd_analisados': 'N° ANALISADOS', 
+                'qtd_normais': '# DPI NL', 
+                'dia_cryo': 'DIA CRIO'
+            },
+            'filters': ['FIC/ICSI', 'FIV/ICSI', 'FOT', 'FOT OR', 'OR', 'FRESH']
+        },
+        'fet': {
+            'mapping': {
+                'pin': 'PIN',
+                'tipo_1': 'TIPO 1',
+                'data_da_fet': 'DIA',
+                'data_crio': 'DATA CRIO',
+                'result': 'RESULT',
+                'tipo_do_resultado': 'ADMINISTRAÇÃO 1',
+                'no_nascidos': '',
+                'tipo_de_tratamento': 'TIPO 1',
+                'tipo_de_fet': 'TIPO 2',
+                'tipo_biopsia': 'TIPO 3',
+                'tipo_da_doacao': 'TIPO 1',
+                'idade_mulher': 'IDADE',
+                'idade_do_cong_de_embriao': 'IDADE OÓ NO CONG (PARA FET OU FOT)',
+                'preparo_para_transferencia': '',
+                'dia_cryo': 'DIA CRIO',
+                'no_da_transfer_1a_2a_3a': '',
+                'dia_et': 'DIA ET',
+                'no_et': 'NºET',
+                'gravidez_bioquimica': '',
+                'gravidez_clinica': '',
+                'obs': 'OBS'
+            },
+            'filters': ['FET', 'FET/OR', 'FET/ER']
+        }
+    },
+    'planilha_2023_sj_total_2023': {
+        'sheet_name': 'TOTAL 2023',
+        'header_row': 2,
+        'fresh': {
+            'mapping': {
+                'pin': 'PIN',
+                'tipo_1': 'TIPO 1',
+                'data_da_puncao': 'DIA',
+                'fator_1': 'FATOR 1',
+                'incubadora': 'INCUB',
+                'data_crio': 'DATA CRIO',
+                # New columns - suggested mappings:
+                'tipo_de_inseminacao': 'TIPO 2',  
+                'tipo_biopsia': 'TIPO 3',  
+                'altura': 'ALTURA',
+                'peso': 'PESO',
+                'data_de_nasc': 'DATA DE NASC.',
+                'idade_espermatozoide': '', 
+                'origem_espermatozoide': '',
+                'tipo_espermatozoide': '',
+                'opu': 'OPU',
+                'total_de_mii': 'MII',
+                'qtd_blasto': '# BLASTO',
+                'qtd_blasto_tq_a_e_b': '# BLASTO TQ',  
+                'no_biopsiados': '# DPI',  
+                'qtd_analisados': '#ANALISADOS DPI', 
+                'qtd_normais': '# DPI NL', 
+                'dia_cryo': 'DIA CRYO'
             },
             'filters': ['FIC/ICSI', 'FIV/ICSI', 'FOT', 'FOT OR', 'OR', 'FRESH']
         },
@@ -329,75 +395,20 @@ TABLE_CONFIGS = {
                 'result': 'RESULT',
                 'tipo_do_resultado': 'ADMINSTRAÇÃO 1',
                 'no_nascidos': '',
-                'tipo_de_tratamento': '',
-                'tipo_de_fet': '',
-                'tipo_biopsia': '',
-                'tipo_da_doacao': '',
-                'idade_mulher': '',
-                'idade_do_cong_de_embriao': '',
+                'tipo_de_tratamento': 'TIPO 1',
+                'tipo_de_fet': 'TIPO 2',
+                'tipo_biopsia': 'TIPO 3',
+                'tipo_da_doacao': 'TIPO 1',
+                'idade_mulher': 'IDADE',
+                'idade_do_cong_de_embriao': 'IDADE OÓ NO CONG',
                 'preparo_para_transferencia': '',
-                'dia_cryo': '',
+                'dia_cryo': 'DIA CRYO',
                 'no_da_transfer_1a_2a_3a': '',
-                'dia_et': '',
-                'no_et': '',
+                'dia_et': 'DIA ET',
+                'no_et': 'NºET',
                 'gravidez_bioquimica': '',
-                'gravidez_clinica': ''
-            },
-            'filters': ['FET', 'FET/OR', 'FET/ER']
-        }
-    },
-    'planilha_2023_sj_total_2023': {
-        'sheet_name': 'TOTAL 2023',
-        'header_row': 2,
-        'fresh': {
-            'mapping': {
-                'pin': 'PIN',
-                'tipo_1': 'TIPO 1',
-                'data_da_puncao': 'DATA',
-                'fator_1': 'FATOR 1',
-                'incubadora': 'INCUB',
-                'data_crio': 'DATA CRIO',
-                'tipo_de_inseminacao': '',
-                'tipo_biopsia': '',
-                'altura': '',
-                'peso': '',
-                'data_de_nasc': '',
-                'idade_espermatozoide': '',
-                'origem': '',
-                'tipo': '',
-                'opu': '',
-                'total_de_mii': '',
-                'qtd_blasto': '',
-                'qtd_blasto_tq_a_e_b': '',
-                'no_biopsiados': '',
-                'qtd_analisados': '',
-                'qtd_normais': '',
-                'dia_cryo': ''
-            },
-            'filters': ['FIC/ICSI', 'FIV/ICSI', 'FOT', 'FOT OR', 'OR', 'FRESH']
-        },
-        'fet': {
-            'mapping': {
-                'pin': 'PIN',
-                'tipo_1': 'TIPO 1',
-                'data_da_fet': 'DATA',
-                'data_crio': 'DATA CRIO',
-                'result': 'RESULT',
-                'tipo_do_resultado': 'ADMINSTRAÇÃO 1',
-                'no_nascidos': '',
-                'tipo_de_tratamento': '',
-                'tipo_de_fet': '',
-                'tipo_biopsia': '',
-                'tipo_da_doacao': '',
-                'idade_mulher': '',
-                'idade_do_cong_de_embriao': '',
-                'preparo_para_transferencia': '',
-                'dia_cryo': '',
-                'no_da_transfer_1a_2a_3a': '',
-                'dia_et': '',
-                'no_et': '',
-                'gravidez_bioquimica': '',
-                'gravidez_clinica': ''
+                'gravidez_clinica': '',
+                'obs': 'OBS'
             },
             'filters': ['FET', 'FET/OR', 'FET/ER']
         }
@@ -411,24 +422,25 @@ TABLE_CONFIGS = {
                 'tipo_1': 'TIPO 1',
                 'data_da_puncao': 'DIA',
                 'fator_1': 'FATOR 1',
-                'incubadora': 'INCUB D5',
+                'incubadora': 'INCUB',
                 'data_crio': 'DATA CRIO',
-                'tipo_de_inseminacao': '',
-                'tipo_biopsia': '',
-                'altura': '',
-                'peso': '',
-                'data_de_nasc': '',
-                'idade_espermatozoide': '',
-                'origem': '',
-                'tipo': '',
-                'opu': '',
-                'total_de_mii': '',
-                'qtd_blasto': '',
-                'qtd_blasto_tq_a_e_b': '',
-                'no_biopsiados': '',
-                'qtd_analisados': '',
-                'qtd_normais': '',
-                'dia_cryo': ''
+                # New columns - suggested mappings:
+                'tipo_de_inseminacao': 'TIPO 2',  
+                'tipo_biopsia': 'TIPO 3',  
+                'altura': 'ALTURA',
+                'peso': 'PESO',
+                'data_de_nasc': 'DATA DE NASC.',
+                'idade_espermatozoide': '', 
+                'origem_espermatozoide': '',
+                'tipo_espermatozoide': '',
+                'opu': 'OPU',
+                'total_de_mii': 'MII',
+                'qtd_blasto': '# BLASTO',
+                'qtd_blasto_tq_a_e_b': '# BLASTO TQ',  
+                'no_biopsiados': '# DPI',  
+                'qtd_analisados': 'Nº analisados', 
+                'qtd_normais': '# DPI NL', 
+                'dia_cryo': 'DIA CRYO'
             },
             'filters': ['FIC/ICSI', 'FIV/ICSI', 'FOT', 'FOT OR', 'OR', 'FRESH']
         },
@@ -441,19 +453,20 @@ TABLE_CONFIGS = {
                 'result': 'RESULT',
                 'tipo_do_resultado': 'ADMINSTRAÇÃO 1',
                 'no_nascidos': '',
-                'tipo_de_tratamento': '',
-                'tipo_de_fet': '',
-                'tipo_biopsia': '',
-                'tipo_da_doacao': '',
-                'idade_mulher': '',
+                'tipo_de_tratamento': 'TIPO 1',
+                'tipo_de_fet': 'TIPO 2',
+                'tipo_biopsia': 'TIPO 3',
+                'tipo_da_doacao': 'TIPO 1',
+                'idade_mulher': 'IDADE',
                 'idade_do_cong_de_embriao': '',
                 'preparo_para_transferencia': '',
-                'dia_cryo': '',
+                'dia_cryo': 'DIA CRYO',
                 'no_da_transfer_1a_2a_3a': '',
-                'dia_et': '',
-                'no_et': '',
+                'dia_et': 'DIA ET',
+                'no_et': 'NºET',
                 'gravidez_bioquimica': '',
-                'gravidez_clinica': ''
+                'gravidez_clinica': '',
+                'obs': 'OBS'
             },
             'filters': ['FET', 'FET/OR', 'FET/ER']
         }
@@ -465,18 +478,18 @@ TABLE_CONFIGS = {
             'mapping': {
                 'pin': 'PIN',
                 'tipo_1': 'TIPO DE TRATAMENTO',
-                'data_da_puncao': 'DIA',
+                'data_da_puncao': 'DATA DA PUNÇÃO',
                 'fator_1': 'FATOR 1',
-                'incubadora': 'INCUB',
-                'data_crio': 'DATA CRIO',
+                'incubadora': 'INCUBADORA',
+                'data_crio': 'DATA CRIO (SOMENTE A PRIMEIRA DATA DO CONG)',
                 'tipo_de_inseminacao': 'TIPO DE INSEMINAÇÃO',
                 'tipo_biopsia': 'TIPO BIÓPSIA',
                 'altura': 'ALTURA',
                 'peso': 'PESO',
                 'data_de_nasc': 'DATA DE NASC.',
                 'idade_espermatozoide': 'IDADE ESPERMATOZOIDE',
-                'origem': 'ORIGEM',
-                'tipo': 'TIPO',
+                'origem_espermatozoide': 'ORIGEM',
+                'tipo_espermatozoide': 'TIPO',
                 'opu': 'OPU',
                 'total_de_mii': 'TOTAL DE MII',
                 'qtd_blasto': 'QTD BLASTO',
@@ -486,7 +499,7 @@ TABLE_CONFIGS = {
                 'qtd_normais': 'QTD NORMAIS',
                 'dia_cryo': 'DIA CRYO'
             },
-            'filters': ['FIC/ICSI', 'FIV/ICSI', 'FOT', 'FOT OR', 'OR', 'FRESH']
+            'filters': ['FRESH', 'FRESH + FOT PRÓPRIO']
         }
     },
     'planilha_2024_ibira_fet': {
@@ -495,8 +508,8 @@ TABLE_CONFIGS = {
         'fet': {
             'mapping': {
                 'pin': 'PIN',
-                'tipo_1': 'TIPO 1',
-                'data_da_fet': 'DIA',
+                'tipo_1': 'TIPO DE TRATAMENTO',
+                'data_da_fet': 'DATA DA FET',
                 'data_crio': 'DATA CRIO',
                 'result': 'RESULT',
                 'tipo_do_resultado': 'TIPO DO RESULTADO',
@@ -515,7 +528,7 @@ TABLE_CONFIGS = {
                 'gravidez_bioquimica': 'GRAVIDEZ BIOQUIMICA',
                 'gravidez_clinica': 'GRAVIDEZ CLINICA'
             },
-            'filters': ['FET', 'FET/OR', 'FET/ER']
+            'filters': []  # Include all rows for FET
         }
     }
 }
@@ -1068,13 +1081,16 @@ def process_bronze_to_silver(con, sheet_type):
                     if match:
                         rename_map[match] = silver_col
                 
+                logger.info(f"  Mapped {len(rename_map)} columns for {table_name}")
                 df_standardized = df.rename(columns=rename_map)
                 # Keep only columns that were renamed (whitelisted in the config) or metadata
                 keep_cols = list(rename_map.values()) + ['file_name', 'sheet_name', 'line_number', 'extraction_timestamp']
                 df_standardized = df_standardized[[c for c in df_standardized.columns if c in keep_cols]]
+                logger.info(f"  After column selection: {len(df_standardized)} rows, {len(df_standardized.columns)} columns")
                 
                 # Manual Filters
                 allowed_types = type_config.get('filters', [])
+
             else:
                 # Global Standardization logic
                 df_standardized = standardize_dataframe_columns(df, standardization_map)
@@ -1099,6 +1115,8 @@ def process_bronze_to_silver(con, sheet_type):
                 
         except Exception as e:
             logger.error(f"Error processing table {table_name}: {e}")
+            import traceback
+            logger.error(f"Traceback: {traceback.format_exc()}")
             continue
     
     if not all_dataframes:

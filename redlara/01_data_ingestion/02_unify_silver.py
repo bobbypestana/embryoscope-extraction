@@ -29,6 +29,12 @@ TABLE_CONFIGS = {
             'baby_2_weight': 'baby2_weight',
             'baby_3_weight': 'baby3_weight',
             'complications_of_pregnancy_specify': 'complications_of_pregnancy_specify',
+
+            'number_of_fet_after_originally_frozen': 'number_of_fet_after_originally_frozen',
+            'n_of_biopsied': 'no_of_biopsed',
+            'n_of_normal': 'no_of_normal',
+            'number_of_embryos_transferred': 'number_of_embryos_transferred',
+            
             # Metadata keys (usually present)
             'year': 'year',
             'unidade': 'unidade',
@@ -50,6 +56,12 @@ TABLE_CONFIGS = {
             'baby_2_weight': 'Baby 2 - weight',
             'baby_3_weight': 'Baby 3 - Weight',
             'complications_of_pregnancy_specify': 'Complications of pregnancy specify',
+
+            'number_of_fet_after_originally_frozen': 'Number of fet after originally frozen',
+            'n_of_biopsied': 'Nº of biopsied',
+            'n_of_normal': 'Nº of normal',
+            'number_of_embryos_transferred': 'Number of embryos transferred',
+
             'year': 'year',
             'unidade': 'unidade',
             'prontuario': None
@@ -70,6 +82,12 @@ TABLE_CONFIGS = {
             'baby_2_weight': 'Baby 2 - weight',
             'baby_3_weight': 'Baby 3 - Weight',
             'complications_of_pregnancy_specify': 'Complications of pregnancy specify',
+
+            'number_of_fet_after_originally_frozen': 'Number of fet after originally frozen',
+            'n_of_biopsied': 'Nº of biopsied',
+            'n_of_normal': 'Nº of normal',
+            'number_of_embryos_transferred': 'Number of embryos transferred',
+
             'year': 'year',
             'unidade': 'unidade',
             'prontuario': None
@@ -90,6 +108,12 @@ TABLE_CONFIGS = {
             'baby_2_weight': 'Weight.2',
             'baby_3_weight': 'Weight.3',
             'complications_of_pregnancy_specify': 'Complications (Other \ Specify)',
+
+            'number_of_fet_after_originally_frozen': 'Number of FET after originally frozen',
+            'n_of_biopsied': 'N of bipsied',
+            'n_of_normal': 'N of Normal',
+            'number_of_embryos_transferred': 'Number of embryos transferred',
+
             'year': 'year',
             'unidade': 'unidade',
             'prontuario': None
@@ -110,6 +134,12 @@ TABLE_CONFIGS = {
             'baby_2_weight': 'Weight.2',
             'baby_3_weight': 'Weight.3',
             'complications_of_pregnancy_specify': 'Complications (Other \ Specify)',
+
+            'number_of_fet_after_originally_frozen': 'Number of FET after originally frozen',
+            'n_of_biopsied': 'N of bipsied',
+            'n_of_normal': 'N of Normal',
+            'number_of_embryos_transferred': 'Number of embryos transferred',
+            
             'year': 'year',
             'unidade': 'unidade',
             'prontuario': None
@@ -130,6 +160,12 @@ TABLE_CONFIGS = {
             'baby_2_weight': 'Baby 2 - Weight',
             'baby_3_weight': 'Baby 3 - Weight',
             'complications_of_pregnancy_specify': 'Complications of pregnancy specify',
+
+            'number_of_fet_after_originally_frozen': 'Number of FET after originally frozen',
+            'n_of_biopsied': 'Nº of biopsied (analisados)',
+            'n_of_normal': 'Nº of normal',
+            'number_of_embryos_transferred': 'Number of embryos transferred',
+
             'year': 'year',
             'unidade': 'unidade',
             'prontuario': None
@@ -150,6 +186,12 @@ TABLE_CONFIGS = {
             'baby_2_weight': 'Baby 2 - Weight',
             'baby_3_weight': 'Baby 3 - Weight',
             'complications_of_pregnancy_specify': 'Complications of pregnancy specify',
+
+            'number_of_fet_after_originally_frozen': 'Number of FET after originally frozen',
+            'n_of_biopsied': 'Nº of biopsied',
+            'n_of_normal': 'Nº of normal',
+            'number_of_embryos_transferred': 'Number of embryos transferred',
+
             'year': 'year',
             'unidade': 'unidade',
             'prontuario': None
@@ -170,6 +212,12 @@ TABLE_CONFIGS = {
             'baby_2_weight': 'Baby 2 - Weight',
             'baby_3_weight': 'Baby 3 - Weight',
             'complications_of_pregnancy_specify': 'Complications of pregnancy specify',
+
+            'number_of_fet_after_originally_frozen': 'Number of FET after originally frozen',
+            'n_of_biopsied': 'Nº of biopsied (analisados)',
+            'n_of_normal': 'Nº of normal',
+            'number_of_embryos_transferred': 'Number of embryos transferred',
+
             'year': 'year',
             'unidade': 'unidade',
             'prontuario': None
@@ -190,6 +238,12 @@ TABLE_CONFIGS = {
             'baby_2_weight': 'Baby 2 - Weight',
             'baby_3_weight': 'Baby 3 - Weight',
             'complications_of_pregnancy_specify': 'Complications of pregnancy specify',
+
+            'number_of_fet_after_originally_frozen': 'Number of FET after originally frozen',
+            'n_of_biopsied': 'Nº of biopsied (analisados)',
+            'n_of_normal': 'Nº of normal',
+            'number_of_embryos_transferred': 'Number of embryos transferred',
+
             'year': 'year',
             'unidade': 'unidade',
             'prontuario': None
