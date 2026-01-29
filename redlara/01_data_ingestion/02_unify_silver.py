@@ -14,6 +14,32 @@ TARGET_TABLE = "silver.redlara_unified"
 # ==============================================================================
 
 TABLE_CONFIGS = {
+    'redlara_ibirapuera_2021': {
+        'mapping': {
+            'outcome': 'outcome',
+            'outcome_type': 'outcome_type',
+            'chart_or_pin': 'chart_or_pin',
+            'date_when_embryos_were_cryopreserved': 'date_when_embryos_were_cryopreserved',
+            'date_of_embryo_transfer': 'date_of_embryo_transfer',
+            'date_of_delivery': 'date_of_delivery',
+            'gestational_age_at_delivery': 'gestational_age_at_delivery',
+            'type_of_delivery': 'type_of_delivery',
+            'number_of_newborns': 'number_of_newborns',
+            'baby_1_weight': 'baby1_weight',
+            'baby_2_weight': 'baby2_weight',
+            'baby_3_weight': 'baby3_weight',
+            'complications_of_pregnancy_specify': 'complications_of_pregnancy_specify',
+
+            'number_of_fet_after_originally_frozen': 'number_of_fet_after_originally_frozen',
+            'n_of_biopsied': 'no_of_biopsed',
+            'n_of_normal': 'no_of_normal',
+            'number_of_embryos_transferred': 'number_of_embryos_transferred',
+            
+            'year': 'year',
+            'unidade': 'unidade',
+            'prontuario': None
+        }
+    },
     'redlara_ibirapuera_2022': {
         'mapping': {
             'outcome': 'outcome',
@@ -93,6 +119,32 @@ TABLE_CONFIGS = {
             'prontuario': None
         }
     },
+    'redlara_sj_2021': {
+        'mapping': {
+            'outcome': 'Outcome',
+            'outcome_type': 'Outcome Type',
+            'chart_or_pin': 'Chart of PIN',
+            'date_when_embryos_were_cryopreserved': 'Date when embryos were cryopreserved',
+            'date_of_embryo_transfer': 'Date of embryo transfer',
+            'date_of_delivery': 'Date of delivery',
+            'gestational_age_at_delivery': 'Getacional Age at Delivery',
+            'type_of_delivery': 'Type of delivery',
+            'number_of_newborns': 'Number of newborns',
+            'baby_1_weight': 'Weight.1',
+            'baby_2_weight': 'Weight.2',
+            'baby_3_weight': 'Weight.3',
+            'complications_of_pregnancy_specify': 'Complications (Other \ Specify)',
+
+            'number_of_fet_after_originally_frozen': 'Number of FET after originally frozen',
+            'n_of_biopsied': 'N of bipsied',
+            'n_of_normal': 'N of Normal',
+            'number_of_embryos_transferred': 'Number of embryos transferred',
+
+            'year': 'year',
+            'unidade': 'unidade',
+            'prontuario': None
+        }
+    },
     'redlara_sj_2022': {
         'mapping': {
             'outcome': 'Outcome',
@@ -163,6 +215,32 @@ TABLE_CONFIGS = {
 
             'number_of_fet_after_originally_frozen': 'Number of FET after originally frozen',
             'n_of_biopsied': 'Nº of biopsied (analisados)',
+            'n_of_normal': 'Nº of normal',
+            'number_of_embryos_transferred': 'Number of embryos transferred',
+
+            'year': 'year',
+            'unidade': 'unidade',
+            'prontuario': None
+        }
+    },
+    'redlara_vm_2021': {
+        'mapping': {
+            'outcome': 'Outcome',
+            'outcome_type': 'Outcome Type',
+            'chart_or_pin': 'Chart or pin',
+            'date_when_embryos_were_cryopreserved': 'Date when embryos were cryopreserved',
+            'date_of_embryo_transfer': 'Date of embryo transfer',
+            'date_of_delivery': 'Date of delivery',
+            'gestational_age_at_delivery': 'Gestational age at delivery',
+            'type_of_delivery': 'Type of delivery',
+            'number_of_newborns': 'Number of newborns',
+            'baby_1_weight': 'Baby 1 - Weight',
+            'baby_2_weight': 'Baby 2 - Weight',
+            'baby_3_weight': 'Baby 3 - Weight',
+            'complications_of_pregnancy_specify': 'Complications of pregnancy specify',
+
+            'number_of_fet_after_originally_frozen': 'Number of FET after originally frozen',
+            'n_of_biopsied': 'Nº of biopsied',
             'n_of_normal': 'Nº of normal',
             'number_of_embryos_transferred': 'Number of embryos transferred',
 

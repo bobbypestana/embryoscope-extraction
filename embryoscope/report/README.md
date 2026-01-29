@@ -1,91 +1,96 @@
-# Embryo Image Availability Report
+# Embryo Image Availability Pipeline
 
-This folder contains scripts to check image availability for embryos stored in the database.
+This directory contains a robust ETL pipeline for checking and tracking embryo image availability via the Embryoscope API.
 
-## Overview
+## Architecture
 
-The script queries embryo data from `gold.embryoscope_embrioes` and verifies if images are available on each Embryoscope server via the API.
+The pipeline follows a **Medallion Architecture** with proper separation of concerns:
 
-## Script: `01_check_image_availability.py`
-
-### What it does:
-
-1. **Queries embryo data** from `gold.embryoscope_embrioes` with the following columns:
-   - `prontuario`
-   - `patient_PatientID`
-   - `patient_PatientIDx`
-   - `patient_unit_huntington` (server identifier)
-   - `treatment_TreatmentName`
-   - `embryo_EmbryoID`
-   - `embryo_EmbryoDate`
-
-2. **Groups embryos by server** (`patient_unit_huntington`)
-
-3. **Checks image availability** for each embryo by calling the API endpoint `GET/imageruns`
-   - Returns response status (success, no_response, error, etc.)
-   - Counts number of image runs available
-   - Marks embryo as having images if `image_runs_count > 0`
-
-4. **Handles connection issues**:
-   - Automatic re-authentication if token expires
-   - Retry logic (up to 3 attempts per embryo)
-   - Token refresh every 1000 embryos
-
-5. **Respects rate limits**: 10 requests/second (0.1s delay between requests)
-
-6. **Saves results** to `gold.embryo_image_availability_raw` table (raw format with all original columns + status)
-
-### Output Table: `gold.embryo_image_availability_raw`
-
-This table preserves all original columns from `gold.embryoscope_embrioes` and adds API check status:
-
-**Original Columns:**
-- `prontuario` - Patient record number
-- `patient_PatientID` - Patient ID
-- `patient_PatientIDx` - Patient IDx
-- `patient_unit_huntington` - Server/unit name
-- `treatment_TreatmentName` - Treatment name
-- `embryo_EmbryoID` - Embryo ID
-- `embryo_EmbryoDate` - Embryo date
-
-**Status Columns (added by this script):**
-- `image_available` (BOOLEAN) - Whether images are available
-- `image_runs_count` (INTEGER) - Number of image runs found
-- `api_response_status` (VARCHAR) - API response status (success, no_response, error, etc.)
-- `error_message` (VARCHAR) - Error message if any
-- `checked_at` (TIMESTAMP) - When the check was performed
-
-
-### Usage:
-
-```bash
-# From the embryoscope/ directory
-conda activate try_request
-python report/01_check_image_availability.py
+```
+API → Logs (JSON) → Bronze → Silver → Gold
 ```
 
-### Configuration:
+| Layer | Table | Purpose |
+|:------|:------|:--------|
+| **Bronze** | `bronze.embryo_image_availability_logs` | Append-only log of all API checks |
+| **Silver** | `silver.embryo_image_availability_latest` | Latest status per embryo (deduplicated) |
+| **Gold** | `gold.embryo_image_status_changes` | Audit trail of status changes |
 
-The script uses the existing `embryoscope/params.yml` configuration file for:
-- Server credentials (IP, login, password)
-- Enabled/disabled servers
-- Rate limiting settings
+## Scripts
 
-### Logs:
+### One-Time Setup
 
-Logs are saved to `report/logs/image_availability_YYYYMMDD_HHMMSS.log`
+**`00_migrate_to_robust_schema.py`** - Creates Bronze/Silver/Gold tables and migrates existing data
+```powershell
+conda run -n try_request python "embryoscope/report/00_migrate_to_robust_schema.py"
+```
 
-### Summary Output:
+### Regular Pipeline (Run in Order)
 
-After completion, the script prints a summary table showing:
-- Total embryos per server
-- Embryos with images
-- Embryos without images
-- Percentage with images
+**Step 1: `01_check_image_availability.py`** - Query API and write JSON logs
+```powershell
+# Check only new embryos
+conda run -n try_request python "embryoscope/report/01_check_image_availability.py" --mode new
 
-## Notes:
+# Check new + errors/no images
+conda run -n try_request python "embryoscope/report/01_check_image_availability.py" --mode retry
 
-- Only processes embryos where `embryo_EmbryoID IS NOT NULL`
-- Only processes servers that are enabled in `params.yml`
-- Automatically handles authentication and token refresh
-- Progress is logged every 100 embryos
+# Full refresh
+conda run -n try_request python "embryoscope/report/01_check_image_availability.py" --mode all
+```
+
+**Step 2: `02_logs_to_bronze.py`** - Ingest JSON results into Bronze
+```powershell
+conda run -n try_request python "embryoscope/report/02_logs_to_bronze.py" --input-dir "embryoscope/report/api_results/new_20260128_175702"
+```
+
+**Step 3: `03_bronze_to_silver.py`** - Update Silver with latest status
+```powershell
+conda run -n try_request python "embryoscope/report/03_bronze_to_silver.py"
+```
+
+**Step 4: `04_track_changes_to_gold.py`** - Track status changes in Gold
+```powershell
+conda run -n try_request python "embryoscope/report/04_track_changes_to_gold.py"
+```
+
+**Step 5: `05_cleanup_logs.py`** - Cleanup old logs and API results (optional)
+```powershell
+conda run -n try_request python "embryoscope/report/05_cleanup_logs.py"
+```
+- Keeps only the last 3 general log files
+- Keeps only the last 3 API result directories
+- Automatically runs at the end of the batch pipeline
+
+
+### Quick Start: Run Complete Pipeline
+
+**`00_run_image_availability_pipeline.bat`** - Runs all 4 steps automatically
+
+```batch
+REM Default: retry mode (new embryos + errors/no images)
+00_run_image_availability_pipeline.bat
+
+REM Explicit modes:
+00_run_image_availability_pipeline.bat new    # Only new embryos
+00_run_image_availability_pipeline.bat retry  # New + errors/no images
+00_run_image_availability_pipeline.bat all    # Full refresh
+
+REM Test with limited embryos
+00_run_image_availability_pipeline.bat retry 5
+```
+
+
+## Benefits of This Architecture
+
+1. **Separation of Concerns**: Each script has a single, clear responsibility
+2. **Resumability**: If any step fails, you can re-run just that step
+3. **Auditability**: Bronze keeps full history, Gold tracks changes
+4. **Flexibility**: Can process logs from any source (not just live API)
+5. **Testing**: Each layer can be tested independently
+
+## Archive
+
+Old scripts are in `archive/`:
+- `archive/01_check_image_availability_old.py` - Original monolithic script
+- `archive/02_extract_from_logs_old.py` - Original log recovery script

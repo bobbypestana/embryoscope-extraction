@@ -122,7 +122,7 @@ class EmbryoscopeAPIClient:
         Returns:
             Response object or None if request failed
         """
-        max_retries = 5
+        max_retries = 2
         retry_delay = 0.2
         for attempt in range(max_retries):
             # Use thread-safe rate limiter

@@ -42,6 +42,10 @@ YEAR_CONFIGS = {
         'sheets': ['FET', 'FRESH'],
         'header': 1
     },
+    '2021': {
+        'sheets': ['ANUAL JAN-DEZ CERTO', 'TOTAL 2021', 'TOTAL'],
+        'header': 1
+    },
     '2022': {
         'sheets': ['TOTAL', 'TOTAL 2022'],
         'header': 1
@@ -238,9 +242,9 @@ def process_excel_file(file_path, con):
         # Generate table name for this sheet
         table_name = generate_table_name(file_path, sheet)
         
-        # Determine header row - prefer detection for 2022/2023
+        # Determine header row - prefer detection for 2021/2022/2023
         actual_header_row = header_row
-        if year in ['2022', '2023']:
+        if year in ['2021', '2022', '2023']:
             detected = detect_header_row(file_path, sheet)
             if detected is not None:
                 actual_header_row = detected

@@ -1,43 +1,36 @@
 """
-Check Image Availability for Embryos
-This script queries embryo data from gold.embryoscope_embrioes and checks
-if images are available on each server via the API.
-
-Features:
-- Checkpoint/resume capability - can restart from last saved point
-- Parallel processing - processes each server in parallel
-- Rate limiting - 10 requests/second per server
-- Auto re-authentication on token expiration
+Step 1: Check Image Availability via API
+Queries the Embryoscope API and writes structured logs to disk.
+Does NOT write to database - logs are processed by subsequent scripts.
 """
 
 import sys
 import os
 from pathlib import Path
 
-# Add parent directory to path to import utils
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 import duckdb
 import pandas as pd
 from datetime import datetime
 import logging
-from typing import Dict, List, Optional
+import argparse
+from typing import Dict, List
 import time
-import json
 from concurrent.futures import ProcessPoolExecutor, as_completed
 import multiprocessing
+import json
 
 from utils.api_client import EmbryoscopeAPIClient
 from utils.config_manager import EmbryoscopeConfigManager
 
 
-# Setup logging
-def setup_logging():
+def setup_logging(mode: str):
     """Setup logging configuration."""
-    log_dir = 'embryoscope/report/logs'
+    log_dir = 'logs'
     os.makedirs(log_dir, exist_ok=True)
     
-    log_file = os.path.join(log_dir, f'image_availability_{datetime.now().strftime("%Y%m%d_%H%M%S")}.log')
+    log_file = os.path.join(log_dir, f'api_check_{mode}_{datetime.now().strftime("%Y%m%d_%H%M%S")}.log')
     
     logging.basicConfig(
         level=logging.INFO,
@@ -47,414 +40,214 @@ def setup_logging():
             logging.StreamHandler()
         ]
     )
-    return logging.getLogger(__name__)
+    return logging.getLogger(__name__), log_file
 
 
-logger = setup_logging()
+# Resolve paths relative to script location
+SCRIPT_DIR = Path(__file__).parent
+DB_PATH = str((SCRIPT_DIR / "../../database/huntington_data_lake.duckdb").resolve())
 
 
-# Checkpoint management
-CHECKPOINT_DIR = 'embryoscope/report/checkpoints'
-os.makedirs(CHECKPOINT_DIR, exist_ok=True)
-
-
-def save_checkpoint(server_name: str, processed_embryos: List[str]):
-    """Save checkpoint for a server."""
-    checkpoint_file = os.path.join(CHECKPOINT_DIR, f'{server_name}_checkpoint.json')
-    checkpoint_data = {
-        'server': server_name,
-        'processed_embryos': processed_embryos,
-        'last_updated': datetime.now().isoformat()
-    }
-    with open(checkpoint_file, 'w') as f:
-        json.dump(checkpoint_data, f)
-    logger.debug(f"Checkpoint saved for {server_name}: {len(processed_embryos)} embryos")
-
-
-def load_checkpoint(server_name: str) -> set:
-    """Load checkpoint for a server."""
-    checkpoint_file = os.path.join(CHECKPOINT_DIR, f'{server_name}_checkpoint.json')
-    if os.path.exists(checkpoint_file):
-        with open(checkpoint_file, 'r') as f:
-            checkpoint_data = json.load(f)
-        processed = set(checkpoint_data.get('processed_embryos', []))
-        logger.info(f"Loaded checkpoint for {server_name}: {len(processed)} embryos already processed")
-        return processed
-    return set()
-
-
-def clear_checkpoint(server_name: str):
-    """Clear checkpoint for a server after successful completion."""
-    checkpoint_file = os.path.join(CHECKPOINT_DIR, f'{server_name}_checkpoint.json')
-    if os.path.exists(checkpoint_file):
-        os.remove(checkpoint_file)
-        logger.info(f"Checkpoint cleared for {server_name}")
-
-
-def get_embryo_data_from_db(db_path: str) -> pd.DataFrame:
-    """
-    Query embryo data from the gold table.
+def get_embryos_to_check(mode: str, limit: int = None) -> pd.DataFrame:
+    """Determine which embryos to check based on execution mode."""
+    conn = duckdb.connect(DB_PATH, read_only=True)
     
-    Args:
-        db_path: Path to the DuckDB database
-        
-    Returns:
-        DataFrame with embryo data
-    """
-    logger.info("Querying embryo data from database...")
-    
-    conn = duckdb.connect(db_path, read_only=True)
-    
-    query = """
-    SELECT 
-        prontuario,
-        patient_PatientID,
-        patient_PatientIDx,
-        patient_unit_huntington,
-        treatment_TreatmentName,
-        embryo_EmbryoID,
-        embryo_EmbryoDate
-    FROM gold.embryoscope_embrioes
-    WHERE embryo_EmbryoID IS NOT NULL
-    ORDER BY patient_unit_huntington, prontuario, embryo_EmbryoID
-    """
+    if mode == 'all':
+        query = """
+        SELECT * FROM gold.embryoscope_embrioes
+        WHERE embryo_EmbryoID IS NOT NULL
+        ORDER BY patient_unit_huntington, prontuario, embryo_EmbryoID
+        """
+    elif mode == 'new':
+        query = """
+        SELECT s.*
+        FROM gold.embryoscope_embrioes s
+        LEFT JOIN silver.embryo_image_availability_latest l
+            ON s.embryo_EmbryoID = l.embryo_EmbryoID
+        WHERE s.embryo_EmbryoID IS NOT NULL
+          AND l.embryo_EmbryoID IS NULL
+        ORDER BY s.patient_unit_huntington, s.prontuario, s.embryo_EmbryoID
+        """
+    elif mode == 'retry':
+        query = """
+        SELECT s.*
+        FROM gold.embryoscope_embrioes s
+        LEFT JOIN silver.embryo_image_availability_latest l
+            ON s.embryo_EmbryoID = l.embryo_EmbryoID
+        WHERE s.embryo_EmbryoID IS NOT NULL
+          AND (l.embryo_EmbryoID IS NULL OR l.image_available = FALSE OR l.api_response_code IN (500, 0))
+        ORDER BY s.patient_unit_huntington, s.prontuario, s.embryo_EmbryoID
+        """
+    else:
+        raise ValueError(f"Invalid mode: {mode}")
     
     df = conn.execute(query).df()
     conn.close()
     
-    logger.info(f"Retrieved {len(df):,} embryo records from {df['patient_unit_huntington'].nunique()} units")
+    # Apply limit if specified
+    if limit and limit > 0:
+        df = df.head(limit)
     
     return df
 
 
-def check_image_availability(
-    client: EmbryoscopeAPIClient,
-    embryo_id: str,
-    max_retries: int = 3
-) -> Dict[str, any]:
-    """
-    Check if images are available for a specific embryo.
-    
-    Args:
-        client: API client instance
-        embryo_id: Embryo ID to check
-        max_retries: Maximum number of retries on failure
-        
-    Returns:
-        Dictionary with availability status and metadata
-    """
+def check_image_availability(client: EmbryoscopeAPIClient, embryo_id: str) -> Dict:
+    """Check if images are available for a specific embryo."""
     result = {
-        'embryo_id': embryo_id,
+        'embryo_EmbryoID': embryo_id,
         'image_available': False,
         'image_runs_count': 0,
-        'api_response_status': 'unknown',
+        'api_response_code': 0,
         'error_message': None,
-        'checked_at': datetime.now()
+        'checked_at': datetime.now().strftime('%Y-%m-%d %H:%M:%S,%f')[:-3]
     }
     
-    for attempt in range(max_retries):
-        try:
-            # Try to get image runs for this embryo
-            response = client.get_image_runs(embryo_id)
+    try:
+        response = client.get_image_runs(embryo_id)
+        
+        if response is None:
+            result['api_response_code'] = 204
+            result['error_message'] = 'No images found (Empty response)'
+        elif 'ImageRuns' in response and isinstance(response['ImageRuns'], list):
+            result['image_runs_count'] = len(response['ImageRuns'])
+            result['image_available'] = len(response['ImageRuns']) > 0
+            result['api_response_code'] = 200
+            result['error_message'] = 'OK'
+        else:
+            result['api_response_code'] = 500
+            result['error_message'] = 'Unexpected error during data access'
             
-            if response is None:
-                result['api_response_status'] = 'no_response'
-                if attempt < max_retries - 1:
-                    time.sleep(0.5)
-                    continue
-                else:
-                    result['error_message'] = 'No response from API after retries'
-                    break
-            
-            # Check if ImageRuns exists in response
-            if 'ImageRuns' in response:
-                image_runs = response['ImageRuns']
-                if isinstance(image_runs, list):
-                    result['image_runs_count'] = len(image_runs)
-                    result['image_available'] = len(image_runs) > 0
-                    result['api_response_status'] = 'success'
-                else:
-                    result['api_response_status'] = 'invalid_format'
-                    result['error_message'] = 'ImageRuns is not a list'
-            else:
-                result['api_response_status'] = 'missing_field'
-                result['error_message'] = 'ImageRuns field not in response'
-            
-            break  # Success, exit retry loop
-            
-        except Exception as e:
-            result['api_response_status'] = 'error'
-            result['error_message'] = str(e)
-            
-            if attempt < max_retries - 1:
-                time.sleep(0.5)
-                continue
-            break
+    except Exception as e:
+        result['api_response_code'] = 500
+        result['error_message'] = 'Unexpected error during data access'
     
     return result
 
 
-def process_server_embryos(server_name: str, embryos_data: List[Dict], config_dict: Dict) -> List[Dict]:
-    """
-    Process all embryos for a specific server.
-    This function runs in a separate process.
-    
-    Args:
-        server_name: Name of the server/unit
-        embryos_data: List of embryo dictionaries for this server
-        config_dict: Configuration dictionary for this server
-        
-    Returns:
-        List of results for each embryo
-    """
-    # Setup logging for this process
+def process_server_embryos(server_name: str, embryos_data: List[Dict], config_dict: Dict, mode: str, output_dir: str) -> str:
+    """Process all embryos for a specific server and write results to JSON."""
     process_logger = logging.getLogger(f"server_{server_name}")
     process_logger.setLevel(logging.INFO)
     
-    # Add handler if not already present
     if not process_logger.handlers:
-        log_file = os.path.join('embryoscope/report/logs', f'{server_name}_{datetime.now().strftime("%Y%m%d_%H%M%S")}.log')
+        log_file = os.path.join(SCRIPT_DIR, 'logs', f'{server_name}_{mode}_{datetime.now().strftime("%Y%m%d_%H%M%S")}.log')
         fh = logging.FileHandler(log_file)
-        fh.setFormatter(logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s'))
+        fh.setFormatter(logging.Formatter('%(asctime)s - %(levelname)s - %(message)s'))
         process_logger.addHandler(fh)
-        
-        # Also add console handler
-        ch = logging.StreamHandler()
-        ch.setFormatter(logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s'))
-        process_logger.addHandler(ch)
     
-    process_logger.info(f"{'='*60}")
-    process_logger.info(f"Processing server: {server_name}")
-    process_logger.info(f"Total embryos: {len(embryos_data):,}")
-    process_logger.info(f"{'='*60}")
+    process_logger.info(f"Processing {server_name}: {len(embryos_data):,} embryos")
     
-    # Load checkpoint
-    processed_embryo_ids = load_checkpoint(server_name)
+    # Initialize API client
+    client = EmbryoscopeAPIClient(server_name, config_dict, rate_limit_delay=0.1)
     
-    # Filter out already processed embryos
-    embryos_to_process = [e for e in embryos_data if e['embryo_EmbryoID'] not in processed_embryo_ids]
-    
-    if len(embryos_to_process) < len(embryos_data):
-        process_logger.info(f"Resuming from checkpoint: {len(embryos_to_process):,} embryos remaining")
-    
-    # Initialize API client with 10 req/s rate limit (0.1s delay)
-    rate_limit_delay = 0.1  # 10 requests per second
-    client = EmbryoscopeAPIClient(server_name, config_dict, rate_limit_delay=rate_limit_delay)
-    
-    # Authenticate
     if not client.authenticate():
         process_logger.error(f"Failed to authenticate with {server_name}")
-        return []
+        return None
     
     results = []
-    checkpoint_interval = 100  # Save checkpoint every 100 embryos
     
-    for idx, embryo_data in enumerate(embryos_to_process):
+    for idx, embryo_data in enumerate(embryos_data):
         embryo_id = embryo_data['embryo_EmbryoID']
         
-        # Log progress every 100 embryos
         if (idx + 1) % 100 == 0:
-            total_processed = len(processed_embryo_ids) + idx + 1
-            total = len(embryos_data)
-            process_logger.info(f"Progress: {total_processed:,}/{total:,} ({total_processed/total*100:.1f}%)")
+            process_logger.info(f"Progress: {idx + 1:,}/{len(embryos_data):,}")
         
-        # Check image availability
         result = check_image_availability(client, embryo_id)
-        
-        # Add embryo data to result
         result.update(embryo_data)
-        
         results.append(result)
-        processed_embryo_ids.add(embryo_id)
         
-        # Save checkpoint periodically
-        if (idx + 1) % checkpoint_interval == 0:
-            save_checkpoint(server_name, list(processed_embryo_ids))
-        
-        # Refresh token periodically (every 1000 embryos)
         if (idx + 1) % 1000 == 0:
-            process_logger.info("Refreshing authentication token...")
-            if not client.refresh_token_if_needed():
-                process_logger.warning("Token refresh failed, attempting re-authentication...")
-                if not client.authenticate():
-                    process_logger.error("Re-authentication failed, stopping processing for this server")
-                    # Save checkpoint before stopping
-                    save_checkpoint(server_name, list(processed_embryo_ids))
-                    break
+            client.authenticate()
     
-    # Save final checkpoint
-    save_checkpoint(server_name, list(processed_embryo_ids))
+    # Write results to JSON file
+    output_file = os.path.join(output_dir, f'{server_name}_{datetime.now().strftime("%Y%m%d_%H%M%S")}.json')
+    with open(output_file, 'w') as f:
+        json.dump(results, f, indent=2, default=str)
     
-    process_logger.info(f"Completed {server_name}: {len(results):,} embryos processed in this run")
-    
-    # Clear checkpoint on successful completion
-    if len(embryos_to_process) == len(results):
-        clear_checkpoint(server_name)
-    
-    return results
-
-
-def save_results_to_db(results_df: pd.DataFrame, db_path: str, table_name: str = 'gold.embryo_image_availability_raw'):
-    """
-    Save results to the database as a raw table with all original columns + status.
-    
-    Args:
-        results_df: DataFrame with results
-        db_path: Path to the DuckDB database
-        table_name: Name of the table to create/replace
-    """
-    logger.info(f"Saving results to {table_name}...")
-    
-    # Ensure columns are in the right order: original columns first, then status columns
-    column_order = [
-        'prontuario',
-        'patient_PatientID',
-        'patient_PatientIDx',
-        'patient_unit_huntington',
-        'treatment_TreatmentName',
-        'embryo_EmbryoID',
-        'embryo_EmbryoDate',
-        'image_available',
-        'image_runs_count',
-        'api_response_status',
-        'error_message',
-        'checked_at'
-    ]
-    
-    # Reorder columns
-    results_df = results_df[column_order]
-    
-    conn = duckdb.connect(db_path)
-    
-    # Create or replace the raw table
-    conn.execute(f"CREATE SCHEMA IF NOT EXISTS gold")
-    conn.execute(f"DROP TABLE IF EXISTS {table_name}")
-    conn.execute(f"CREATE TABLE {table_name} AS SELECT * FROM results_df")
-    
-    # Get summary statistics
-    summary = conn.execute(f"""
-        SELECT 
-            patient_unit_huntington,
-            COUNT(*) as total_embryos,
-            SUM(CASE WHEN image_available THEN 1 ELSE 0 END) as with_images,
-            SUM(CASE WHEN NOT image_available THEN 1 ELSE 0 END) as without_images,
-            ROUND(AVG(CASE WHEN image_available THEN 1.0 ELSE 0.0 END) * 100, 2) as pct_with_images,
-            COUNT(DISTINCT api_response_status) as distinct_statuses
-        FROM {table_name}
-        GROUP BY patient_unit_huntington
-        ORDER BY patient_unit_huntington
-    """).df()
-    
-    logger.info("\n" + "="*60)
-    logger.info("SUMMARY BY SERVER:")
-    logger.info("="*60)
-    print(summary.to_string(index=False))
-    
-    # Get status breakdown
-    status_summary = conn.execute(f"""
-        SELECT 
-            api_response_status,
-            COUNT(*) as count,
-            ROUND(COUNT(*) * 100.0 / SUM(COUNT(*)) OVER (), 2) as percentage
-        FROM {table_name}
-        GROUP BY api_response_status
-        ORDER BY count DESC
-    """).df()
-    
-    logger.info("\n" + "="*60)
-    logger.info("API RESPONSE STATUS BREAKDOWN:")
-    logger.info("="*60)
-    print(status_summary.to_string(index=False))
-    
-    conn.close()
-    logger.info(f"\nResults saved to {table_name}")
-    logger.info(f"Total records: {len(results_df):,}")
+    process_logger.info(f"Completed {server_name}: {len(results):,} results written to {output_file}")
+    return output_file
 
 
 def main():
-    """Main execution function."""
+    parser = argparse.ArgumentParser(description='Check embryo image availability via API')
+    parser.add_argument('--mode', choices=['new', 'retry', 'all'], default='retry',
+                        help='Execution mode (default: retry - new embryos + errors/no images)')
+    parser.add_argument('--limit', type=int, default=None, help='Limit number of embryos to check (for testing)')
+    args = parser.parse_args()
+    
+    logger, main_log_file = setup_logging(args.mode)
     start_time = datetime.now()
+    
     logger.info("="*80)
-    logger.info("Starting image availability check...")
+    logger.info(f"Starting API check (mode: {args.mode})")
     logger.info(f"Start time: {start_time}")
     logger.info("="*80)
     
-    # Create logs directory
-    os.makedirs('embryoscope/report/logs', exist_ok=True)
+    # Create output directory for JSON results, local to the 'report' folder
+    script_dir = Path(__file__).parent
+    timestamp = start_time.strftime("%Y%m%d_%H%M%S")
+    output_dir = script_dir / 'api_results' / f'{args.mode}_{timestamp}'
+    os.makedirs(output_dir, exist_ok=True)
     
-    # Configuration
-    db_path = 'database/huntington_data_lake.duckdb'
-    config_manager = EmbryoscopeConfigManager()
+    # Get embryos to check
+    embryos_df = get_embryos_to_check(args.mode, args.limit)
     
-    # Get embryo data
-    embryos_df = get_embryo_data_from_db(db_path)
+    if len(embryos_df) == 0:
+        logger.info("No embryos to check!")
+        return
+    
+    logger.info(f"Found {len(embryos_df):,} embryos to check")
     
     # Group by server
     servers = embryos_df['patient_unit_huntington'].unique()
-    logger.info(f"\nServers to process: {', '.join(servers)}")
-    
-    # Get enabled servers configuration
+    config_manager = EmbryoscopeConfigManager(str((SCRIPT_DIR / '../params.yml').resolve()))
     enabled_servers = config_manager.get_enabled_embryoscopes()
     
-    # Prepare data for parallel processing
+    # Prepare server tasks
     server_tasks = []
     for server in servers:
         if server not in enabled_servers:
-            logger.warning(f"Server {server} not found in enabled servers, skipping...")
+            logger.warning(f"Server {server} not enabled, skipping...")
             continue
         
         server_embryos = embryos_df[embryos_df['patient_unit_huntington'] == server]
         embryos_data = server_embryos.to_dict('records')
         config_dict = enabled_servers[server]
         
-        server_tasks.append((server, embryos_data, config_dict))
+        server_tasks.append((server, embryos_data, config_dict, args.mode, output_dir))
     
-    logger.info(f"\nProcessing {len(server_tasks)} servers in parallel...")
+    logger.info(f"Processing {len(server_tasks)} servers in parallel...")
     
-    all_results = []
-    
-    # Process servers in parallel
+    # Process servers
     max_workers = min(len(server_tasks), multiprocessing.cpu_count())
-    logger.info(f"Using {max_workers} parallel workers")
+    output_files = []
     
     with ProcessPoolExecutor(max_workers=max_workers) as executor:
-        # Submit all tasks
         future_to_server = {
-            executor.submit(process_server_embryos, server, embryos_data, config_dict): server
-            for server, embryos_data, config_dict in server_tasks
+            executor.submit(process_server_embryos, *task): task[0]
+            for task in server_tasks
         }
         
-        # Collect results as they complete
         for future in as_completed(future_to_server):
             server = future_to_server[future]
             try:
-                results = future.result()
-                all_results.extend(results)
-                logger.info(f"✓ Completed {server}: {len(results):,} results")
+                output_file = future.result()
+                if output_file:
+                    output_files.append(output_file)
+                logger.info(f"✓ Completed {server}")
             except Exception as e:
-                logger.error(f"✗ Error processing server {server}: {e}")
-                continue
+                logger.error(f"✗ Error processing {server}: {e}")
     
-    # Convert results to DataFrame
-    if all_results:
-        results_df = pd.DataFrame(all_results)
-        
-        # Save to database
-        save_results_to_db(results_df, db_path)
-        
-        end_time = datetime.now()
-        duration = end_time - start_time
-        
-        logger.info("\n" + "="*80)
-        logger.info("PROCESSING COMPLETE!")
-        logger.info("="*80)
-        logger.info(f"Start time: {start_time}")
-        logger.info(f"End time: {end_time}")
-        logger.info(f"Duration: {duration}")
-        logger.info(f"Total embryos processed: {len(results_df):,}")
-        logger.info("="*80)
-    else:
-        logger.error("No results to save!")
+    end_time = datetime.now()
+    
+    logger.info("\n" + "="*80)
+    logger.info("API CHECK COMPLETE!")
+    logger.info("="*80)
+    logger.info(f"Duration: {end_time - start_time}")
+    logger.info(f"Results directory: {output_dir}")
+    logger.info(f"Output files: {len(output_files)}")
+    logger.info("\nNext step: Run 02_logs_to_bronze.py to process these results")
+    logger.info("="*80)
 
 
 if __name__ == "__main__":
