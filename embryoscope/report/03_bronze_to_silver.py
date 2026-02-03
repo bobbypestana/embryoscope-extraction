@@ -7,6 +7,8 @@ Silver is deduplicated - only the most recent check for each embryo is kept.
 import sys
 import os
 import duckdb
+from pathlib import Path
+import pandas as pd
 from datetime import datetime
 import logging
 

@@ -7,6 +7,8 @@ Records significant changes (e.g., Error -> Success) in Gold audit table.
 import sys
 import os
 import duckdb
+from pathlib import Path
+import pandas as pd
 from datetime import datetime
 import logging
 

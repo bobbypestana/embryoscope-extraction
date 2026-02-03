@@ -105,21 +105,22 @@ def check_image_availability(client: EmbryoscopeAPIClient, embryo_id: str) -> Di
     try:
         response = client.get_image_runs(embryo_id)
         
-        if response is None:
-            result['api_response_code'] = 204
-            result['error_message'] = 'No images found (Empty response)'
-        elif 'ImageRuns' in response and isinstance(response['ImageRuns'], list):
-            result['image_runs_count'] = len(response['ImageRuns'])
-            result['image_available'] = len(response['ImageRuns']) > 0
-            result['api_response_code'] = 200
+        # Store raw status code from the client
+        status_code = getattr(client, 'last_status_code', 0)
+        result['api_response_code'] = status_code
+        
+        if response is not None and 'ImageRuns' in response:
+            runs = response.get('ImageRuns', [])
+            result['image_runs_count'] = len(runs) if isinstance(runs, list) else 0
+            result['image_available'] = result['image_runs_count'] > 0
             result['error_message'] = 'OK'
         else:
-            result['api_response_code'] = 500
-            result['error_message'] = 'Unexpected error during data access'
+            # Keep the raw error message if it exists
+            result['error_message'] = getattr(client, 'last_error', 'Empty body or API error')
             
     except Exception as e:
-        result['api_response_code'] = 500
-        result['error_message'] = 'Unexpected error during data access'
+        result['api_response_code'] = getattr(client, 'last_status_code', 500)
+        result['error_message'] = str(e)
     
     return result
 
@@ -234,7 +235,7 @@ def main():
                 output_file = future.result()
                 if output_file:
                     output_files.append(output_file)
-                logger.info(f"✓ Completed {server}")
+                logger.info(f"Completed {server}")
             except Exception as e:
                 logger.error(f"✗ Error processing {server}: {e}")
     

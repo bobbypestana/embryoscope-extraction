@@ -72,7 +72,9 @@ class EmbryoscopeAPIClient:
         # Setup logging
         self.logger = logging.getLogger(f"embryoscope_api_{location}")
         self.logger.propagate = True  # Only propagate to parent, do not add handlers here
-        
+        self.last_status_code = None
+        self.last_error = None
+    
     def authenticate(self) -> bool:
         """
         Authenticate with the embryoscope API and get token.
@@ -135,10 +137,16 @@ class EmbryoscopeAPIClient:
             self.logger.debug(f"[REQUEST] Attempt {attempt+1}/{max_retries}: {method} {url} | headers={log_headers_masked} | params={log_params}")
             try:
                 response = self.session.request(method, url, **kwargs)
+                self.last_status_code = response.status_code
                 self.logger.debug(f"[RESPONSE] status={response.status_code}, content={response.text[:200]}...")
                 response.raise_for_status()
                 return response
             except Exception as e:
+                if 'response' in locals() and response is not None:
+                    self.last_status_code = response.status_code
+                else:
+                    self.last_status_code = 0
+                self.last_error = str(e)
                 self.logger.error(f"[RETRY] Exception on attempt {attempt+1}: {e}")
                 if attempt < max_retries - 1:
                     self.logger.warning(f"Request failed for {self.location} - {url} (attempt {attempt + 1}/{max_retries}): {e}")
