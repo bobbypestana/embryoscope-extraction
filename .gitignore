@@ -3,6 +3,8 @@ embryoscope_api/embryo_images/
 embryoscope_api/embryo_zips/
 embryoscope_api/embryoid/
 embryoscope_api/data_output/
+embryoscope/report/api_results/
+
 
 # Legacy directories
 receita_medicamentos/
