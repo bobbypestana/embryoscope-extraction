@@ -83,12 +83,13 @@ def main():
             con.execute("SET enable_progress_bar=true")
             logger.info('DuckDB configuration set successfully')
             
-            # Test exact day matching strategy
-            join_results = test_join_strategies(con)
+            # Test exact day matching strategy (Skipped for performance)
+            # join_results = test_join_strategies(con)
             
             # Use simple FertilizationTime condition (OR condition is too slow)
             # Cast embryo_FertilizationTime (TIMESTAMP) to DATE for comparison with micro_Data_DL (DATE)
-            date_condition = "c.micro_Data_DL = DATE(e.embryo_FertilizationTime)"
+            # date_condition = "c.micro_Data_DL = DATE(e.embryo_FertilizationTime)"
+            date_condition = "CAST(e.embryo_FertilizationTime AS DATE) BETWEEN (CAST(c.micro_Data_DL AS DATE) - 3) AND (CAST(c.micro_Data_DL AS DATE) + 3)"
             logger.info(f"Using simple date matching: FertilizationTime only (OR condition too slow)")
             
             # CURRENT LOGIC (COMMENTED OUT) - Selective columns only
@@ -143,21 +144,9 @@ def main():
                 ON {date_condition}
                 AND c.micro_prontuario = e.prontuario
                 AND e.embryo_embryo_number = c.oocito_embryo_number
-            ORDER BY COALESCE(CAST(c.oocito_id AS VARCHAR), e.embryo_EmbryoID)
             '''
             
             logger.info(f"Using LEFT JOIN with simple date matching: {date_condition} + prontuario + embryo_number")
-            
-            # Execute query to get data
-            df = con.execute(query).df()
-            logger.info(f'Read {len(df)} rows from database')
-            
-            # Validate data
-            if df.empty:
-                logger.warning('No data found in database')
-                return
-                
-            logger.info(f'Data columns: {list(df.columns)}')
             
             # Create schema if not exists
             con.execute('CREATE SCHEMA IF NOT EXISTS gold;')
@@ -167,13 +156,14 @@ def main():
             con.execute('DROP TABLE IF EXISTS gold.embryoscope_clinisys_combined;')
             logger.info('Dropped existing gold.embryoscope_clinisys_combined table if it existed')
             
-            # Create table from DataFrame
-            con.execute('CREATE TABLE gold.embryoscope_clinisys_combined AS SELECT * FROM df')
+            # Create table directly in SQL
+            logger.info("Creating table gold.embryoscope_clinisys_combined directly in DuckDB...")
+            con.execute(f"CREATE TABLE gold.embryoscope_clinisys_combined AS {query}")
             logger.info('Created gold.embryoscope_clinisys_combined table')
             
             # Validate schema
-            schema = con.execute("DESCRIBE gold.embryoscope_clinisys_combined").fetchdf()
-            logger.info(f'gold.embryoscope_clinisys_combined schema:\n{schema}')
+            # schema = con.execute("DESCRIBE gold.embryoscope_clinisys_combined").fetchdf()
+            # logger.info(f'gold.embryoscope_clinisys_combined schema:\n{schema}')
             
             # Validate row count
             row_count = con.execute("SELECT COUNT(*) FROM gold.embryoscope_clinisys_combined").fetchone()[0]

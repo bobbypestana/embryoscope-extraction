@@ -58,9 +58,9 @@ def get_database_connection(read_only=False):
 
 def get_available_columns(conn):
     """Get list of available columns in planilha_embryoscope_combined"""
-    col_info = conn.execute("DESCRIBE gold.embryoscope_clinisys_combined").df()
+    col_info = conn.execute("DESCRIBE gold.planilha_embryoscope_combined").df()
     available_columns = col_info['column_name'].tolist()
-    logger.info(f"Found {len(available_columns)} columns in gold.embryoscope_clinisys_combined")
+    logger.info(f"Found {len(available_columns)} columns in gold.planilha_embryoscope_combined")
     return available_columns
 
 def build_select_clause(target_columns, column_mapping, available_columns):
@@ -152,10 +152,6 @@ def create_data_ploidia_table(conn):
     # Build WHERE clause
     where_conditions = []
     
-    # Always exclude rows where Embryo Description is NULL
-    where_conditions.append('"embryo_Description" IS NOT NULL')
-    logger.info("Filter: Embryo Description IS NOT NULL")
-    
     # Always exclude rows where Patient ID is NULL
     where_conditions.append('"micro_prontuario" IS NOT NULL')
     logger.info("Filter: Patient ID (micro_prontuario) IS NOT NULL")
@@ -173,7 +169,7 @@ def create_data_ploidia_table(conn):
     WITH base_data AS (
         SELECT DISTINCT
             {select_clause}
-        FROM gold.embryoscope_clinisys_combined
+        FROM gold.planilha_embryoscope_combined
         {where_clause}
     ),
     embryo_ref_dates AS (
@@ -249,7 +245,14 @@ def create_data_ploidia_table(conn):
         e."Pulsing - Value",
         e."Re-exp Count - Value",
         e."TE - Value",
-        e."Embryo Description"
+        e."Embryo Description",
+        e."Embryo Description Clinisys",
+        e."outcome_type",
+        e."merged_numero_de_nascidos",
+        e."fet_gravidez_clinica",
+        e."trat2_resultado_tratamento",
+        e."trat1_resultado_tratamento",
+        e."fet_tipo_resultado"
     FROM embryo_ref_dates e
     LEFT JOIN treatment_counts tc 
         ON e."Patient ID" = tc."Patient ID" 

@@ -37,6 +37,7 @@ view_embrioes_congelados:
   - id
   - qualidade
   - transferidos
+  - colapso
 
 # Columns from view_congelamentos_embrioes (cong_em_*)
 view_congelamentos_embrioes:

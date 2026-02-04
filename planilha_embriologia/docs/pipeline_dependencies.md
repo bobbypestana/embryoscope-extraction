@@ -61,25 +61,25 @@ Scripts that extract data from Embryoscope API and create `gold.embryoscope_embr
 
 ### Phase 5: Combine All Data
 
-**Location**: `planilha_embriologia/02_create_tables/`
+**Location**: `data_lake_scripts/`
 
-7. **`01_combine_embryoscope_planilha.py`**
-   - **Input**: `gold.embryoscope_clinisys_combined` + `silver.planilha_embriologia`
+7a. **`02_combine_redlara_planilha.py`**
+   - **Input**: `silver.redlara_unified` + `silver.planilha_embriologia_combined`
+   - **Output**: `gold.redlara_planilha_combined`
+
+7b. **`03_combine_embryoscope_planilha.py`**
+   - **Input**: `gold.embryoscope_clinisys_combined` + `gold.redlara_planilha_combined`
    - **Output**: `gold.planilha_embryoscope_combined`
-   - **Join conditions**:
-     - `micro_prontuario = PIN`
-     - `DATE(descong_em_DataTransferencia) = DATE("DATA DA FET")`
-   - Uses FULL OUTER JOIN to preserve all records
-   - Adds `planilha_` prefix to columns from the spreadsheet
+   - **Join conditions**: Waterfall strategy (Punção -> Transfer -> Cryo)
 
 ### Phase 6: Export to Excel
 
-8. **`02_export_to_excel.py`** ⭐
+**Location**: `data_lake_scripts/`
+
+8. **`04_export_to_excel.py`** ⭐
    - **Input**: `gold.planilha_embryoscope_combined`
-   - **Filter**: Only transferred embryos (`trat_data_transferencia IS NOT NULL OR planilha_DATA_DA_FET IS NOT NULL`)
-   - **Configuration**: Uses `02_a_export_config.yml` to exclude specific columns (e.g., metadata)
-   - **Processing**: Removes completely null columns and excluded columns
-   - **Output**: Excel file with ~9,231 rows
+   - **Filter**: Only transferred embryos
+   - **Output**: Excel file
 
 #### Export Configuration
 - **File**: `02_a_export_config.yml`
@@ -114,11 +114,14 @@ cd planilha_embriologia/01_data_ingestion
 # Merge embryoscope + clinisys
 conda run -n try_request python data_lake_scripts/01_merge_clinisys_embryoscope.py
 
-# Combine with planilha
-conda run -n try_request python planilha_embriologia/02_create_tables/01_combine_embryoscope_planilha.py
+# Combine Redlara + Planilha
+conda run -n try_request python data_lake_scripts/02_combine_redlara_planilha.py
+
+# Combine with embryoscope-clinisys
+conda run -n try_request python data_lake_scripts/03_combine_embryoscope_planilha.py
 
 # Export to Excel
-conda run -n try_request python planilha_embriologia/02_create_tables/02_export_to_excel.py
+conda run -n try_request python data_lake_scripts/04_export_to_excel.py
 ```
 
 ## Troubleshooting: Column Duplicates (`_1` suffixes)
@@ -141,15 +144,19 @@ graph TD
     D -->|01_merge_clinisys_embryoscope| G[gold.embryoscope_clinisys_combined]
     F -->|01_merge_clinisys_embryoscope| G
     
-    H[Excel Files FET Sheet] -->|01_01_planilha_embriologia_to_bronze| I[bronze.planilha_embriologia_*]
-    I -->|01_02_planilha_embriologia_to_silver| J[silver.planilha_embriologia]
+    H[Excel Files] -->|01_02_planilha_embriologia_to_silver| J[silver.planilha_embriologia_*]
     
-    G -->|01_combine_embryoscope_planilha| K[gold.planilha_embryoscope_combined]
-    J -->|01_combine_embryoscope_planilha| K
+    J -->|01_combine_fresh_fet.py| P[silver.planilha_embriologia_combined]
+    S[silver.redlara_unified] -->|02_combine_redlara_planilha.py| R[gold.redlara_planilha_combined]
+    P -->|02_combine_redlara_planilha.py| R
     
-    K -->|02_export_to_excel| L[Excel Export]
+    G -->|03_combine_embryoscope_planilha| K[gold.planilha_embryoscope_combined]
+    R -->|03_combine_embryoscope_planilha| K
+    
+    K -->|04_export_to_excel| L[Excel Export]
     
     style L fill:#90EE90
     style K fill:#FFD700
     style G fill:#FFD700
+    style R fill:#FFD700
 ```

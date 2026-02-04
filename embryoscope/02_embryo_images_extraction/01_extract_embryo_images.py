@@ -11,13 +11,17 @@ This script:
 
 import os
 import sys
+import json
 import logging
 import duckdb
 import yaml
 from datetime import datetime
 from pathlib import Path
-from typing import Optional
+import argparse
+from typing import List, Dict, Optional, Tuple
 import time
+import concurrent.futures
+from collections import defaultdict
 
 # Add parent directory to path to import utils
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
@@ -37,7 +41,7 @@ logging.basicConfig(
     format='%(asctime)s [%(levelname)s] %(name)s: %(message)s',
     handlers=[
         logging.FileHandler(LOG_PATH),
-        logging.StreamHandler()
+        logging.StreamHandler(sys.stdout)
     ]
 )
 logger = logging.getLogger(__name__)
@@ -46,121 +50,202 @@ logger = logging.getLogger(__name__)
 DB_PATH = os.path.join(os.path.dirname(__file__), '..', '..', 'database', 'huntington_data_lake.duckdb')
 OUTPUT_DIR = os.path.join(os.path.dirname(__file__), 'export_images')
 LIMIT = 3  # Number of embryos to extract
+TEMP_RESULTS_LOG = os.path.join(LOGS_DIR, f'extraction_results_{timestamp}.jsonl')
+
+
+# Focal planes to extract (start only with plane 0)
+FOCAL_PLANES = [0]
+
 
 
 def extract_embryo_images(
     embryo_id: str, 
     location: str, 
     api_client: EmbryoscopeAPIClient, 
-    conn: duckdb.DuckDBPyConnection,
+    focal_planes: List[int],
     prontuario: Optional[str] = None,
     embryo_description_id: Optional[str] = None
-) -> bool:
+) -> Dict:
     """
-    Extract images for a single embryo.
+    Extract specific focal planes for a single embryo in parallel.
     
     Args:
         embryo_id: Embryo ID to extract
         location: Clinic location name
         api_client: Initialized API client for the clinic
-        conn: Database connection
+        focal_planes: List of focal plane numbers to extract
         prontuario: Patient ID (prontuario)
         embryo_description_id: Embryo description ID
         
     Returns:
-        True if extraction successful, False otherwise
+        Summary dictionary
     """
     logger.info(f"=" * 80)
     logger.info(f"Extracting images for {embryo_id} from {location}")
+    logger.info(f"Targeting focal planes: {focal_planes}")
     logger.info(f"=" * 80)
+    sys.stdout.flush()
     
+    if not focal_planes:
+        logger.info(f"All focal planes already extracted for {embryo_id}. Skipping.")
+        return {'status': 'skipped', 'planes_extracted': 0}
+
     try:
         # Record start time for API response time tracking
         start_time = time.time()
         
-        # Call API to get all images
-        response = api_client.get_all_images(embryo_id, image_overlay=True, focal_plane=0)
-        
-        # Call API to get image runs
+        # Call API to get image runs (only needed once per embryo)
         image_runs = api_client.get_image_runs(embryo_id)
         
-        # Calculate API response time
-        api_response_time_ms = int((time.time() - start_time) * 1000)
-        
-        if response is None or response.status_code != 200 or image_runs is None:
-            error_msg = f"API request failed - Images: {response.status_code if response else 'None'}, Runs: {'OK' if image_runs else 'Failed'}"
+        if image_runs is None:
+            status_code = getattr(api_client, 'last_status_code', 'Unknown')
+            last_error = getattr(api_client, 'last_error', 'No error captured')
+            error_msg = f"API request failed (Status: {status_code}) - {last_error}"
             logger.error(error_msg)
-            utils.update_metadata(
-                conn, embryo_id, location, 'failed',
-                error_message=error_msg,
-                api_response_time_ms=api_response_time_ms,
-                prontuario=prontuario,
-                embryo_description_id=embryo_description_id
-            )
-            return False
+            # Log failure for all requested planes
+            for plane in focal_planes:
+                utils.append_extraction_result_to_log(TEMP_RESULTS_LOG, {
+                    'embryo_id': embryo_id, 'focal_plane': plane, 'clinic_location': location,
+                    'status': 'failed', 'error_message': error_msg,
+                    'prontuario': prontuario, 'embryo_description_id': embryo_description_id,
+                    'api_response_time_ms': int((time.time() - start_time) * 1000)
+                })
+            return {
+                'status': 'failed', 
+                'planes_extracted': 0,
+                'total_size_mb': 0
+            }
+
+        # Counters for summary
+        success_count = 0
+        failure_count = 0
+        total_size_bytes = 0
         
-        # Save both ZIP file and image runs JSON in embryo folder
-        embryo_folder_path, file_size_bytes, runs_count = utils.save_embryo_files(
-            response.content, image_runs, embryo_id, prontuario, OUTPUT_DIR
-        )
-        
-        # Validate ZIP file
-        zip_file_path = os.path.join(embryo_folder_path, 'images.zip')
-        is_valid, image_count, error_message = utils.validate_zip_file(zip_file_path)
-        
-        if not is_valid:
-            logger.error(f"ZIP validation failed: {error_message}")
-            utils.update_metadata(
-                conn, embryo_id, location, 'failed',
-                embryo_folder_path=embryo_folder_path,
-                file_size_bytes=file_size_bytes,
-                error_message=f"ZIP validation failed: {error_message}",
-                api_response_time_ms=api_response_time_ms,
-                prontuario=prontuario,
-                embryo_description_id=embryo_description_id
-            )
-            return False
-        
-        # Update metadata with success
-        utils.update_metadata(
-            conn, embryo_id, location, 'success',
-            embryo_folder_path=embryo_folder_path,
-            file_size_bytes=file_size_bytes,
-            image_count=image_count,
-            image_runs_count=runs_count,
-            api_response_time_ms=api_response_time_ms,
-            prontuario=prontuario,
-            embryo_description_id=embryo_description_id
-        )
-        
-        logger.info(f"✓ Successfully extracted {image_count} images and {runs_count} runs for {embryo_id}")
-        logger.info(f"  Folder: {embryo_folder_path}")
-        logger.info(f"  Images ZIP: {file_size_bytes:,} bytes")
-        logger.info(f"  API response time: {api_response_time_ms}ms")
-        
-        return True
+        # Function to download and log a single focal plane
+        def process_plane(plane):
+            logger.info(f"  Fetching focal plane {plane}...")
+            sys.stdout.flush()
+            
+            p_start = time.time()
+            response = api_client.get_all_images(embryo_id, image_overlay=True, focal_plane=plane)
+            p_duration = int((time.time() - p_start) * 1000)
+            
+            result_data = {
+                'embryo_id': embryo_id,
+                'focal_plane': plane,
+                'clinic_location': location,
+                'prontuario': prontuario,
+                'embryo_description_id': embryo_description_id,
+                'api_response_time_ms': p_duration,
+                'status': 'failed',
+                'error_message': None,
+                'file_size_bytes': 0,
+                'image_runs_count': len(image_runs.get('ImageRuns', [])) if isinstance(image_runs.get('ImageRuns'), list) else 0
+            }
+
+            if response is not None and response.status_code == 200:
+                content = response.content
+                file_size = len(content)
+                
+                # Save just this plane's ZIP file
+                folder_name = f"{prontuario}_{embryo_id}"
+                folder_path = os.path.join(OUTPUT_DIR, folder_name)
+                os.makedirs(folder_path, exist_ok=True)
+                
+                zip_filename = f'images_F{plane}.zip'
+                zip_path = os.path.join(folder_path, zip_filename)
+                
+                try:
+                    with open(zip_path, 'wb') as f:
+                        f.write(content)
+                    
+                    result_data.update({
+                        'status': 'success',
+                        'file_size_bytes': file_size
+                    })
+                    logger.info(f"  [OK] Plane {plane} saved ({file_size/1024/1024:.2f} MB)")
+                except Exception as e:
+                    result_data['error_message'] = f"Save error: {str(e)}"
+                    logger.error(f"  [FAIL] Failed to save plane {plane}: {e}")
+            else:
+                status_code = response.status_code if response else 'None'
+                error_msg = f"API error (Status: {status_code})"
+                result_data['error_message'] = error_msg
+                logger.warning(f"  [FAIL] Failed plane {plane}: {error_msg}")
+
+            # IMMEDIATE LOGGING to file for sync later
+            utils.append_extraction_result_to_log(TEMP_RESULTS_LOG, result_data)
+            sys.stdout.flush()
+            return result_data
+
+        # Use ThreadPoolExecutor for parallel plane downloads
+        with concurrent.futures.ThreadPoolExecutor(max_workers=5) as executor:
+            futures = [executor.submit(process_plane, plane) for plane in focal_planes]
+            for future in concurrent.futures.as_completed(futures):
+                res = future.result()
+                if res['status'] == 'success':
+                    success_count += 1
+                    total_size_bytes += res['file_size_bytes']
+                else:
+                    failure_count += 1
+
+        # Save image runs JSON if at least one plane succeeded
+        if success_count > 0:
+            folder_name = f"{prontuario}_{embryo_id}"
+            folder_path = os.path.join(OUTPUT_DIR, folder_name)
+            runs_file_path = os.path.join(folder_path, f'{embryo_id}_imageruns.json')
+            with open(runs_file_path, 'w', encoding='utf-8') as f:
+                json.dump(image_runs, f, indent=2, ensure_ascii=False)
+
+        logger.info(f"--- Finished {embryo_id}: {success_count} success, {failure_count} failed ---")
+        return {
+            'status': 'success' if success_count > 0 else 'failed',
+            'planes_extracted': success_count,
+            'total_size_mb': total_size_bytes / (1024 * 1024)
+        }
         
     except Exception as e:
         error_msg = f"Unexpected error: {str(e)}"
         logger.error(error_msg, exc_info=True)
-        utils.update_metadata(
-            conn, embryo_id, location, 'failed',
-            error_message=error_msg,
-            prontuario=prontuario,
-            embryo_description_id=embryo_description_id
-        )
-        return False
+        return {
+            'embryo_id': embryo_id,
+            'clinic_location': location,
+            'prontuario': prontuario,
+            'embryo_description_id': embryo_description_id,
+            'status': 'failed',
+            'error_message': error_msg,
+            'planes_extracted': 0,
+            'total_size_mb': 0,
+            'api_response_time_ms': int((time.time() - start_time) * 1000) if 'start_time' in locals() else 0
+        }
 
 
 def main():
     """Main extraction workflow."""
+    parser = argparse.ArgumentParser(description='Embryo Image Extraction Pipeline')
+    parser.add_argument('--limit', type=int, default=3, help='Limit number of embryos to extract (default: 3)')
+    parser.add_argument('--planes', type=str, default='0', help='Comma-separated focal planes to extract (default: 0)')
+    parser.add_argument('--mode', type=str, default='all', choices=['all', 'with_biopsy', 'without_biopsy'], 
+                        help='Extraction mode: all, with_biopsy, or without_biopsy (default: all)')
+    args = parser.parse_args()
+
+    # Parse planes
+    global FOCAL_PLANES
+    try:
+        FOCAL_PLANES = [int(p.strip()) for p in args.planes.split(',')]
+    except ValueError:
+        print("Invalid planes format. Use comma-separated integers.")
+        sys.exit(1)
+
+    limit = args.limit
+
     logger.info("=" * 80)
     logger.info("EMBRYO IMAGE EXTRACTION PIPELINE")
     logger.info("=" * 80)
     logger.info(f"Database: {DB_PATH}")
     logger.info(f"Output directory: {OUTPUT_DIR}")
-    logger.info(f"Log file: {LOG_PATH}")
-    logger.info(f"Extraction limit: {LIMIT} embryos")
+    logger.info(f"Extraction limit: {limit} embryos")
+    logger.info(f"Target planes: {FOCAL_PLANES}")
     logger.info("")
     
     # Verify database exists
@@ -171,190 +256,151 @@ def main():
     # Create output directory
     os.makedirs(OUTPUT_DIR, exist_ok=True)
     
-    # Initialize database connection
-    logger.info("Connecting to database...")
-    conn = duckdb.connect(DB_PATH)
-    
     try:
-        # Initialize metadata table
-        logger.info("Initializing metadata table...")
-        utils.initialize_metadata_table(DB_PATH)
+        # Connect to database to check for embryos
+        logger.info("Connecting to database...")
+        conn = duckdb.connect(DB_PATH)
         
-        # Query embryos to extract
-        logger.info(f"Querying first {LIMIT} embryos from gold.data_ploidia...")
-        embryos = utils.get_embryos_to_extract(conn, limit=LIMIT)
+        try:
+            # Initialize metadata table
+            logger.info("Initializing metadata table...")
+            utils.initialize_metadata_table(DB_PATH)
+            
+            # Query embryos to extract (now filtered in SQL to exclude successes)
+            logger.info(f"Querying embryos from gold.data_ploidia (limit {limit}, mode {args.mode})...")
+            # We only look for embryos that are missing ANY of the requested FOCAL_PLANES
+            embryos = utils.get_embryos_to_extract(conn, limit=limit, planes=FOCAL_PLANES, mode=args.mode)
+            
+        finally:
+            # CLOSE CONNECTION as soon as we have the list to avoid locks during extraction
+            conn.close()
+            logger.info("Database connection closed for extraction phase.")
         
         if not embryos:
-            logger.warning("No embryos found to extract")
+            logger.warning("No new embryos found to extract")
             return
         
-        logger.info(f"Found {len(embryos)} embryos to process:")
-        for embryo in embryos:
-            logger.info(f"  - {embryo['embryo_id']}: {embryo['location']}")
+        # Group embryos by location (unit) for parallel processing
+        embryos_by_unit = defaultdict(list)
+        for e in embryos:
+            embryos_by_unit[e['location']].append(e)
+            
+        logger.info(f"Found {len(embryos)} embryos across {len(embryos_by_unit)} units.")
+        for loc, group in embryos_by_unit.items():
+            logger.info(f"  - {loc}: {len(group)} embryos")
         logger.info("")
+        sys.stdout.flush()
         
         # Load API configuration
-        logger.info("Loading API configuration...")
-        # Get correct path to params.yml (go up to embryoscope directory)
         params_path = os.path.join(os.path.dirname(__file__), '..', 'params.yml')
         config_manager = EmbryoscopeConfigManager(config_path=params_path)
         
-        # Track extraction results
-        results = {
-            'success': [],
-            'failed': [],
-            'skipped': []
-        }
-        
-        # Process each embryo
-        for i, embryo in enumerate(embryos, 1):
-            embryo_id = embryo['embryo_id']
-            location = embryo['location']
-            prontuario = embryo.get('prontuario')
-            embryo_description_id = embryo.get('embryo_description_id')
-            
-            logger.info(f"\n[{i}/{len(embryos)}] Processing {embryo_id}...")
-            
-            # Check if already extracted
-            existing = utils.check_existing_extraction(conn, embryo_id)
-            if existing and existing['status'] == 'success':
-                logger.info(f"✓ Images already extracted on {existing['extraction_timestamp']}")
-                logger.info(f"  Skipping (use --force to re-extract)")
-                results['skipped'].append(embryo_id)
-                continue
+        # Function to process all embryos for a single unit
+        def process_unit(location, unit_embryos):
+            logger.info(f"--- Starting worker for UNIT: {location} ({len(unit_embryos)} embryos) ---")
+            unit_results = {'success': [], 'failed': [], 'skipped': []}
             
             # Map location to API config
             try:
                 api_config_key = utils.map_location_to_api_config(location)
             except ValueError as e:
-                logger.error(f"✗ {e}")
-                results['failed'].append(embryo_id)
-                utils.update_metadata(conn, embryo_id, location, 'failed', 
-                                    error_message=str(e),
-                                    prontuario=prontuario,
-                                    embryo_description_id=embryo_description_id)
-                continue
-            
+                logger.error(f"[{location}] [FAIL] {e}")
+                for e in unit_embryos:
+                    utils.append_extraction_result_to_log(TEMP_RESULTS_LOG, {
+                        'embryo_id': e['embryo_id'], 'focal_plane': 0, 'clinic_location': location,
+                        'status': 'failed', 'error_message': str(e),
+                        'prontuario': e.get('prontuario'), 'embryo_description_id': e.get('embryo_description_id')
+                    })
+                return unit_results
+
             # Get API configuration for this location
             enabled_embryoscopes = config_manager.get_enabled_embryoscopes()
             if api_config_key not in enabled_embryoscopes:
-                error_msg = f"API configuration not found or not enabled for {api_config_key}"
-                logger.error(f"✗ {error_msg}")
-                results['failed'].append(embryo_id)
-                utils.update_metadata(conn, embryo_id, location, 'failed', 
-                                    error_message=error_msg,
-                                    prontuario=prontuario,
-                                    embryo_description_id=embryo_description_id)
-                continue
+                error_msg = f"API config not found/enabled for {api_config_key}"
+                logger.error(f"[{location}] [FAIL] {error_msg}")
+                for e in unit_embryos:
+                    utils.append_extraction_result_to_log(TEMP_RESULTS_LOG, {
+                        'embryo_id': e['embryo_id'], 'focal_plane': 0, 'clinic_location': location,
+                        'status': 'failed', 'error_message': error_msg,
+                        'prontuario': e.get('prontuario'), 'embryo_description_id': e.get('embryo_description_id')
+                    })
+                return unit_results
             
-            api_config = enabled_embryoscopes[api_config_key]
+            # Initialize API client for this clinic
+            api_client = EmbryoscopeAPIClient(location, enabled_embryoscopes[api_config_key])
             
-            # Initialize API client
-            logger.info(f"Connecting to {api_config_key} API...")
-            api_client = EmbryoscopeAPIClient(api_config_key, api_config)
-            
-            # Extract images
-            success = extract_embryo_images(embryo_id, location, api_client, conn,
-                                          prontuario, embryo_description_id)
-            
-            if success:
-                results['success'].append(embryo_id)
-            else:
-                results['failed'].append(embryo_id)
+            # Process embryos for this unit SEQUENTIALLY
+            for j, embryo in enumerate(unit_embryos, 1):
+                embryo_id = embryo['embryo_id']
+                prontuario = embryo.get('prontuario')
+                embryo_description_id = embryo.get('embryo_description_id')
+                
+                logger.info(f"[{location}] [{j}/{len(unit_embryos)}] Processing {embryo_id}...")
+                
+                # Check extracted planes
+                conn = duckdb.connect(DB_PATH)
+                try:
+                    extracted_planes = utils.get_extracted_planes(conn, embryo_id)
+                finally:
+                    conn.close()
+                
+                planes_to_extract = [p for p in FOCAL_PLANES if p not in extracted_planes]
+                
+                if not planes_to_extract:
+                    logger.info(f"[{location}]   [OK] Planes already extracted for {embryo_id}. Skipping.")
+                    unit_results['skipped'].append(embryo_id)
+                    continue
+                
+                # Extract (inner parallel focal planes)
+                summary = extract_embryo_images(
+                    embryo_id, location, api_client, planes_to_extract, prontuario, embryo_description_id
+                )
+                
+                if summary['status'] == 'success' or summary['planes_extracted'] > 0:
+                    unit_results['success'].append(embryo_id)
+                else:
+                    unit_results['failed'].append(embryo_id)
+                sys.stdout.flush()
+                
+            return unit_results
+
+        # Track overall extraction results
+        overall_results = {'success': [], 'failed': [], 'skipped': []}
         
-        # Print summary
+        # Use ThreadPoolExecutor to process each UNIT in parallel
+        with concurrent.futures.ThreadPoolExecutor(max_workers=len(embryos_by_unit)) as executor:
+            future_to_unit = {executor.submit(process_unit, loc, group): loc for loc, group in embryos_by_unit.items()}
+            
+            for future in concurrent.futures.as_completed(future_to_unit):
+                unit_name = future_to_unit[future]
+                try:
+                    res = future.result()
+                    overall_results['success'].extend(res['success'])
+                    overall_results['failed'].extend(res['failed'])
+                    overall_results['skipped'].extend(res['skipped'])
+                except Exception as exc:
+                    logger.error(f"Unit {unit_name} generated an exception: {exc}")
+        
+        # Set results for final summary
+        results = overall_results
+        
+        # EXTRACTION SUMMARY
         logger.info("\n" + "=" * 80)
         logger.info("EXTRACTION SUMMARY")
         logger.info("=" * 80)
-        logger.info(f"Total embryos processed: {len(embryos)}")
-        logger.info(f"✓ Successful extractions: {len(results['success'])}")
-        logger.info(f"✗ Failed extractions: {len(results['failed'])}")
-        logger.info(f"⊘ Skipped (already extracted): {len(results['skipped'])}")
-        
-        if results['success']:
-            logger.info(f"\nSuccessfully extracted:")
-            for embryo_id in results['success']:
-                logger.info(f"  ✓ {embryo_id}")
-        
-        if results['failed']:
-            logger.info(f"\nFailed extractions:")
-            for embryo_id in results['failed']:
-                logger.info(f"  ✗ {embryo_id}")
-        
-        if results['skipped']:
-            logger.info(f"\nSkipped (already extracted):")
-            for embryo_id in results['skipped']:
-                logger.info(f"  ⊘ {embryo_id}")
-        
-        logger.info(f"\nLog file: {LOG_PATH}")
-        logger.info(f"Output directory: {OUTPUT_DIR}")
+        logger.info(f"Success: {len(results['success'])}")
+        logger.info(f"Failed: {len(results['failed'])}")
+        logger.info(f"Skipped: {len(results['skipped'])}")
         logger.info("=" * 80)
-        
-        # Export metadata to Excel
-        try:
-            logger.info("\nExporting metadata to Excel...")
-            metadata_df = conn.execute('''
-                SELECT 
-                    embryo_id,
-                    prontuario,
-                    embryo_description_id,
-                    clinic_location,
-                    extraction_timestamp,
-                    image_count,
-                    image_runs_count,
-                    file_size_bytes,
-                    status,
-                    error_message,
-                    api_response_time_ms
-                FROM gold.embryo_images_metadata
-                ORDER BY extraction_timestamp DESC
-            ''').df()
-            
-            # Format file size in MB
-            metadata_df['file_size_mb'] = (metadata_df['file_size_bytes'] / 1024 / 1024).round(2)
-            
-            # Save to Excel
-            excel_path = os.path.join(OUTPUT_DIR, '00_extraction_metadata.xlsx')
-            metadata_df.to_excel(excel_path, index=False, sheet_name='Extraction Metadata')
-            logger.info(f"✓ Metadata exported to: {excel_path}")
-            logger.info(f"  Total records: {len(metadata_df)}")
-        except Exception as e:
-            logger.warning(f"Failed to export metadata to Excel: {e}")
-
-        # Export clinical data (from gold.data_ploidia) to Excel
-        try:
-            logger.info("\nExporting clinical data to Excel...")
-            # Get list of processed embryo IDs
-            if results['success'] or results['skipped']:
-                processed_ids = results['success'] + results['skipped']
-                # Format list for SQL IN clause
-                ids_str = "', '".join(processed_ids)
-                
-                clinical_query = f'''
-                    SELECT *
-                    FROM gold.data_ploidia
-                    WHERE "Slide ID" IN ('{ids_str}')
-                '''
-                
-                clinical_df = conn.execute(clinical_query).df()
-                
-                # Save to Excel
-                clinical_excel_path = os.path.join(OUTPUT_DIR, '01_clinical_data.xlsx')
-                clinical_df.to_excel(clinical_excel_path, index=False, sheet_name='Clinical Data')
-                logger.info(f"✓ Clinical data exported to: {clinical_excel_path}")
-                logger.info(f"  Total records: {len(clinical_df)}")
-            else:
-                logger.info("No embryos processed effectively, skipping clinical data export.")
-                
-        except Exception as e:
-            logger.warning(f"Failed to export clinical data to Excel: {e}")
+        logger.info(f"Results logged to: {TEMP_RESULTS_LOG}")
+        logger.info("Please run 02_sync_and_export_metadata.py to update the database and generate Excel reports.")
+        logger.info("=" * 80)
             
     except Exception as e:
         logger.error(f"Fatal error in main workflow: {e}", exc_info=True)
         raise
     finally:
-        conn.close()
-        logger.info("Database connection closed")
+        logger.info("Extraction script finished.")
 
 
 if __name__ == '__main__':

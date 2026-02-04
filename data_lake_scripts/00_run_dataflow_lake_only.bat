@@ -32,13 +32,46 @@ if %errorlevel% neq 0 (
     exit /b 1
 )
 
+echo.
+echo ========================================
+echo STEP %PARENT_STEP%.2: Combining Redlara and Planilha Data
+echo ========================================
+python 02_combine_redlara_planilha.py
+if %errorlevel% neq 0 (
+    echo ERROR: Step %PARENT_STEP%.2 failed
+    pause
+    exit /b 1
+)
+
+echo.
+echo ========================================
+echo STEP %PARENT_STEP%.3: Combining Embryoscope and Planilha Data
+echo ========================================
+python 03_combine_embryoscope_planilha.py
+if %errorlevel% neq 0 (
+    echo ERROR: Step %PARENT_STEP%.3 failed
+    pause
+    exit /b 1
+)
+
 @REM echo.
 @REM echo ========================================
-@REM echo STEP 2: Exporting Full Table to Excel
+@REM echo STEP %PARENT_STEP%.4: Exporting Redlara-Planilha Table to Excel
 @REM echo ========================================
-@REM python 02_export_full_table_to_excel.py
+@REM python 04_01_export_redlara_planilha.py
 @REM if %errorlevel% neq 0 (
-@REM     echo ERROR: Step 2 failed
+@REM     echo ERROR: Step %PARENT_STEP%.4 failed
+@REM     pause
+@REM     exit /b 1
+@REM )
+
+@REM echo.
+@REM echo ========================================
+@REM echo STEP %PARENT_STEP%.5: Exporting Final Combined Table to Excel
+@REM echo ========================================
+@REM python 04_export_to_excel.py
+@REM if %errorlevel% neq 0 (
+@REM     echo ERROR: Step %PARENT_STEP%.5 failed
 @REM     pause
 @REM     exit /b 1
 @REM )

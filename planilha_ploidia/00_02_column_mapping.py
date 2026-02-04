@@ -50,6 +50,13 @@ COLUMN_MAPPING = OrderedDict([
     ("Re-exp Count - Value", "embryo_Value_ReexpansionCount"),
     ("TE - Value", "embryo_Value_TE"),
     ("Embryo Description", "embryo_Description"),
+    ("Embryo Description Clinisys", "emb_cong_colapso"),
+    ("outcome_type", "outcome_type"),
+    ("merged_numero_de_nascidos", "merged_numero_de_nascidos"),
+    ("fet_gravidez_clinica", "fet_gravidez_clinica"),
+    ("trat2_resultado_tratamento", "trat2_resultado_tratamento"),
+    ("trat1_resultado_tratamento", "trat1_resultado_tratamento"),
+    ("fet_tipo_resultado", "fet_tipo_resultado"),
 ])
 
 # Derived: Target columns list (for backward compatibility)

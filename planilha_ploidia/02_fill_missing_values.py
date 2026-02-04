@@ -46,22 +46,56 @@ def get_database_connection(read_only=False):
     
     return conn
 
-def get_null_counts(conn):
-    """Get count of NULL values for each column"""
-    query = """
-    SELECT 
-        COUNT(*) as total_rows,
-        SUM(CASE WHEN "BMI" IS NULL THEN 1 ELSE 0 END) as null_bmi,
-        SUM(CASE WHEN "Diagnosis" IS NULL THEN 1 ELSE 0 END) as null_diagnosis,
-        SUM(CASE WHEN "Oocyte Source" IS NULL THEN 1 ELSE 0 END) as null_oocyte_source
-    FROM huntington.gold.data_ploidia
-    """
-    result = conn.execute(query).fetchone()
+def log_all_null_counts(conn, label=""):
+    """Fetch and log NULL/blank counts for all columns in gold.data_ploidia"""
+    logger.info("=" * 80)
+    logger.info(f"NULL/BLANK COUNTS {label}")
+    logger.info("=" * 80)
+    
+    # Get column names
+    try:
+        columns = conn.execute("DESCRIBE huntington.gold.data_ploidia").df()['column_name'].tolist()
+    except Exception as e:
+        logger.error(f"Error describing table: {e}")
+        return
+
+    # Build query for all columns
+    # We check for NULL or empty string (blanks)
+    sum_parts = []
+    for col in columns:
+        sum_parts.append(f'SUM(CASE WHEN "{col}" IS NULL OR CAST("{col}" AS VARCHAR) = \'\' THEN 1 ELSE 0 END) as "{col}"')
+    
+    query = f"SELECT COUNT(*) as total_rows, {', '.join(sum_parts)} FROM huntington.gold.data_ploidia"
+    result_df = conn.execute(query).df()
+    total_rows = result_df['total_rows'].iloc[0]
+    
+    logger.info(f"Total rows: {total_rows:,}")
+    logger.info(f"{'Column':<35} | {'Null/Blank':>10} | {'%':>7}")
+    logger.info("-" * 60)
+    
+    # Collect counts
+    null_counts = []
+    for col in columns:
+        count = int(result_df[col].iloc[0])
+        null_counts.append((col, count))
+    
+    # Sort by count descending
+    null_counts.sort(key=lambda x: x[1], reverse=True)
+    
+    for col, count in null_counts:
+        pct = (count / total_rows * 100) if total_rows > 0 else 0
+        logger.info(f"{col:<35} | {count:>10,} | {pct:>6.1f}%")
+    
+    logger.info("-" * 60)
+    logger.info("")
+    
+    # Return specific counts for the legacy summary logic if needed
+    # (BMI, Diagnosis, Oocyte Source are the ones explicitly tracked in summary)
     return {
-        'total_rows': result[0],
-        'null_bmi': result[1],
-        'null_diagnosis': result[2],
-        'null_oocyte_source': result[3]
+        'total_rows': total_rows,
+        'null_bmi': int(result_df['BMI'].iloc[0]) if 'BMI' in result_df else 0,
+        'null_diagnosis': int(result_df['Diagnosis'].iloc[0]) if 'Diagnosis' in result_df else 0,
+        'null_oocyte_source': int(result_df['Oocyte Source'].iloc[0]) if 'Oocyte Source' in result_df else 0
     }
 
 def fill_bmi_values(conn):
@@ -220,13 +254,7 @@ def main():
         conn = get_database_connection(read_only=False)
         
         # Get NULL counts before filling
-        logger.info("NULL counts BEFORE filling:")
-        before_counts = get_null_counts(conn)
-        logger.info(f"  Total rows: {before_counts['total_rows']:,}")
-        logger.info(f"  NULL BMI: {before_counts['null_bmi']:,}")
-        logger.info(f"  NULL Diagnosis: {before_counts['null_diagnosis']:,}")
-        logger.info(f"  NULL Oocyte Source: {before_counts['null_oocyte_source']:,}")
-        logger.info("")
+        before_counts = log_all_null_counts(conn, "(BEFORE FILLING)")
         
         # Fill missing values
         bmi_updates = 0
@@ -252,14 +280,7 @@ def main():
         oocyte_source_updates = 0 # Handled in creation script
         
         # Get NULL counts after filling
-        logger.info("")
-        logger.info("NULL counts AFTER filling:")
-        after_counts = get_null_counts(conn)
-        logger.info(f"  Total rows: {after_counts['total_rows']:,}")
-        logger.info(f"  NULL BMI: {after_counts['null_bmi']:,}")
-        logger.info(f"  NULL Diagnosis: {after_counts['null_diagnosis']:,}")
-        logger.info(f"  NULL Oocyte Source: {after_counts['null_oocyte_source']:,}")
-        logger.info("")
+        after_counts = log_all_null_counts(conn, "(AFTER FILLING)")
         
         # Summary
         logger.info("=" * 80)
