@@ -59,9 +59,9 @@ def get_embryos_to_extract(conn: duckdb.DuckDBPyConnection, limit: int = 3, plan
     # without_biopsy: (Embryo Description IS NULL AND Embryo Description Clinisys IS NULL)
     biopsy_filter = ""
     if mode == "with_biopsy":
-        biopsy_filter = 'AND (dp."Embryo Description" IS NOT NULL OR dp."Embryo Description Clinisys" IS NOT NULL)'
+        biopsy_filter = 'AND (dp."Embryo Description" IS NOT NULL OR dp."Embryo Description Clinisys" IS NOT NULL OR dp."Embryo Description Clinisys Detalhes" IS NOT NULL)'
     elif mode == "without_biopsy":
-        biopsy_filter = '''AND (dp."Embryo Description" IS NULL AND dp."Embryo Description Clinisys" IS NULL)
+        biopsy_filter = '''AND (dp."Embryo Description" IS NULL AND dp."Embryo Description Clinisys" IS NULL AND dp."Embryo Description Clinisys Detalhes" IS NULL)
               AND (dp.outcome_type IS NOT NULL OR 
                    dp.merged_numero_de_nascidos IS NOT NULL OR 
                    dp.fet_gravidez_clinica IS NOT NULL OR 

@@ -22,6 +22,7 @@ from typing import List, Dict, Optional, Tuple
 import time
 import concurrent.futures
 from collections import defaultdict
+import threading
 
 # Add parent directory to path to import utils
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
@@ -30,18 +31,27 @@ from utils.api_client import EmbryoscopeAPIClient
 from utils.config_manager import EmbryoscopeConfigManager
 import image_extraction_utils as utils
 
-# Setup logging
+# Setup logging with thread-safe handlers
 LOGS_DIR = os.path.join(os.path.dirname(__file__), '..', 'logs')
 os.makedirs(LOGS_DIR, exist_ok=True)
 timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
 LOG_PATH = os.path.join(LOGS_DIR, f'embryo_image_extraction_{timestamp}.log')
+
+# Create a lock for thread-safe logging
+log_lock = threading.Lock()
+
+class ThreadSafeStreamHandler(logging.StreamHandler):
+    """StreamHandler that uses a lock to prevent concurrent write errors."""
+    def emit(self, record):
+        with log_lock:
+            super().emit(record)
 
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s [%(levelname)s] %(name)s: %(message)s',
     handlers=[
         logging.FileHandler(LOG_PATH),
-        logging.StreamHandler(sys.stdout)
+        ThreadSafeStreamHandler(sys.stdout)
     ]
 )
 logger = logging.getLogger(__name__)
@@ -337,23 +347,9 @@ def main():
                 
                 logger.info(f"[{location}] [{j}/{len(unit_embryos)}] Processing {embryo_id}...")
                 
-                # Check extracted planes
-                conn = duckdb.connect(DB_PATH)
-                try:
-                    extracted_planes = utils.get_extracted_planes(conn, embryo_id)
-                finally:
-                    conn.close()
-                
-                planes_to_extract = [p for p in FOCAL_PLANES if p not in extracted_planes]
-                
-                if not planes_to_extract:
-                    logger.info(f"[{location}]   [OK] Planes already extracted for {embryo_id}. Skipping.")
-                    unit_results['skipped'].append(embryo_id)
-                    continue
-                
-                # Extract (inner parallel focal planes)
+                # Extract all requested focal planes (already filtered by initial query)
                 summary = extract_embryo_images(
-                    embryo_id, location, api_client, planes_to_extract, prontuario, embryo_description_id
+                    embryo_id, location, api_client, FOCAL_PLANES, prontuario, embryo_description_id
                 )
                 
                 if summary['status'] == 'success' or summary['planes_extracted'] > 0:

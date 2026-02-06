@@ -98,6 +98,49 @@ def map_mysql_to_duckdb_type(mysql_type):
     # This includes INT, DOUBLE, FLOAT, etc. that might have empty strings
     return 'VARCHAR'
 
+def get_duckdb_table_columns(con, table_name):
+    """Get the list of columns in a DuckDB table"""
+    try:
+        result = con.execute(f"""
+            SELECT column_name 
+            FROM information_schema.columns 
+            WHERE table_schema = 'bronze' AND table_name = '{table_name}'
+            ORDER BY ordinal_position
+        """).fetchall()
+        return {row[0] for row in result}
+    except Exception as e:
+        logger.warning(f"Could not get columns for {table_name}: {e}")
+        return set()
+
+def sync_table_schema(con, table_name, mysql_schema):
+    """Synchronize DuckDB table schema with MySQL schema by adding missing columns"""
+    # Get existing columns in DuckDB table
+    existing_columns = get_duckdb_table_columns(con, table_name)
+    
+    # Standard columns that we add
+    standard_columns = {'hash', 'extraction_timestamp'}
+    
+    # Find missing columns (excluding our standard columns)
+    mysql_columns = set(mysql_schema.keys())
+    missing_columns = mysql_columns - existing_columns - standard_columns
+    
+    if not missing_columns:
+        logger.info(f"Table bronze.{table_name} schema is up to date")
+        return
+    
+    # Add missing columns
+    logger.info(f"Found {len(missing_columns)} new columns in source table {table_name}: {missing_columns}")
+    
+    for col_name in missing_columns:
+        col_info = mysql_schema[col_name]
+        duckdb_type = map_mysql_to_duckdb_type(col_info['type'])
+        
+        alter_sql = f"ALTER TABLE bronze.{table_name} ADD COLUMN {col_name} {duckdb_type}"
+        logger.info(f"Adding column: {col_name} {duckdb_type}")
+        con.execute(alter_sql)
+    
+    logger.info(f"Successfully synchronized schema for bronze.{table_name}")
+
 def create_duckdb_table(con, table_name, schema):
     """Create DuckDB table with the same structure as MySQL (only if it doesn't exist)"""
     # Check if table exists
@@ -107,7 +150,9 @@ def create_duckdb_table(con, table_name, schema):
     """).fetchone()[0]
     
     if table_exists:
-        logger.info(f"Table bronze.{table_name} already exists, skipping creation")
+        logger.info(f"Table bronze.{table_name} already exists, checking for schema changes")
+        # Synchronize schema if table exists
+        sync_table_schema(con, table_name, schema)
         return
     
     columns = []
@@ -186,8 +231,9 @@ def copy_table_data(engine, con, table_name, config):
     
     logger.info(f"Inserting {len(new_rows)} new rows to bronze.{table_name}")
     
-    # Insert only new rows
-    con.execute(f"INSERT INTO bronze.{table_name} SELECT * FROM new_rows")
+    # Insert only new rows - explicitly specify columns to handle schema evolution
+    columns = ', '.join(new_rows.columns)
+    con.execute(f"INSERT INTO bronze.{table_name} ({columns}) SELECT {columns} FROM new_rows")
     
     logger.info(f"Successfully inserted {len(new_rows)} new rows to bronze.{table_name}")
     logger.info(f"Total rows in bronze.{table_name}: {con.execute(f'SELECT COUNT(*) FROM bronze.{table_name}').fetchone()[0]}")

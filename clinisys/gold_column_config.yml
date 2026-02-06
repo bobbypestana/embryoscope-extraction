@@ -8,6 +8,8 @@ view_micromanipulacao_oocitos:
   - TCD
   - embryo_number
   - OrigemOocito
+  - ResultadoPGD
+  - ResultadoPGDDetalhes
 
 # Columns from view_micromanipulacao (micro_*)
 view_micromanipulacao:
@@ -37,7 +39,6 @@ view_embrioes_congelados:
   - id
   - qualidade
   - transferidos
-  - colapso
 
 # Columns from view_congelamentos_embrioes (cong_em_*)
 view_congelamentos_embrioes:
