@@ -26,38 +26,6 @@ if %errorlevel% neq 0 (
     exit /b 1
 )
 
-echo.
-echo ========================================
-echo STEP %PARENT_STEP%.2: Combining Redlara and Planilha (Registry Stream)
-echo ========================================
-python data_lake_scripts/02_combine_redlara_planilha.py
-if %errorlevel% neq 0 (
-    echo ERROR: Step %PARENT_STEP%.2 failed
-    pause
-    exit /b 1
-)
-
-echo.
-echo ========================================
-echo STEP %PARENT_STEP%.3: Combining Embryoscope and Planilha (Final Merge)
-echo ========================================
-python data_lake_scripts/03_combine_embryoscope_planilha.py
-if %errorlevel% neq 0 (
-    echo ERROR: Step %PARENT_STEP%.3 failed
-    pause
-    exit /b 1
-)
-
-echo.
-echo ========================================
-echo STEP %PARENT_STEP%.4: Exporting Combined Table to Excel
-echo ========================================
-python data_lake_scripts/04_export_to_excel.py
-if %errorlevel% neq 0 (
-    echo ERROR: Step %PARENT_STEP%.4 failed
-    pause
-    exit /b 1
-)
 
 echo.
 echo ========================================

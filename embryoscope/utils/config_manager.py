@@ -56,54 +56,58 @@ class EmbryoscopeConfigManager:
     def get_database_path(self) -> str:
         """Get database file path."""
         db_config = self.get_database_config()
-        return db_config.get('path', '../database/embryoscope_vila_mariana.db')
+        return db_config.get('path', '../../database/embryoscope_vila_mariana.db')
     
     def get_database_schema(self) -> str:
         """Get database schema name."""
         db_config = self.get_database_config()
         return db_config.get('schema', 'embryoscope')
     
-    def get_extraction_config(self) -> Dict[str, Any]:
-        """Get extraction configuration."""
+    def get_extraction_config(self, extraction_type: Optional[str] = None) -> Dict[str, Any]:
+        """Get extraction configuration. If extraction_type specified, returns data_extraction or image_extraction config."""
+        if extraction_type:
+            specific_config = self.config.get(extraction_type, {})
+            if specific_config:
+                return specific_config
         return self.config.get('extraction', {})
     
-    def get_rate_limit_delay(self, endpoint: Optional[str] = None) -> float:
-        """Get rate limit delay between requests. If endpoint is provided, use endpoint-specific config."""
-        extraction_config = self.get_extraction_config()
+    def get_rate_limit_delay(self, endpoint: Optional[str] = None, extraction_type: str = 'data_extraction') -> float:
+        """Get rate limit delay between requests."""
+        extraction_config = self.get_extraction_config(extraction_type)
         if endpoint and endpoint in extraction_config:
             return extraction_config[endpoint].get('rate_limit_delay', extraction_config.get('rate_limit_delay', 0.1))
         return extraction_config.get('rate_limit_delay', 0.1)
     
-    def get_max_retries(self) -> int:
+    def get_max_retries(self, extraction_type: str = 'data_extraction') -> int:
         """Get maximum number of retries for failed requests."""
-        extraction_config = self.get_extraction_config()
+        extraction_config = self.get_extraction_config(extraction_type)
         return extraction_config.get('max_retries', 3)
     
-    def get_timeout(self) -> int:
+    def get_timeout(self, extraction_type: str = 'data_extraction') -> int:
         """Get request timeout in seconds."""
-        extraction_config = self.get_extraction_config()
+        extraction_config = self.get_extraction_config(extraction_type)
         return extraction_config.get('timeout', 30)
     
-    def get_batch_size(self) -> int:
+    def get_batch_size(self, extraction_type: str = 'data_extraction') -> int:
         """Get batch size for processing."""
-        extraction_config = self.get_extraction_config()
+        extraction_config = self.get_extraction_config(extraction_type)
         return extraction_config.get('batch_size', 1000)
     
-    def is_parallel_processing_enabled(self) -> bool:
+    def is_parallel_processing_enabled(self, extraction_type: str = 'data_extraction') -> bool:
         """Check if parallel processing is enabled."""
-        extraction_config = self.get_extraction_config()
+        extraction_config = self.get_extraction_config(extraction_type)
         return extraction_config.get('parallel_processing', True)
     
-    def get_max_workers(self, endpoint: Optional[str] = None) -> int:
-        """Get maximum number of parallel workers. If endpoint is provided, use endpoint-specific config."""
-        extraction_config = self.get_extraction_config()
+    def get_max_workers(self, endpoint: Optional[str] = None, extraction_type: str = 'data_extraction') -> int:
+        """Get maximum number of parallel workers."""
+        extraction_config = self.get_extraction_config(extraction_type)
         if endpoint and endpoint in extraction_config:
             return extraction_config[endpoint].get('max_workers', extraction_config.get('max_workers', 3))
         return extraction_config.get('max_workers', 3)
     
-    def get_clinic_parallel_workers(self) -> int:
-        """Get number of parallel workers for internal clinic operations (treatments, embryo data)."""
-        extraction_config = self.get_extraction_config()
+    def get_clinic_parallel_workers(self, extraction_type: str = 'data_extraction') -> int:
+        """Get number of parallel workers for internal clinic operations."""
+        extraction_config = self.get_extraction_config(extraction_type)
         return extraction_config.get('clinic_parallel_workers', 1)
     
     def get_token_refresh_patients(self) -> int:

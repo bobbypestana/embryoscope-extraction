@@ -133,7 +133,7 @@ TABLE_CONFIGS = {
             'baby_1_weight': 'Weight.1',
             'baby_2_weight': 'Weight.2',
             'baby_3_weight': 'Weight.3',
-            'complications_of_pregnancy_specify': 'Complications (Other \ Specify)',
+            'complications_of_pregnancy_specify': 'Complications (Other \\ Specify)',
 
             'number_of_fet_after_originally_frozen': 'Number of FET after originally frozen',
             'n_of_biopsied': 'N of bipsied',
@@ -159,7 +159,7 @@ TABLE_CONFIGS = {
             'baby_1_weight': 'Weight.1',
             'baby_2_weight': 'Weight.2',
             'baby_3_weight': 'Weight.3',
-            'complications_of_pregnancy_specify': 'Complications (Other \ Specify)',
+            'complications_of_pregnancy_specify': 'Complications (Other \\ Specify)',
 
             'number_of_fet_after_originally_frozen': 'Number of FET after originally frozen',
             'n_of_biopsied': 'N of bipsied',
@@ -185,7 +185,7 @@ TABLE_CONFIGS = {
             'baby_1_weight': 'Weight.1',
             'baby_2_weight': 'Weight.2',
             'baby_3_weight': 'Weight.3',
-            'complications_of_pregnancy_specify': 'Complications (Other \ Specify)',
+            'complications_of_pregnancy_specify': 'Complications (Other \\ Specify)',
 
             'number_of_fet_after_originally_frozen': 'Number of FET after originally frozen',
             'n_of_biopsied': 'N of bipsied',

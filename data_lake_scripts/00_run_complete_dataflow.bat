@@ -74,13 +74,13 @@ echo.
 echo ========================================
 echo STEP 2: Running Embryoscope Dataflow
 echo ========================================
-if not exist "embryoscope\00_run_dataflow_embryoscope.bat" (
-    echo ERROR: Cannot find embryoscope\00_run_dataflow_embryoscope.bat
+if not exist "embryoscope\01_get_embryo_data\00_run_dataflow_embryoscope.bat" (
+    echo ERROR: Cannot find embryoscope\01_get_embryo_data\00_run_dataflow_embryoscope.bat
     echo Current directory: %CD%
     pause
     exit /b 1
 )
-call "embryoscope\00_run_dataflow_embryoscope.bat" 2
+call "embryoscope\01_get_embryo_data\00_run_dataflow_embryoscope.bat" 2
 if %errorlevel% neq 0 (
     echo ERROR: Step 2 failed
     pause
@@ -90,15 +90,15 @@ cd /d "%PROJECT_ROOT%"
 
 echo.
 echo ========================================
-echo STEP 3: Running Data Lake Consolidation
+echo STEP 3: Running Image Availability Pipeline (New Mode)
 echo ========================================
-if not exist "data_lake_scripts\00_run_dataflow_lake_only.bat" (
-    echo ERROR: Cannot find data_lake_scripts\00_run_dataflow_lake_only.bat
+if not exist "embryoscope\02_images_availability_report\00_run_image_availability_pipeline.bat" (
+    echo ERROR: Cannot find embryoscope\02_images_availability_report\00_run_image_availability_pipeline.bat
     echo Current directory: %CD%
     pause
     exit /b 1
 )
-call "data_lake_scripts\00_run_dataflow_lake_only.bat" 3
+call "embryoscope\02_images_availability_report\00_run_image_availability_pipeline.bat" new
 if %errorlevel% neq 0 (
     echo ERROR: Step 3 failed
     pause
@@ -108,26 +108,33 @@ cd /d "%PROJECT_ROOT%"
 
 @REM echo.
 @REM echo ========================================
-@REM echo STEP 4: Running Mesclada Pipeline
+@REM echo STEP 4: Running Planilha Embriologia Pipeline
 @REM echo ========================================
-@REM call finops\01_data_ingestion\00_run_mesclada_pipeline.bat 4
+@REM if not exist "planilha_embriologia\01_data_ingestion\00_run_planilha_embriologia_pipeline.bat" (
+@REM     echo ERROR: Cannot find planilha_embriologia\01_data_ingestion\00_run_planilha_embriologia_pipeline.bat
+@REM     echo Current directory: %CD%
+@REM     pause
+@REM     exit /b 1
+@REM )
+@REM call "planilha_embriologia\01_data_ingestion\00_run_planilha_embriologia_pipeline.bat" 4
 @REM if %errorlevel% neq 0 (
 @REM     echo ERROR: Step 4 failed
 @REM     pause
 @REM     exit /b 1
 @REM )
+@REM cd /d "%PROJECT_ROOT%"
 
 @REM echo.
 @REM echo ========================================
-@REM echo STEP 5: Running Complete FinOps Pipeline
+@REM echo STEP 5: Running Complete Planilha Embriologia Pipeline
 @REM echo ========================================
-@REM if not exist "finops\02_create_tables\00_run_complete_finops_pipeline.bat" (
-@REM     echo ERROR: Cannot find finops\02_create_tables\00_run_complete_finops_pipeline.bat
+@REM if not exist "planilha_embriologia\02_create_tables\00_run_complete_planilha_embriologia_pipeline.bat" (
+@REM     echo ERROR: Cannot find planilha_embriologia\02_create_tables\00_run_complete_planilha_embriologia_pipeline.bat
 @REM     echo Current directory: %CD%
 @REM     pause
 @REM     exit /b 1
 @REM )
-@REM call "finops\02_create_tables\00_run_complete_finops_pipeline.bat" 5
+@REM call "planilha_embriologia\02_create_tables\00_run_complete_planilha_embriologia_pipeline.bat" 5
 @REM if %errorlevel% neq 0 (
 @REM     echo ERROR: Step 5 failed
 @REM     pause
@@ -137,9 +144,15 @@ cd /d "%PROJECT_ROOT%"
 
 @REM echo.
 @REM echo ========================================
-@REM echo STEP 6: Running Planilha Embriologia Pipeline
+@REM echo STEP 6: Running Redlara Ingestion
 @REM echo ========================================
-@REM call planilha_embriologia\01_data_ingestion\00_run_planilha_embriologia_pipeline.bat 6
+@REM if not exist "redlara\01_data_ingestion\00_run_redlara_ingestion.bat" (
+@REM     echo ERROR: Cannot find redlara\01_data_ingestion\00_run_redlara_ingestion.bat
+@REM     echo Current directory: %CD%
+@REM     pause
+@REM     exit /b 1
+@REM )
+@REM call "redlara\01_data_ingestion\00_run_redlara_ingestion.bat" 6
 @REM if %errorlevel% neq 0 (
 @REM     echo ERROR: Step 6 failed
 @REM     pause
@@ -147,13 +160,57 @@ cd /d "%PROJECT_ROOT%"
 @REM )
 @REM cd /d "%PROJECT_ROOT%"
 
-@REM echo.
-@REM echo ========================================
-@REM echo STEP 7: Running Complete Planilha Embriologia Pipeline
-@REM echo ========================================
-@REM call planilha_embriologia\02_create_tables\00_run_complete_planilha_embriologia_pipeline.bat 7
+echo.
+echo ========================================
+echo STEP 7: Running Data Lake Consolidation
+echo ========================================
+if not exist "data_lake_scripts\00_run_dataflow_lake_only.bat" (
+    echo ERROR: Cannot find data_lake_scripts\00_run_dataflow_lake_only.bat
+    echo Current directory: %CD%
+    pause
+    exit /b 1
+)
+call "data_lake_scripts\00_run_dataflow_lake_only.bat" 7
+if %errorlevel% neq 0 (
+    echo ERROR: Step 7 failed
+    pause
+    exit /b 1
+)
+cd /d "%PROJECT_ROOT%"
+
+echo.
+echo ========================================
+echo STEP 8: Running Ploidia Pipeline
+echo ========================================
+if not exist "planilha_ploidia\00_run_ploidia_pipeline.bat" (
+    echo ERROR: Cannot find planilha_ploidia\00_run_ploidia_pipeline.bat
+    echo Current directory: %CD%
+    pause
+    exit /b 1
+)
+call "planilha_ploidia\00_run_ploidia_pipeline.bat" 8
+if %errorlevel% neq 0 (
+    echo ERROR: Step 8 failed
+    pause
+    exit /b 1
+)
+cd /d "%PROJECT_ROOT%"
+
+
+
+echo.
+echo ========================================
+echo STEP 9: Running Mesclada Pipeline
+echo ========================================
+@REM if not exist "finops\01_data_ingestion\00_run_mesclada_pipeline.bat" (
+@REM     echo ERROR: Cannot find finops\01_data_ingestion\00_run_mesclada_pipeline.bat
+@REM     echo Current directory: %CD%
+@REM     pause
+@REM     exit /b 1
+@REM )
+@REM call "finops\01_data_ingestion\00_run_mesclada_pipeline.bat" 9
 @REM if %errorlevel% neq 0 (
-@REM     echo ERROR: Step 7 failed
+@REM     echo ERROR: Step 9 failed
 @REM     pause
 @REM     exit /b 1
 @REM )
@@ -161,15 +218,58 @@ cd /d "%PROJECT_ROOT%"
 
 echo.
 echo ========================================
+echo STEP 10: Running Complete FinOps Pipeline
+echo ========================================
+@REM if not exist "finops\02_create_tables\00_run_complete_finops_pipeline.bat" (
+@REM     echo ERROR: Cannot find finops\02_create_tables\00_run_complete_finops_pipeline.bat
+@REM     echo Current directory: %CD%
+@REM     pause
+@REM     exit /b 1
+@REM )
+@REM call "finops\02_create_tables\00_run_complete_finops_pipeline.bat" 10
+@REM if %errorlevel% neq 0 (
+@REM     echo ERROR: Step 10 failed
+@REM     pause
+@REM     exit /b 1
+@REM )
+@REM cd /d "%PROJECT_ROOT%"
+
+echo.
+echo ========================================
+echo STEP 11: Cleaning Up Old Log Files
+echo ========================================
+cd /d "%PROJECT_ROOT%"
+python data_lake_scripts\cleanup_old_logs.py
+if %errorlevel% neq 0 (
+    echo WARNING: Log cleanup failed (non-critical)
+)
+
+
+echo.
+echo ========================================
+echo STEP 12: Running Image Extraction Pipeline
+echo ========================================
+@REM if not exist "embryoscope_api\00_run_image_extraction_pipeline.bat" (
+@REM     echo ERROR: Cannot find embryoscope_api\00_run_image_extraction_pipeline.bat
+@REM     echo Current directory: %CD%
+@REM     pause
+@REM     exit /b 1
+@REM )
+@REM call "embryoscope_api\00_run_image_extraction_pipeline.bat" 12
+@REM if %errorlevel% neq 0 (
+@REM     echo ERROR: Step 12 failed
+@REM     pause
+@REM     exit /b 1
+@REM )
+@REM cd /d "%PROJECT_ROOT%"
+
+
+echo.
+echo ========================================
 echo COMPLETE DATAFLOW FINISHED SUCCESSFULLY!
 echo ========================================
 echo.
-echo All steps completed without errors.
-echo Check logs in respective directories:
-echo   - clinisys\logs\
-echo   - embryoscope\logs\
-echo   - data_lake_scripts\logs\
-echo   - finops\logs\
-echo   - planilha_embriologia\logs\
+echo All 11 pipeline steps completed without errors.
+echo Log cleanup completed.
 echo.
-pause 
+pause

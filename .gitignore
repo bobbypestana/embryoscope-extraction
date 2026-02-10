@@ -6,6 +6,8 @@ embryoscope_api/data_output/
 embryoscope/report/api_results/
 embryoscope/02_embryo_images_extraction/export_images/
 embryoscope/02_embryo_images_extraction/export_images_examples/
+embryoscope/03_embryo_images_extraction/export_images/
+embryoscope/03_embryo_images_extraction/export_images_examples/
 
 
 # Legacy directories
