@@ -76,7 +76,7 @@ Scripts that extract data from Embryoscope API and create `gold.embryoscope_embr
 
 **Location**: `data_lake_scripts/`
 
-8. **`04_export_to_excel.py`** ⭐
+8. **`04_02_export_clinsisy_embryoscope_planilha.py`** ⭐
    - **Input**: `gold.planilha_embryoscope_combined`
    - **Filter**: Only transferred embryos
    - **Output**: Excel file
@@ -121,7 +121,7 @@ conda run -n try_request python data_lake_scripts/02_combine_redlara_planilha.py
 conda run -n try_request python data_lake_scripts/03_combine_embryoscope_planilha.py
 
 # Export to Excel
-conda run -n try_request python data_lake_scripts/04_export_to_excel.py
+conda run -n try_request python data_lake_scripts/04_02_export_clinsisy_embryoscope_planilha.py
 ```
 
 ## Troubleshooting: Column Duplicates (`_1` suffixes)
@@ -153,7 +153,7 @@ graph TD
     G -->|03_combine_embryoscope_planilha| K[gold.planilha_embryoscope_combined]
     R -->|03_combine_embryoscope_planilha| K
     
-    K -->|04_export_to_excel| L[Excel Export]
+    K -->|04_02_export_clinsisy_embryoscope_planilha| L[Excel Export]
     
     style L fill:#90EE90
     style K fill:#FFD700

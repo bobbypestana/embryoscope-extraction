@@ -29,7 +29,7 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 # Output directory
-OUTPUT_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'data_output')
+OUTPUT_DIR = os.path.join(os.path.dirname(__file__), 'data_exports')
 os.makedirs(OUTPUT_DIR, exist_ok=True)
 
 def main():
@@ -43,7 +43,7 @@ def main():
         con = db.connect(db_path, read_only=True)
         
         # New Filter (Clinical Success/Transfer)
-        where_clause = "WHERE oocito_TCD = 'Transferido' OR trat2_resultado_tratamento IS NOT NULL"
+        where_clause = "WHERE oocito_TCD IN ('Transferido', 'Criopreservado')"
         
         logger.info("Reading data from gold.planilha_embryoscope_combined...")
         df = con.execute(f"SELECT * FROM gold.planilha_embryoscope_combined {where_clause}").df()

@@ -54,7 +54,8 @@ def build_select_columns():
         'view_descongelamentos_embrioes': 'descong_em',
         'view_embrioes_congelados': 'emb_cong',
         'view_tratamentos': 'trat1',
-        'view_tratamentos_transfer': 'trat2'
+        'view_tratamentos_transfer': 'trat2',
+        'view_medicos': 'medico'
     }
     
     select_columns = []
@@ -89,6 +90,13 @@ def main():
     
     # Build SELECT clause with only specified columns
     select_columns = build_select_columns()
+    
+    # Add custom doctor columns and flag
+    select_columns.extend([
+        "medico.nome AS nome_medico",
+        "medico.tipo_medico AS tipo_medico",
+        "CASE WHEN medico.tipo_medico IN ('Médico Huntington', 'Médico Pró-Criar') THEN 0 ELSE 1 END AS flag_is_external_medical"
+    ])
     
     # New join logic with view_tratamentos joined twice:
     # Use CTE with deduplication hierarchy to select best tratamento per (prontuario, data_procedimento)
@@ -138,6 +146,9 @@ def main():
         ON micro.prontuario = trat2.prontuario 
         AND trat2.data_procedimento = descong_em.DataTransferencia
         AND trat2.rn = 1
+    
+    LEFT JOIN silver.view_medicos medico
+        ON medico.id = micro.medico_id
         
     ORDER BY oocito.id_micromanipulacao, oocito.id 
     '''

@@ -28,7 +28,7 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 # Output directory
-OUTPUT_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'data_output')
+OUTPUT_DIR = os.path.join(os.path.dirname(__file__), 'data_exports')
 os.makedirs(OUTPUT_DIR, exist_ok=True)
 
 def main():

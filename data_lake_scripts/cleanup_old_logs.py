@@ -31,11 +31,16 @@ def cleanup_logs(project_root):
     # Find all logs directories
     log_dirs = []
     for root, dirs, files in os.walk(project_root):
-        if 'logs' in dirs:
-            log_path = os.path.join(root, 'logs')
-            log_dirs.append(log_path)
+        # Skip .git directory
+        if '.git' in dirs:
+            dirs.remove('.git')
+            
+        for d in dirs:
+            if d.lower() == 'logs':
+                log_path = os.path.join(root, d)
+                log_dirs.append(log_path)
     
-    print(f"Found {len(log_dirs)} log directories:")
+    print(f"Found {len(log_dirs)} log directories (excluding .git):")
     for log_dir in log_dirs:
         rel_path = os.path.relpath(log_dir, project_root)
         print(f"  - {rel_path}")

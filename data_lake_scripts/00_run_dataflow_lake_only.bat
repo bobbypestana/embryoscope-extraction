@@ -69,7 +69,7 @@ if %errorlevel% neq 0 (
 @REM echo ========================================
 @REM echo STEP %PARENT_STEP%.5: Exporting Final Combined Table to Excel
 @REM echo ========================================
-@REM python 04_export_to_excel.py
+@REM python 04_02_export_clinsisy_embryoscope_planilha.py
 @REM if %errorlevel% neq 0 (
 @REM     echo ERROR: Step %PARENT_STEP%.5 failed
 @REM     pause
