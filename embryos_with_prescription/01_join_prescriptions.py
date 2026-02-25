@@ -140,7 +140,7 @@ def create_long_table(conn):
         FROM gold.planilha_embryoscope_combined e
         WHERE {filter_sql}
     ) e
-    LEFT JOIN clinisys.silver.view_medicamentos_prescricoes p
+    JOIN clinisys.silver.view_medicamentos_prescricoes p
            ON e.trat1_id = p.ficha_id
     """
 

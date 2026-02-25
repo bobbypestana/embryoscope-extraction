@@ -19,8 +19,10 @@ def main():
     logger.info("=== STARTING EXPORT TO EXCEL ===")
     
     db_path = r'g:\My Drive\projetos_individuais\Huntington\database\huntington_data_lake.duckdb'
+    timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
     export_dir = "data_exports"
-    export_path = os.path.join(export_dir, "embryos_with_prescription_wide.xlsx")
+    export_filename = f"embryos_with_prescription_wide_{timestamp}.xlsx"
+    export_path = os.path.join(export_dir, export_filename)
     
     if not os.path.exists("logs"):
         os.makedirs("logs")

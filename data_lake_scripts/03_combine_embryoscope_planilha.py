@@ -65,6 +65,7 @@ def create_combined_table(conn):
                CAST(trat2_data_transferencia AS DATE) as transfer_date_trat2,
                CAST(cong_em_Data AS DATE) as cong_date
         FROM gold.embryoscope_clinisys_combined
+        WHERE oocito_TCD = 'Transferido' OR descong_em_DataDescongelamento IS NOT NULL
     ),
     src AS (
         SELECT *, ROW_NUMBER() OVER() as src_row_id
