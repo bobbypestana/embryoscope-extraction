@@ -1,0 +1,111 @@
+
+
+Nota Fiscal
+
+https://huntingtoncentro175132.protheus.cloudtotvs.com.br:4050/rest/CONSNOTA/notas
+
+ 
+
+Parametros:
+
+dataIni= AAAAMMDD
+
+dataFim=AAAAMMDD
+
+nPage = Numero da pagina  - opcional
+
+nPageSize =  Quantidade de registros por pagina  - opcional
+
+ 
+
+====================================================
+
+TES
+
+https://huntingtoncentro175132.protheus.cloudtotvs.com.br:4050/rest/CONSTES/tes
+
+ 
+
+Parametros:
+
+datetime = 1999-01-01 00:00:00.000 (consulta registros a partir da data e hora) - opcional
+
+nPage = Numero da pagina  - opcional
+
+nPageSize =  Quantidade de registros por pagina  - opcional
+
+ 
+
+====================================================
+
+Produtos
+
+https://huntingtoncentro175132.protheus.cloudtotvs.com.br:4050/rest/CONSPROD/produtos
+
+ 
+
+Parametros:
+
+datetime = 1999-01-01 00:00:00.000 (consulta registros a partir da data e hora) - opcional
+
+nPage = Numero da pagina  - opcional
+
+nPageSize =  Quantidade de registros por pagina  - opcional
+
+ 
+
+====================================================
+
+Clientes
+
+https://huntingtoncentro175132.protheus.cloudtotvs.com.br:4050/rest/CONSCLI/clientes
+
+ 
+
+Parametros:
+
+datetime = 1999-01-01 00:00:00.000 (consulta registros a partir da data e hora) - opcional
+
+nPage = Numero da pagina  - opcional
+
+nPageSize =  Quantidade de registros por pagina  - opcional
+
+ 
+
+====================================================
+
+Vendedores
+
+https://huntingtoncentro175132.protheus.cloudtotvs.com.br:4050/rest/CONSVEN/vendedores
+
+ 
+
+Parametros:
+
+datetime = 1999-01-01 00:00:00.000 (consulta registros a partir da data e hora) - opcional
+
+nPage = Numero da pagina  - opcional
+
+nPageSize =  Quantidade de registros por pagina  - opcional
+
+ 
+
+ 
+
+ 
+
+OBS:
+
+Authorization:
+
+Basic Auth
+
+ 
+
+Headers
+
+TenantId = Grupo,Empresa e Filial. Exemplo: 07,030101
+
+ 
+
+· Para o parâmetro datetime, caso não seja enviado, o sistema vai buscar os registros a partir do ultimo consultado.

@@ -40,7 +40,7 @@ CREATE INDEX IF NOT EXISTS idx_embryo_images_extraction_timestamp ON gold.embryo
 """
 
 
-def get_embryos_to_extract(conn: duckdb.DuckDBPyConnection, limit: int = 3, planes: List[int] = [0], mode: str = "all") -> List[Dict[str, str]]:
+def get_embryos_to_extract(conn: duckdb.DuckDBPyConnection, limit: int = 3, planes: List[int] = [0], mode: str = "all", retry: bool = True) -> List[Dict[str, str]]:
     """
     Query distinct Slide IDs with their clinic locations from gold.data_ploidia.
     
@@ -48,11 +48,13 @@ def get_embryos_to_extract(conn: duckdb.DuckDBPyConnection, limit: int = 3, plan
         conn: DuckDB connection
         limit: Maximum number of embryos to return
         planes: List of focal planes we are interested in.
+        mode: Extraction mode (all, with_biopsy, without_biopsy)
+        retry: Whether to retry extractions that failed (default: True)
         
     Returns:
         List of dictionaries with 'embryo_id' and 'location' keys
     """
-    # Query distinct Slide IDs that are missing at least one of the requested planes.
+    # Query distinct Slide IDs that are missing at least one of the requested planes as 'success'.
 
     # Biopsy filters based on user request:
     # with_biopsy: (Embryo Description NOT NULL or Embryo Description Clinisys NOT NULL)
@@ -69,9 +71,17 @@ def get_embryos_to_extract(conn: duckdb.DuckDBPyConnection, limit: int = 3, plan
                    dp.trat1_resultado_tratamento IS NOT NULL OR 
                    dp.fet_tipo_resultado IS NOT NULL)'''
 
+    # If retry is True, we only exclude embryos that have a SUCCESS for ALL requested planes.
+    # If retry is False, we exclude any embryo that has ANY record (even failed) in the metadata table for the requested planes.
+    status_filter = "'success'" if retry else "NULL"
+    exclusion_subquery = f"SELECT DISTINCT embryo_id FROM gold.embryo_images_metadata WHERE status = {status_filter}"
+    if not retry:
+        # If not retrying, exclude if ANY record exists
+        exclusion_subquery = "SELECT DISTINCT embryo_id FROM gold.embryo_images_metadata"
+
     # Refined Query:
     # 1. Joins with silver.embryo_image_availability_latest to filter by api_response_code = 200
-    # 2. Skips ANY embryo already in gold.embryo_images_metadata (already queried)
+    # 2. Skips embryos that already have successful (or any, if retry=False) records.
     query = f'''
         SELECT 
             dp."Slide ID" as embryo_id,
@@ -83,7 +93,7 @@ def get_embryos_to_extract(conn: duckdb.DuckDBPyConnection, limit: int = 3, plan
             ON dp."Slide ID" = ee.embryo_EmbryoID
         JOIN silver.embryo_image_availability_latest l
             ON dp."Slide ID" = l.embryo_EmbryoID
-        LEFT JOIN (SELECT DISTINCT embryo_id FROM gold.embryo_images_metadata) eim
+        LEFT JOIN ({exclusion_subquery}) eim
             ON dp."Slide ID" = eim.embryo_id
         WHERE l.api_response_code = 200
           AND eim.embryo_id IS NULL
@@ -96,7 +106,7 @@ def get_embryos_to_extract(conn: duckdb.DuckDBPyConnection, limit: int = 3, plan
     df = conn.execute(query, [limit]).df()
     embryos = df.to_dict('records')
     
-    logger.info(f"Found {len(embryos)} embryos to extract")
+    logger.info(f"Found {len(embryos)} embryos to extract (retry={retry})")
     for embryo in embryos:
         logger.debug(f"  - {embryo['embryo_id']}: {embryo['location']}")
     

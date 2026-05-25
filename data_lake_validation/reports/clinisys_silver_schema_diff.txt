@@ -1,0 +1,82 @@
+CLINISYS SILVER LAYER SCHEMA COMPARISON (Local Silver vs AWS Athena Silver)
+========================================================================
+
+Table: view_pacientes
+-----------------------------------------
+Local Silver columns count: 115
+Athena Silver columns count: 115
+
+Columns in Local Silver but missing in Athena Silver:
+  - extraction_timestamp (TIMESTAMP)
+  - hash (VARCHAR)
+
+Columns in Athena Silver but missing in Local Silver:
+  - bronze_updated_at (timestamp)
+  - _dlt_id (string)
+
+==================================================
+
+Table: view_tratamentos
+-----------------------------------------
+Local Silver columns count: 196
+Athena Silver columns count: 196
+
+Columns in Local Silver but missing in Athena Silver:
+  - bcf_embrião1_fonte (VARCHAR)
+  - bcf_embrião1_status (VARCHAR)
+  - extraction_timestamp (TIMESTAMP)
+  - hash (VARCHAR)
+
+Columns in Athena Silver but missing in Local Silver:
+  - bcf_embriao1_fonte (string)
+  - bcf_embriao1_status (string)
+  - bronze_updated_at (timestamp)
+  - _dlt_id (string)
+
+==================================================
+
+Table: view_micromanipulacao
+-----------------------------------------
+Local Silver columns count: 211
+Athena Silver columns count: 211
+
+Columns in Local Silver but missing in Athena Silver:
+  - extraction_timestamp (TIMESTAMP)
+  - hash (VARCHAR)
+
+Columns in Athena Silver but missing in Local Silver:
+  - bronze_updated_at (timestamp)
+  - _dlt_id (string)
+
+==================================================
+
+Table: view_congelamentos_embrioes
+-----------------------------------------
+Local Silver columns count: 47
+Athena Silver columns count: 47
+
+Columns in Local Silver but missing in Athena Silver:
+  - extraction_timestamp (TIMESTAMP)
+  - hash (VARCHAR)
+
+Columns in Athena Silver but missing in Local Silver:
+  - bronze_updated_at (timestamp)
+  - _dlt_id (string)
+
+==================================================
+
+Table: view_descongelamentos_embrioes
+-----------------------------------------
+Local Silver columns count: 34
+Athena Silver columns count: 34
+
+Columns in Local Silver but missing in Athena Silver:
+  - extraction_timestamp (TIMESTAMP)
+  - hash (VARCHAR)
+
+Columns in Athena Silver but missing in Local Silver:
+  - bronze_updated_at (timestamp)
+  - _dlt_id (string)
+
+==================================================
+

@@ -65,16 +65,16 @@ if %errorlevel% neq 0 (
 @REM     exit /b 1
 @REM )
 
-@REM echo.
-@REM echo ========================================
-@REM echo STEP %PARENT_STEP%.5: Exporting Final Combined Table to Excel
-@REM echo ========================================
-@REM python 04_02_export_clinsisy_embryoscope_planilha.py
-@REM if %errorlevel% neq 0 (
-@REM     echo ERROR: Step %PARENT_STEP%.5 failed
-@REM     pause
-@REM     exit /b 1
-@REM )
+echo.
+echo ========================================
+echo STEP %PARENT_STEP%.5: Exporting Final Combined Table to Excel
+echo ========================================
+python 04_02_export_clinsisy_embryoscope_planilha.py
+if %errorlevel% neq 0 (
+    echo ERROR: Step %PARENT_STEP%.5 failed
+    pause
+    exit /b 1
+)
 
 echo.
 echo ========================================

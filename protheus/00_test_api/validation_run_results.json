@@ -1,0 +1,362 @@
+{
+  "health_checks": {
+    "/health": {
+      "status_code": 404,
+      "body": "<!DOCTYPE html PUBLIC \"-//W3C//DTD XHTML 1.0 Strict//EN\" \"http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd\"><html xmlns=\"html://www.w3.org/1999/xhtml\"><head><meta http-equiv=\"Content-Type\" content=\"t"
+    },
+    "/rest/health": {
+      "status_code": 404,
+      "body": "<!DOCTYPE html PUBLIC \"-//W3C//DTD XHTML 1.0 Strict//EN\" \"http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd\"><html xmlns=\"html://www.w3.org/1999/xhtml\"><head><meta http-equiv=\"Content-Type\" content=\"t"
+    },
+    "/api/v1/health": {
+      "status_code": 404,
+      "body": "<!DOCTYPE html PUBLIC \"-//W3C//DTD XHTML 1.0 Strict//EN\" \"http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd\"><html xmlns=\"html://www.w3.org/1999/xhtml\"><head><meta http-equiv=\"Content-Type\" content=\"t"
+    }
+  },
+  "path_versioning": {
+    "status_code": 404,
+    "success": false
+  },
+  "endpoints": {
+    "notas": {
+      "baseline": {
+        "status_code": 200,
+        "headers": {
+          "Server": "HTTPREST",
+          "Content-Length": "2570",
+          "Content-Language": "pt-BR, pt-BR",
+          "X-Content-Type-Options": "nosniff",
+          "Status": "200 OK",
+          "Content-Type": "application/json;charset=utf-8",
+          "Content-Encoding": "gzip",
+          "Vary": "Accept-Encoding",
+          "Date": "Wed, 20 May 2026 21:01:03 GMT"
+        },
+        "body_snippet": "{\"page\":1,\"pageSize\":1,\"total\":5638,\"totalPages\":5638,\"hasNext\":true,\"data\":[{\"F2_DOC\":\"000031482\",\"F2_EMISSAO\":\"20260102\",\"F2_SERIE\":\"3\",\"F2_CLIENTE\":\"803436\",\"F2_LOJA\":\"01\",\"F2_NOMPACI\":\"LAURA MEDEIROS VIANA\",\"F2_NFELETR\":\"30702\",\"F2_VALBRUT\":115,\"F2_COND\":\"CN\",\"F2_DUPL\":\"000031482\",\"F2_EST\":\"DF\",\"F2_FRETE\":0,\"F2_SEGURO\":0,\"F2_ICMFRET\":0,\"F2_TIPOCLI\":\"\",\"F2_VALICM\":0,\"F2_BASEICM\":0,\"F2_VALIPI\":0,\"F2_BASEIPI\":0,\"F2_VALMERC\":115,\"F2_NFORI\":\"\",\"F2_DESCONT\":0,\"F2_SERIORI\":\"\",\"F2_TIPO\":\"N\",\"F2_ESPE"
+      },
+      "envelope": {
+        "is_json": true,
+        "has_data": true,
+        "has_meta": false,
+        "has_errors": false,
+        "top_level_keys": [
+          "page",
+          "pageSize",
+          "total",
+          "totalPages",
+          "hasNext",
+          "data"
+        ]
+      },
+      "pagination": {
+        "page_based_status": "Success",
+        "page1_count": 1,
+        "page2_count": 1,
+        "different_content": true,
+        "alternative_page_params": {
+          "status_code": 400,
+          "success": false
+        },
+        "cursor_params": {
+          "status_code": 400,
+          "success": false
+        }
+      },
+      "sorting": {
+        "sort_desc_status": 200,
+        "sort_asc_status": 200
+      },
+      "date_filtering": {
+        "valid_interval": 200,
+        "iso_interval": 200
+      },
+      "general_filters": {
+        "ids_param": 200,
+        "id_param": 200
+      },
+      "rate_limiting": {},
+      "error_contracts": {
+        "negative_page_size": {
+          "status_code": 500,
+          "body_snippet": "{\"code\":500,\"detailedMessage\":\"\",\"message\":\"Internal Server Error\"}"
+        },
+        "invalid_date_format": {
+          "status_code": 200,
+          "body_snippet": "{\"page\":1,\"pageSize\":1,\"total\":0,\"totalPages\":0,\"hasNext\":false,\"data\":[]}"
+        }
+      }
+    },
+    "tes": {
+      "baseline": {
+        "status_code": 200,
+        "headers": {
+          "Server": "HTTPREST",
+          "Content-Length": "1499",
+          "Content-Language": "pt-BR, pt-BR",
+          "X-Content-Type-Options": "nosniff",
+          "Status": "200 OK",
+          "Content-Type": "application/json;charset=utf-8",
+          "Content-Encoding": "gzip",
+          "Vary": "Accept-Encoding",
+          "Date": "Wed, 20 May 2026 21:01:22 GMT"
+        },
+        "body_snippet": "{\"page\":1,\"pageSize\":1,\"total\":35,\"totalPages\":35,\"hasNext\":true,\"data\":[{\"F4_FILIAL\":\"\",\"F4_CODIGO\":\"001\",\"F4_TIPO\":\"E\",\"F4_ICM\":\"N\",\"F4_IPI\":\"N\",\"F4_CREDICM\":\"N\",\"F4_CREDIPI\":\"N\",\"F4_DUPLIC\":\"S\",\"F4_ESTOQUE\":\"N\",\"F4_CF\":\"1126\",\"F4_CFEXT\":\"\",\"F4_TEXTO\":\"COMPRAS MERCADORIAS\",\"F4_BASEICM\":0,\"F4_BASEIPI\":0,\"F4_PODER3\":\"N\",\"F4_LFICM\":\"N\",\"F4_LFIPI\":\"N\",\"F4_DESTACA\":\"N\",\"F4_INCIDE\":\"N\",\"F4_COMPL\":\"N\",\"F4_IPIFRET\":\"\",\"F4_ISS\":\"N\",\"F4_LFISS\":\"N\",\"F4_NRLIVRO\":\"\",\"F4_UPRC\":\"\",\"F4_CONSUMO\":\"\",\"F4_FORMULA"
+      },
+      "envelope": {
+        "is_json": true,
+        "has_data": true,
+        "has_meta": false,
+        "has_errors": false,
+        "top_level_keys": [
+          "page",
+          "pageSize",
+          "total",
+          "totalPages",
+          "hasNext",
+          "data"
+        ]
+      },
+      "pagination": {
+        "page_based_status": "Success",
+        "page1_count": 1,
+        "page2_count": 1,
+        "different_content": false,
+        "alternative_page_params": {
+          "status_code": 200,
+          "success": true
+        },
+        "cursor_params": {
+          "status_code": 200,
+          "success": true
+        }
+      },
+      "sorting": {
+        "sort_desc_status": 200,
+        "sort_asc_status": 200
+      },
+      "date_filtering": {
+        "valid_datetime": 200,
+        "iso_date_from": 200
+      },
+      "general_filters": {
+        "ids_param": 200,
+        "id_param": 200
+      },
+      "rate_limiting": {},
+      "error_contracts": {
+        "negative_page_size": {
+          "status_code": 500,
+          "body_snippet": "{\"code\":500,\"detailedMessage\":\"\",\"message\":\"Internal Server Error\"}"
+        },
+        "invalid_date_format": {
+          "status_code": 500,
+          "body_snippet": "{\"code\":500,\"detailedMessage\":\"\",\"message\":\"Internal Server Error\"}"
+        }
+      }
+    },
+    "produtos": {
+      "baseline": {
+        "status_code": 200,
+        "headers": {
+          "Server": "HTTPREST",
+          "Content-Length": "1600",
+          "Content-Language": "pt-BR, pt-BR",
+          "X-Content-Type-Options": "nosniff",
+          "Status": "200 OK",
+          "Content-Type": "application/json;charset=utf-8",
+          "Content-Encoding": "gzip",
+          "Vary": "Accept-Encoding",
+          "Date": "Wed, 20 May 2026 21:01:32 GMT"
+        },
+        "body_snippet": "{\"page\":1,\"pageSize\":1,\"total\":9492,\"totalPages\":9492,\"hasNext\":true,\"data\":[{\"B1_FILIAL\":\"\",\"B1_COD\":\"S3547\",\"B1_DESC\":\"COLETA PARA CRIOPRESERVACAO DE OVULOS - MEDICOS INTERNOS\",\"B1_TIPO\":\"SE\",\"B1_CODITE\":\"\",\"B1_UM\":\"UN\",\"B1_LOCPAD\":\"01\",\"B1_GRUPO\":\"0009\",\"B1_PICM\":0,\"B1_IPI\":0,\"B1_POSIPI\":\"00000000\",\"B1_EX_NCM\":\"\",\"B1_EX_NBM\":\"\",\"B1_ORIGEM\":\"0\",\"B1_ALIQISS\":0,\"B1_CODISS\":\"418\",\"B1_TRIBMUN\":\"05193\",\"B1_TE\":\"\",\"B1_TS\":\"502\",\"B1_PICMRET\":0,\"B1_BITMAP\":\"\",\"B1_SEGUM\":\"\",\"B1_PICMENT\":0,\"B1_IMPZFRC\":"
+      },
+      "envelope": {
+        "is_json": true,
+        "has_data": true,
+        "has_meta": false,
+        "has_errors": false,
+        "top_level_keys": [
+          "page",
+          "pageSize",
+          "total",
+          "totalPages",
+          "hasNext",
+          "data"
+        ]
+      },
+      "pagination": {
+        "page_based_status": "Success",
+        "page1_count": 1,
+        "page2_count": 1,
+        "different_content": false,
+        "alternative_page_params": {
+          "status_code": 200,
+          "success": true
+        },
+        "cursor_params": {
+          "status_code": 200,
+          "success": true
+        }
+      },
+      "sorting": {
+        "sort_desc_status": 200,
+        "sort_asc_status": 200
+      },
+      "date_filtering": {
+        "valid_datetime": 200,
+        "iso_date_from": 200
+      },
+      "general_filters": {
+        "ids_param": 200,
+        "id_param": 200
+      },
+      "rate_limiting": {},
+      "error_contracts": {
+        "negative_page_size": {
+          "status_code": 500,
+          "body_snippet": "{\"code\":500,\"detailedMessage\":\"\",\"message\":\"Internal Server Error\"}"
+        },
+        "invalid_date_format": {
+          "status_code": 500,
+          "body_snippet": "{\"code\":500,\"detailedMessage\":\"\",\"message\":\"Internal Server Error\"}"
+        }
+      }
+    },
+    "clientes": {
+      "baseline": {
+        "status_code": 200,
+        "headers": {
+          "Server": "HTTPREST",
+          "Content-Length": "1378",
+          "Content-Language": "pt-BR, pt-BR",
+          "X-Content-Type-Options": "nosniff",
+          "Status": "200 OK",
+          "Content-Type": "application/json;charset=utf-8",
+          "Content-Encoding": "gzip",
+          "Vary": "Accept-Encoding",
+          "Date": "Wed, 20 May 2026 21:01:43 GMT"
+        },
+        "body_snippet": "{\"page\":1,\"pageSize\":1,\"total\":149960,\"totalPages\":149960,\"hasNext\":true,\"data\":[{\"A1_FILIAL\":\"\",\"A1_COD\":\"028393\",\"A1_LOJA\":\"01\",\"A1_PESSOA\":\"F\",\"A1_NOME\":\"MARCELA SOUTO MAIOR MIRANDA\",\"A1_NREDUZ\":\"MARCELA SOUTO MAIOR MIRANDA\",\"A1_END\":\"LADY FENYROSE AVENUE,30\",\"A1_TIPO\":\"F\",\"A1_EST\":\"EX\",\"A1_ESTADO\":\"\",\"A1_COD_MUN\":\"\",\"A1_MUN\":\"ERRO\",\"A1_BAIRRO\":\"MAPLE, VAUGHAN ONTARIO\",\"A1_IBGE\":\"\",\"A1_NATUREZ\":\"\",\"A1_CEP\":\"02112000\",\"A1_DDI\":\"\",\"A1_DDD\":\"\",\"A1_TEL\":\"+16479984992\",\"A1_TELEX\":\"\",\"A1_FAX\":\"\",\"A"
+      },
+      "envelope": {
+        "is_json": true,
+        "has_data": true,
+        "has_meta": false,
+        "has_errors": false,
+        "top_level_keys": [
+          "page",
+          "pageSize",
+          "total",
+          "totalPages",
+          "hasNext",
+          "data"
+        ]
+      },
+      "pagination": {
+        "page_based_status": "Success",
+        "page1_count": 1,
+        "page2_count": 1,
+        "different_content": false,
+        "alternative_page_params": {
+          "status_code": 200,
+          "success": true
+        },
+        "cursor_params": {
+          "status_code": 200,
+          "success": true
+        }
+      },
+      "sorting": {
+        "sort_desc_status": 200,
+        "sort_asc_status": 200
+      },
+      "date_filtering": {
+        "valid_datetime": 200,
+        "iso_date_from": 200
+      },
+      "general_filters": {
+        "ids_param": 200,
+        "id_param": 200
+      },
+      "rate_limiting": {},
+      "error_contracts": {
+        "negative_page_size": {
+          "status_code": 500,
+          "body_snippet": "{\"code\":500,\"detailedMessage\":\"\",\"message\":\"Internal Server Error\"}"
+        },
+        "invalid_date_format": {
+          "status_code": 500,
+          "body_snippet": "{\"code\":500,\"detailedMessage\":\"\",\"message\":\"Internal Server Error\"}"
+        }
+      }
+    },
+    "vendedores": {
+      "baseline": {
+        "status_code": 200,
+        "headers": {
+          "Server": "HTTPREST",
+          "Content-Length": "592",
+          "Content-Language": "pt-BR, pt-BR",
+          "X-Content-Type-Options": "nosniff",
+          "Status": "200 OK",
+          "Content-Type": "application/json;charset=utf-8",
+          "Content-Encoding": "gzip",
+          "Vary": "Accept-Encoding",
+          "Date": "Wed, 20 May 2026 21:01:53 GMT"
+        },
+        "body_snippet": "{\"page\":1,\"pageSize\":1,\"total\":304,\"totalPages\":304,\"hasNext\":true,\"data\":[{\"A3_FILIAL\":\"\",\"A3_COD\":\"000001\",\"A3_NOME\":\"ANA LUIZA NUNES\",\"A3_NREDUZ\":\"ANA LUIZA NUNES\",\"A3_CRM\":\"126992\",\"A3_END\":\"\",\"A3_BAIRRO\":\"\",\"A3_MUN\":\"\",\"A3_EST\":\"\",\"A3_CEP\":\"\",\"A3_DDDTEL\":\"\",\"A3_TEL\":\"\",\"A3_FAX\":\"\",\"A3_TIPO\":\"\",\"A3_TELEX\":\"\",\"A3_CGC\":\"\",\"A3_INSCR\":\"\",\"A3_EMAIL\":\"\",\"A3_HPAGE\":\"\",\"A3_INSCRM\":\"\",\"A3_CODUSR\":\"\",\"A3_SUPER\":\"\",\"A3_GEREN\":\"\",\"A3_FORNECE\":\"\",\"A3_LOJA\":\"\",\"A3_GERASE2\":\"\",\"A3_BCO1\":\"\",\"A3_REGIAO\":\"\",\""
+      },
+      "envelope": {
+        "is_json": true,
+        "has_data": true,
+        "has_meta": false,
+        "has_errors": false,
+        "top_level_keys": [
+          "page",
+          "pageSize",
+          "total",
+          "totalPages",
+          "hasNext",
+          "data"
+        ]
+      },
+      "pagination": {
+        "page_based_status": "Success",
+        "page1_count": 1,
+        "page2_count": 1,
+        "different_content": false,
+        "alternative_page_params": {
+          "status_code": 200,
+          "success": true
+        },
+        "cursor_params": {
+          "status_code": 200,
+          "success": true
+        }
+      },
+      "sorting": {
+        "sort_desc_status": 200,
+        "sort_asc_status": 200
+      },
+      "date_filtering": {
+        "valid_datetime": 200,
+        "iso_date_from": 200
+      },
+      "general_filters": {
+        "ids_param": 200,
+        "id_param": 200
+      },
+      "rate_limiting": {},
+      "error_contracts": {
+        "negative_page_size": {
+          "status_code": 500,
+          "body_snippet": "{\"code\":500,\"detailedMessage\":\"\",\"message\":\"Internal Server Error\"}"
+        },
+        "invalid_date_format": {
+          "status_code": 500,
+          "body_snippet": "{\"code\":500,\"message\":\"Internal Server Error\"}"
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,158 @@
+======================================================================
+              DATA LAKE VALIDATION: EMBRYOSCOPE MODULE
+Time: 2026-05-19 15:27:26
+Local Database: G:\My Drive\projetos_individuais\Huntington\database/huntington_data_lake.duckdb
+Athena Staging: Region=sa-east-1, Workgroup=datalake-admins
+======================================================================
+
+Connecting to local DuckDB...
+Connecting to AWS Athena...
+--- 1. SCHEMA COMPARISON ---
+
+Comparing schemas for table: patients
+  - Local columns: 11
+  - Athena columns: 9
+  - Columns in Local ONLY (non-meta): ['patientid', 'dateofbirth', 'prontuario', 'lastname', 'unit_huntington', 'patientidx', 'firstname']
+  - Columns in Athena ONLY (non-meta): ['patient_id_x', 'source_server', 'patient_id', 'first_name', 'date_of_birth', 'bronze_updated_at', 'patient_sk', 'last_name']
+  - Schema matches (names and normalized types are aligned).
+
+Comparing schemas for table: treatments
+  - Local columns: 7
+  - Athena columns: 6
+  - Columns in Local ONLY (non-meta): ['unit_huntington', 'patientidx', 'treatmentname']
+  - Columns in Athena ONLY (non-meta): ['treatment_name', 'patient_id_x', 'source_server', 'bronze_updated_at', 'treatment_sk']
+  - Schema matches (names and normalized types are aligned).
+
+Comparing schemas for table: embryo_data
+  - Local columns: 173
+  - Athena columns: 171
+  - Columns in Local ONLY (non-meta): ['name_blastexpandlast', 'name_mn2type', 'kiddate', 'value_morphologicalgrade', 'embryoid', 'timestamp_mn2type', 'instrumentnumber', 'time_blastomeresize', 'time_reexpansioncount', 'fertilizationtime', 'value_blastexpandlast', 'value_multinucleation', 'timestamp_morphologicalgrade', 'timestamp_blastomeresize', 'timestamp_reexpansioncount', 'embryodescriptionid', 'kidscore', 'time_mn2type', 'time_morphologicalgrade', 'name_morphologicalgrade', 'time_multinucleation', 'name_blastomeresize', 'time_blastexpandlast', 'value_mn2type', 'value_reexpansioncount', 'timestamp_multinucleation', 'treatmentname', 'embryo_number', 'timestamp_blastexpandlast', 'fertilizationmethod', 'wellnumber', 'embryofate', 'name_multinucleation', 'kiduser', 'kidversion', 'value_blastomeresize', 'name_reexpansioncount', 'patientidx']
+  - Columns in Athena ONLY (non-meta): ['treatment_name', 'name_blast_expand_last', 'value_multi_nucleation', 'value_morphological_grade', 'value_blastomere_size', 'embryo_fate', 'time_multi_nucleation', 'name_morphological_grade', 'timestamp_morphological_grade', 'timestamp_blastomere_size', 'time_morphological_grade', 'embryo_data_sk', 'patient_id_x', 'time_blastomere_size', 'timestamp_mn2_type', 'timestamp_multi_nucleation', 'well_number', 'value_mn2_type', 'fertilization_time', 'time_mn2_type', 'name_mn2_type', 'time_blast_expand_last', 'embryo_id', 'kid_score', 'instrument_number', 'time_reexpansion_count', 'kid_date', 'name_blastomere_size', 'bronze_updated_at', 'embryo_description_id', 'value_reexpansion_count', 'name_multi_nucleation', 'fertilization_method', 'kid_version', 'timestamp_reexpansion_count', 'name_reexpansion_count', 'timestamp_blast_expand_last', 'value_blast_expand_last', 'kid_user']
+  - Schema matches (names and normalized types are aligned).
+
+--- 2. ROW COUNT COMPARISON ---
+      Table Local Count Athena Count    Diff Pct Diff
+   patients      13,483       12,877    -606   -4.49%
+ treatments      22,927       21,878  -1,049   -4.58%
+embryo_data     121,158      139,792 +18,634  +15.38%
+
+Row count breakdown by clinic (source_server):
+
+Clinic Breakdown for patients:
+               cnt_local cnt_athena diff
+clinic                                  
+Belo Horizonte     2,516      2,520   +4
+Brasilia           1,770      1,788  +18
+Ibirapuera         5,992      5,355 -637
+Vila Mariana       3,205      3,214   +9
+
+Clinic Breakdown for treatments:
+               cnt_local cnt_athena   diff
+clinic                                    
+Belo Horizonte     3,322      3,327     +5
+Brasilia           2,423      2,472    +49
+Ibirapuera        12,925     11,806 -1,119
+Vila Mariana       4,257      4,273    +16
+
+Clinic Breakdown for embryo_data:
+               cnt_local cnt_athena   diff
+clinic                                    
+Belo Horizonte    19,112     26,255 +7,143
+Brasilia          15,062     19,042 +3,980
+Ibirapuera        54,948     57,184 +2,236
+Vila Mariana      32,036     37,311 +5,275
+
+--- 3. DETAILED DISCREPANCY ANALYSIS: PATIENTS ---
+Loading patient keys from Local and Athena...
+Total Unique PatientIDx in Local: 13,483
+Total Unique PatientIDx in Athena: 12,877
+PatientIDx in Local but MISSING in Athena (Silver): 656
+PatientIDx in Athena but MISSING in Local: 50
+Tracing first 100 missing patients to Athena Bronze layer...
+  - Out of 100 missing patients, 0 exist in Athena BRONZE layer.
+  - This implies 0 were ingested to bronze but filtered/failed in silver.
+  - And 100 never reached the bronze layer in AWS.
+Saved complete patient mismatch report to: G:\My Drive\projetos_individuais\Huntington\data_lake_validation\reports\mismatches_patients.csv
+
+Traceable Examples of Patients present in Local but MISSING in Athena Silver:
+               PatientIDx prontuario                  FirstName   LastName   Location     Source
+PC1P7BHG_45703.4767686343     851422        PEREIRA, JUSSARA B. 23/07/1990 Ibirapuera Local Only
+PC1P7BHG_45704.3770025000     840502      CRUZ, MELINA do A. C. 12/05/1988 Ibirapuera Local Only
+PC1P7BHG_45704.5309307060     851296        ADACHI, CAROLINE T. 26/11/1983 Ibirapuera Local Only
+PC1P7BHG_45705.3545892014     171933 MACHADO, FERNANDA M. DE C. 03/10/1983 Ibirapuera Local Only
+PC1P7BHG_45705.4557760185     862614    OLIVEIRA, ANA CORINA R. 14/04/1985 Ibirapuera Local Only
+PC1P7BHG_45705.5514816782     848930       FERREIRA, LAIS A. M. 03/05/1989 Ibirapuera Local Only
+PC1P7BHG_45706.3647627431     867472         OLIVEIRA, JULIA L. 15/07/1991 Ibirapuera Local Only
+PC1P7BHG_45706.3660815394     154626         COLETI, LUCIANA R. 26/05/1981 Ibirapuera Local Only
+PC1P7BHG_45707.3804762731     841618       SILVA, VILKA R. R.   03/04/1976 Ibirapuera Local Only
+PC1P7BHG_45708.5676999306     868915          MAGDALON, JULIANA 25/06/1987 Ibirapuera Local Only
+
+Traceable Examples of Patients present in Athena but MISSING in Local:
+                   PatientIDx     prontuario                FirstName   LastName Location      Source
+     NEXTGEN_43895.6049278935 overnight test                overnight       test Brasilia Athena Only
+    S4JP1389_44587.4418880787     testslide8               testslide8       None Brasilia Athena Only
+    S4JP1389_44729.5461986458        523515*        BONFITTO, NAZARIO   10/08/85 Brasilia Athena Only
+    S4JP1389_44363.7573607407             pH                       pH       None Brasilia Athena Only
+S4JP13899015_44321.6031547454              0               OBSERVACAO CIENTIFICA Brasilia Athena Only
+    S4JP1389_44887.5036842245        CROM. X            PROJETO CROM.          X Brasilia Athena Only
+    S4JP1389_44895.4813896875        522514- BRAGA, LEONARDO DA SILVA   11/08/76 Brasilia Athena Only
+    S4JP1389_44959.4978892593       5158718*             MORAES, VERA   03/03/89 Brasilia Athena Only
+    S4JP1389_44900.4922739236        789340-        NASCIMENTO, FABIO   25/10/82 Brasilia Athena Only
+    S4JP1389_44653.4993412731        220143*     SILVA, JOAO PAULO S.   12/05/86 Brasilia Athena Only
+
+--- 4. DETAILED DISCREPANCY ANALYSIS: TREATMENTS ---
+Loading treatments keys from Local and Athena...
+Total Unique Treatments in Local: 22,927
+Total Unique Treatments in Athena: 21,878
+Treatments in Local but MISSING in Athena: 1,161
+Treatments in Athena but MISSING in Local: 112
+Saved complete treatment mismatch report to: G:\My Drive\projetos_individuais\Huntington\data_lake_validation\reports\mismatches_treatments.csv
+
+Traceable Examples of Treatments present in Local but MISSING in Athena:
+               PatientIDx TreatmentName   Location                                    key     Source
+ NEXTGEN_43052.4993192940     2025-2153 Ibirapuera  NEXTGEN_43052.4993192940 || 2025-2153 Local Only
+PC1P7BHG_44651.7014901736               Ibirapuera          PC1P7BHG_44651.7014901736 ||  Local Only
+PC1P7BHG_44651.7014901736      2025-472 Ibirapuera  PC1P7BHG_44651.7014901736 || 2025-472 Local Only
+PC1P7BHG_44659.4801972801     2025-1457 Ibirapuera PC1P7BHG_44659.4801972801 || 2025-1457 Local Only
+PC1P7BHG_44663.5225693171      2025-273 Ibirapuera  PC1P7BHG_44663.5225693171 || 2025-273 Local Only
+PC1P7BHG_44690.5156497685               Ibirapuera          PC1P7BHG_44690.5156497685 ||  Local Only
+PC1P7BHG_44690.5156497685      2025-700 Ibirapuera  PC1P7BHG_44690.5156497685 || 2025-700 Local Only
+PC1P7BHG_44705.4764173958     2025-2539 Ibirapuera PC1P7BHG_44705.4764173958 || 2025-2539 Local Only
+PC1P7BHG_44730.5102732755     2025-1192 Ibirapuera PC1P7BHG_44730.5102732755 || 2025-1192 Local Only
+PC1P7BHG_44732.4303302778      2025-819 Ibirapuera  PC1P7BHG_44732.4303302778 || 2025-819 Local Only
+
+--- 5. DETAILED DISCREPANCY ANALYSIS: EMBRYO DATA ---
+Loading embryo keys from Local and Athena...
+Total Unique Embryos in Local: 121,158
+Total Unique Embryos in Athena: 139,792
+Embryos in Local but MISSING in Athena (Silver): 6,444
+Embryos in Athena but MISSING in Local: 25,078
+Tracing first 100 extra embryos in Athena to see if they are present in local Bronze clinic databases...
+Saved complete embryo mismatch report to: G:\My Drive\projetos_individuais\Huntington\data_lake_validation\reports\mismatches_embryos.csv
+
+Traceable Examples of Embryos present in Local but MISSING in Athena Silver:
+                    EmbryoID                PatientIDx TreatmentName   Location     Source
+D2025.05.15_S04096_I3027_P-1 PC1P7BHG_45071.6284492593      2025-970 Ibirapuera Local Only
+D2025.05.15_S04096_I3027_P-2 PC1P7BHG_45071.6284492593      2025-970 Ibirapuera Local Only
+D2025.05.15_S04096_I3027_P-3 PC1P7BHG_45071.6284492593      2025-970 Ibirapuera Local Only
+D2025.05.15_S04096_I3027_P-4 PC1P7BHG_45071.6284492593      2025-970 Ibirapuera Local Only
+D2025.05.15_S04096_I3027_P-5 PC1P7BHG_45071.6284492593      2025-970 Ibirapuera Local Only
+D2025.09.05_S04459_I3166_P-1 PC1P7BHG_45093.4716930324     2025-1958 Ibirapuera Local Only
+D2025.05.04_S04077_I3027_P-1 PC1P7BHG_45333.4402194444      2025-863 Ibirapuera Local Only
+D2025.05.04_S04077_I3027_P-2 PC1P7BHG_45333.4402194444      2025-863 Ibirapuera Local Only
+D2025.05.04_S04077_I3027_P-3 PC1P7BHG_45333.4402194444      2025-863 Ibirapuera Local Only
+D2025.04.25_S04060_I3027_P-1 PC1P7BHG_45504.4532954051      2025-806 Ibirapuera Local Only
+
+Traceable Examples of Embryos present in Athena but MISSING in Local:
+                    EmbryoID                PatientIDx TreatmentName       Location      Source
+D2024.03.27_S02329_I3254_P-1 PC1PPEMH_45378.3748052315    27/03/2024 Belo Horizonte Athena Only
+D2024.03.27_S02329_I3254_P-2 PC1PPEMH_45378.3748052315    27/03/2024 Belo Horizonte Athena Only
+D2024.03.27_S02329_I3254_P-3 PC1PPEMH_45378.3748052315    27/03/2024 Belo Horizonte Athena Only
+D2024.03.27_S02329_I3254_P-4 PC1PPEMH_45378.3748052315    27/03/2024 Belo Horizonte Athena Only
+D2024.03.27_S02329_I3254_P-5 PC1PPEMH_45378.3748052315    27/03/2024 Belo Horizonte Athena Only
+D2024.03.27_S02329_I3254_P-6 PC1PPEMH_45378.3748052315    27/03/2024 Belo Horizonte Athena Only
+D2024.03.27_S02329_I3254_P-7 PC1PPEMH_45378.3748052315    27/03/2024 Belo Horizonte Athena Only
+D2024.03.28_S02331_I3254_P-1 PC1PPEMH_45379.3504016088    28/03/2024 Belo Horizonte Athena Only
+D2024.03.28_S02331_I3254_P-2 PC1PPEMH_45379.3504016088    28/03/2024 Belo Horizonte Athena Only
+D2024.03.28_S02331_I3254_P-3 PC1PPEMH_45379.3504016088    28/03/2024 Belo Horizonte Athena Only
+

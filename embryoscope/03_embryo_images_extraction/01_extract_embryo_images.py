@@ -236,6 +236,18 @@ def extract_embryo_images(
         }
 
 
+def str2bool(v):
+    """Convert string to boolean for argparse."""
+    if isinstance(v, bool):
+        return v
+    if v.lower() in ('yes', 'true', 't', 'y', '1', 'True'):
+        return True
+    elif v.lower() in ('no', 'false', 'f', 'n', '0', 'False'):
+        return False
+    else:
+        import argparse
+        raise argparse.ArgumentTypeError('Boolean value expected.')
+
 def main():
     """Main extraction workflow."""
     parser = argparse.ArgumentParser(description='Embryo Image Extraction Pipeline')
@@ -243,6 +255,7 @@ def main():
     parser.add_argument('--planes', type=str, default='0', help='Comma-separated focal planes to extract (default: 0)')
     parser.add_argument('--mode', type=str, default='all', choices=['all', 'with_biopsy', 'without_biopsy'], 
                         help='Extraction mode: all, with_biopsy, or without_biopsy (default: all)')
+    parser.add_argument('--retry', type=str2bool, default=True, help='Whether to retry failed extractions (default: True)')
     args = parser.parse_args()
 
     # Parse planes
@@ -283,9 +296,9 @@ def main():
             utils.initialize_metadata_table(DB_PATH)
             
             # Query embryos to extract (now filtered in SQL to exclude successes)
-            logger.info(f"Querying embryos from gold.data_ploidia (limit {limit}, mode {args.mode})...")
+            logger.info(f"Querying embryos from gold.data_ploidia (limit {limit}, mode {args.mode}, retry={args.retry})...")
             # We only look for embryos that are missing ANY of the requested FOCAL_PLANES
-            embryos = utils.get_embryos_to_extract(conn, limit=limit, planes=FOCAL_PLANES, mode=args.mode)
+            embryos = utils.get_embryos_to_extract(conn, limit=limit, planes=FOCAL_PLANES, mode=args.mode, retry=args.retry)
             
         finally:
             # CLOSE CONNECTION as soon as we have the list to avoid locks during extraction
@@ -351,11 +364,22 @@ def main():
                 prontuario = embryo.get('prontuario')
                 embryo_description_id = embryo.get('embryo_description_id')
                 
-                logger.info(f"[{location}] [{j}/{len(unit_embryos)}] Processing {embryo_id}...")
+                # Connect briefly to check already extracted planes for THIS specific embryo
+                with duckdb.connect(DB_PATH) as plane_conn:
+                    extracted_planes = utils.get_extracted_planes(plane_conn, embryo_id)
+                
+                planes_to_extract = [p for p in FOCAL_PLANES if p not in extracted_planes]
+                
+                if not planes_to_extract:
+                    logger.info(f"[{location}] [{j}/{len(unit_embryos)}] Skipping {embryo_id} - all target planes already success.")
+                    unit_results['skipped'].append(embryo_id)
+                    continue
+
+                logger.info(f"[{location}] [{j}/{len(unit_embryos)}] Processing {embryo_id} (Planes: {planes_to_extract})...")
                 
                 # Extract all requested focal planes (already filtered by initial query)
                 summary = extract_embryo_images(
-                    embryo_id, location, api_client, FOCAL_PLANES, prontuario, embryo_description_id
+                    embryo_id, location, api_client, planes_to_extract, prontuario, embryo_description_id
                 )
                 
                 if summary['status'] == 'success' or summary['planes_extracted'] > 0:

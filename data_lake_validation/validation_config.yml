@@ -1,0 +1,57 @@
+# Validation Configuration for Embryoscope Data
+
+local:
+  db_path: "database/huntington_data_lake.duckdb"
+  clinic_db_dir: "database"
+  tables:
+    patients: "silver_embryoscope.patients"
+    treatments: "silver_embryoscope.treatments"
+    embryo_data: "silver_embryoscope.embryo_data"
+
+athena:
+  region: "sa-east-1"
+  work_group: "datalake-admins"
+  silver_db: "silver_embryoscope_staging"
+  bronze_db: "bronze_embryoscope_staging"
+  tables:
+    patients: "patients"
+    treatments: "treatments"
+    embryo_data: "embryo_data"
+
+mapping:
+  patients:
+    keys:
+      local: "PatientIDx"
+      athena: "patient_id_x"
+    location:
+      local: "unit_huntington"
+      athena: "source_server"
+    fields:
+      PatientID: "patient_id"
+      FirstName: "first_name"
+      LastName: "last_name"
+      DateOfBirth: "date_of_birth"
+
+  treatments:
+    keys:
+      local: ["PatientIDx", "TreatmentName"]
+      athena: ["patient_id_x", "treatment_name"]
+    location:
+      local: "unit_huntington"
+      athena: "source_server"
+
+  embryo_data:
+    keys:
+      local: "EmbryoID"
+      athena: "embryo_id"
+    location:
+      local: "unit_huntington"
+      athena: "unit_huntington"
+    fields:
+      PatientIDx: "patient_id_x"
+      TreatmentName: "treatment_name"
+      WellNumber: "well_number"
+      FertilizationTime: "fertilization_time"
+      Description: "description"
+      EmbryoFate: "embryo_fate"
+      Position: "position"

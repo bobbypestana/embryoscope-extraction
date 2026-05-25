@@ -1,0 +1,125 @@
+CLINISYS SCHEMA COMPARISON (Local Silver vs Athena Bronze)
+=========================================================
+
+Table: view_pacientes
+-----------------------------------------
+Local Silver columns count: 115
+Athena Bronze columns count: 119
+
+Columns in Local Silver but missing in Athena Bronze:
+  - extraction_timestamp
+  - hash
+
+Columns in Athena Bronze but missing in Local Silver:
+  - _dlt_id
+  - _dlt_load_id
+  - _dlt_valid_from
+  - _dlt_valid_to
+  - _extracted_at
+  - _row_hash
+
+==================================================
+
+Table: view_tratamentos
+-----------------------------------------
+Local Silver columns count: 196
+Athena Bronze columns count: 197
+
+Columns in Local Silver but missing in Athena Bronze:
+  - bcf_embrião1_fonte
+  - bcf_embrião1_status
+  - bmi
+  - extraction_timestamp
+  - hash
+  - previous_et
+  - previous_et_od
+
+Columns in Athena Bronze but missing in Local Silver:
+  - bcf_embri_o1_fonte
+  - bcf_embri_o1_status
+  - _dlt_id
+  - _dlt_load_id
+  - _dlt_valid_from
+  - _dlt_valid_to
+  - _extracted_at
+  - _row_hash
+
+==================================================
+
+Table: view_micromanipulacao
+-----------------------------------------
+Local Silver columns count: 211
+Athena Bronze columns count: 215
+
+Columns in Local Silver but missing in Athena Bronze:
+  - extraction_timestamp
+  - hash
+
+Columns in Athena Bronze but missing in Local Silver:
+  - _dlt_id
+  - _dlt_load_id
+  - _dlt_valid_from
+  - _dlt_valid_to
+  - _extracted_at
+  - _row_hash
+
+==================================================
+
+Table: view_micromanipulacao_oocitos
+-----------------------------------------
+Local Silver columns count: 56
+Athena Bronze columns count: 59
+
+Columns in Local Silver but missing in Athena Bronze:
+  - embryo_number
+  - extraction_timestamp
+  - hash
+
+Columns in Athena Bronze but missing in Local Silver:
+  - _dlt_id
+  - _dlt_load_id
+  - _dlt_valid_from
+  - _dlt_valid_to
+  - _extracted_at
+  - _row_hash
+
+==================================================
+
+Table: view_congelamentos_embrioes
+-----------------------------------------
+Local Silver columns count: 47
+Athena Bronze columns count: 51
+
+Columns in Local Silver but missing in Athena Bronze:
+  - extraction_timestamp
+  - hash
+
+Columns in Athena Bronze but missing in Local Silver:
+  - _dlt_id
+  - _dlt_load_id
+  - _dlt_valid_from
+  - _dlt_valid_to
+  - _extracted_at
+  - _row_hash
+
+==================================================
+
+Table: view_descongelamentos_embrioes
+-----------------------------------------
+Local Silver columns count: 34
+Athena Bronze columns count: 38
+
+Columns in Local Silver but missing in Athena Bronze:
+  - extraction_timestamp
+  - hash
+
+Columns in Athena Bronze but missing in Local Silver:
+  - _dlt_id
+  - _dlt_load_id
+  - _dlt_valid_from
+  - _dlt_valid_to
+  - _extracted_at
+  - _row_hash
+
+==================================================
+

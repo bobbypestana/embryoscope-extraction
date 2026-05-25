@@ -18,11 +18,16 @@ view_micromanipulacao:
   - Data_DL
   - data_procedimento
   - oocitos
+  - recepcao_ovulos
+  - CicloDoadora
 
 # Columns from view_tratamentos (trat1_*) - First join on mic.data_procedimento
 view_tratamentos:
   - id
   - tentativa
+  - idade_esposa
+  - idade_marido
+  - prontuario_doadora
   - tipo_procedimento
   - data_inicio_inducao
   - motivo_nao_transferir
@@ -58,6 +63,9 @@ view_descongelamentos_embrioes:
 view_tratamentos_transfer:
   - id
   - tentativa
+  - idade_esposa
+  - idade_marido
+  - prontuario_doadora
   - tipo_procedimento
   - data_inicio_inducao
   - motivo_nao_transferir

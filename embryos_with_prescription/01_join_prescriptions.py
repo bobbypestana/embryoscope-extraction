@@ -9,8 +9,7 @@ gold table: one row per (embryo × prescription).
 Join key: trat1_id (lake) = ficha_id (prescriptions)
 
 Filter applied to source embryo table:
-  1. oocito_TCD = 'Transferido'  OR  descong_em_DataTransferencia IS NOT NULL
-  2. outcome_type (trimmed + lowercased) NOT IN excluded values and NOT NULL
+  1. embryo_EmbryoID IS NOT NULL
 
 Output: huntington_data_lake.gold.embryos_with_prescription_long
 """
@@ -42,14 +41,15 @@ REPO_ROOT  = os.path.dirname(os.path.dirname(__file__))
 LAKE_DB    = os.path.join(REPO_ROOT, 'database', 'huntington_data_lake.duckdb')
 CLINISYS_DB = os.path.join(REPO_ROOT, 'database', 'clinisys_all.duckdb')
 
-# ── outcome_type exclusion list (compared after TRIM + LOWER + collapse spaces)
-EXCLUDED_OUTCOME_TYPES = [
-    "total cryopreservation",
-    "sem respost",
-    "sem contato",
-    "other",
-    "due to lack of normal embryos",
-]
+# # ── outcome_type exclusion list (compared after TRIM + LOWER + collapse spaces)
+# EXCLUDED_OUTCOME_TYPES = [
+#     "total cryopreservation",
+#     "sem respost",
+#     "sem contato",
+#     "other",
+#     "due to lack of normal embryos",
+# ]
+
 
 # ── Prescription columns to include (only the enriched set from feature_engineering)
 PRESCRIPTION_COLUMNS = [
@@ -69,24 +69,26 @@ PRESCRIPTION_COLUMNS = [
 ]
 
 
-def normalize_outcome(col: str) -> str:
-    """Return a SQL expression that normalises outcome_type for comparison:
-    trim whitespace, collapse multiple spaces, lowercase."""
-    return f"TRIM(REGEXP_REPLACE(LOWER(CAST({col} AS VARCHAR)), '\\s+', ' ', 'g'))"
+# def normalize_outcome(col: str) -> str:
+#     """Return a SQL expression that normalises outcome_type for comparison:
+#     trim whitespace, collapse multiple spaces, lowercase."""
+#     return f"TRIM(REGEXP_REPLACE(LOWER(CAST({col} AS VARCHAR)), '\\s+', ' ', 'g'))"
 
 
-def get_exclusion_clause(col: str) -> str:
-    """Return a WHERE condition that excludes NULL and the excluded outcome types."""
-    norm = normalize_outcome(col)
-    quoted = ", ".join(f"'{v}'" for v in EXCLUDED_OUTCOME_TYPES)
-    return f"({col} IS NOT NULL AND {norm} NOT IN ({quoted}))"
+# def get_exclusion_clause(col: str) -> str:
+#     """Return a WHERE condition that excludes NULL and the excluded outcome types."""
+#     norm = normalize_outcome(col)
+#     quoted = ", ".join(f"'{v}'" for v in EXCLUDED_OUTCOME_TYPES)
+#     return f"({col} IS NOT NULL AND {norm} NOT IN ({quoted}))"
 
 
 def build_filter_sql() -> str:
     """Return the full WHERE clause for the embryo source table."""
-    transfer_cond  = "(e.oocito_TCD = 'Transferido' OR e.descong_em_DataTransferencia IS NOT NULL)"
-    outcome_cond   = get_exclusion_clause("e.outcome_type")
-    return f"{transfer_cond}\n    AND {outcome_cond}"
+    # transfer_cond  = "(e.oocito_TCD = 'Transferido' OR e.descong_em_DataTransferencia IS NOT NULL)"
+    # outcome_cond   = get_exclusion_clause("e.outcome_type")
+    # return f"{transfer_cond}\n    AND {outcome_cond}"
+    
+    return "e.embryo_EmbryoID IS NOT NULL"
 
 
 def get_connection():
