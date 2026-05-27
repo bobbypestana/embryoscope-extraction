@@ -1,0 +1,1 @@
+1. Always log the script, so I can follow progress in terminal when needed.

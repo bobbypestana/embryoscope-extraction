@@ -2,8 +2,8 @@
 """
 Protheus Silver to Gold Consolidation Script
 Combines silver.notas, silver.clientes, silver.produtos, silver.vendedores, and silver.tes
-to reproduce silver.mesclada_vendas. Implements the full validated 15-match-type Clinisys
-patient matching logic (identical to finops/01_data_ingestion/03_02_mesclada_to_silver.py).
+to build gold.protheus_mesclada_vendas. Maps customer and patient identifiers directly
+from Protheus ERP tables, while resolving the couple chart ID (prontuario) via tiered Clinisys matching.
 """
 
 import os
@@ -45,14 +45,14 @@ def create_gold_table(con):
 
     con.execute("DROP TABLE IF EXISTS gold.protheus_mesclada_vendas")
 
-    query = f"""
+    query = """
     CREATE TABLE gold.protheus_mesclada_vendas AS
     SELECT
-        TRY_CAST(n.F2_CLIENTE AS INTEGER) AS "Cliente",
-        c.A1_NOME AS "Nome",
-        n.F2_PACIENT AS "Paciente",
+        TRY_CAST(c_cli.A1_CODMS AS INTEGER) AS "Cliente",
+        COALESCE(c_cli.A1_NOME, n.F2_NOMPACI) AS "Nome",
+        TRY_CAST(c_pac.A1_CODMS AS INTEGER)::VARCHAR AS "Paciente",
         n.F2_NOMPACI AS "Nom Paciente",
-        CAST(-1 AS INTEGER) AS prontuario,
+        TRY_CAST(-1 AS INTEGER) AS prontuario,
         CAST(n.F2_EMISSAO AS TIMESTAMP) AS "DT Emissao",
         p.B1_DESC AS "Descricao",
         n.D2_QUANT AS "Qntd.",
@@ -111,8 +111,10 @@ def create_gold_table(con):
         n.extraction_timestamp AS extraction_timestamp,
         'Protheus API' AS file_name
     FROM silver.notas n
-    LEFT JOIN silver.clientes c
-        ON n.F2_CLIENTE = c.A1_COD AND n.F2_LOJA = c.A1_LOJA
+    LEFT JOIN silver.clientes c_cli
+        ON n.F2_CLIENTE = c_cli.A1_COD AND n.F2_LOJA = c_cli.A1_LOJA
+    LEFT JOIN silver.clientes c_pac
+        ON n.F2_PACIENT = c_pac.A1_COD AND c_pac.A1_LOJA = '01'
     LEFT JOIN silver.produtos p
         ON n.D2_COD = p.B1_COD
     LEFT JOIN silver.vendedores v
@@ -128,353 +130,173 @@ def create_gold_table(con):
 
 
 def update_prontuario_column(con):
-    logger.info("Updating prontuario column using full 15-match-type Clinisys matching logic...")
+    logger.info("Updating prontuario column using tiered matching logic...")
 
     logger.info(f"Attaching clinisys database from: {CLINISYS_DB_PATH}")
-    con.execute(f"ATTACH '{CLINISYS_DB_PATH}' AS clinisys_all")
+    con.execute(f"ATTACH '{CLINISYS_DB_PATH}' AS clinisys_all (READ_ONLY)")
     logger.info("clinisys_all database attached successfully")
 
-    # 1. Match using Patient CPF
-    logger.info("Matching using Patient CPF...")
-    match_pat_cpf_sql = """
-    WITH clean_clientes AS (
-        SELECT DISTINCT
-            A1_COD,
-            regexp_replace(A1_CGC, '[^0-9]', '', 'g') as clean_cpf
-        FROM silver.clientes
-        WHERE A1_CGC IS NOT NULL AND A1_CGC != ''
-    ),
-    clean_clinisys AS (
+    # Create temporary table with pre-cast/string-converted Clinisys identifiers to avoid cast failures
+    con.execute("""
+    CREATE TEMP TABLE temp_clinisys_processed AS
+    SELECT
+        codigo,
+        codigo::VARCHAR AS codigo_str,
+        TRY_CAST(prontuario_esposa AS INTEGER) AS prontuario_esposa,
+        TRY_CAST(prontuario_marido AS INTEGER) AS prontuario_marido,
+        TRY_CAST(prontuario_responsavel1 AS INTEGER) AS prontuario_responsavel1,
+        TRY_CAST(prontuario_responsavel2 AS INTEGER) AS prontuario_responsavel2,
+        
+        regexp_replace(esposa_cpf, '[^0-9]', '', 'g') AS clean_cpf_esposa,
+        regexp_replace(marido_cpf, '[^0-9]', '', 'g') AS clean_cpf_marido,
+        
+        strip_accents(LOWER(SPLIT_PART(TRIM(esposa_nome), ' ', 1))) as esposa_first,
+        strip_accents(LOWER(SPLIT_PART(TRIM(marido_nome), ' ', 1))) as marido_first,
+        esposa_nome,
+        marido_nome,
+        inativo
+    FROM clinisys_all.silver.view_pacientes
+    """)
+
+    # 1. Tier 1: Direct Medsof ID matching (A1_CODMS from silver.clientes)
+    logger.info("Tier 1: Matching prontuario via Medsof IDs (A1_CODMS)...")
+    match_medsof_sql = """
+    WITH raw_medsof AS (
         SELECT 
-            codigo,
-            regexp_replace(esposa_cpf, '[^0-9]', '', 'g') as clean_cpf_esposa,
-            regexp_replace(marido_cpf, '[^0-9]', '', 'g') as clean_cpf_marido
-        FROM clinisys_all.silver.view_pacientes
-    ),
-    matches AS (
-        SELECT DISTINCT
             g.line_number,
-            COALESCE(cl1.codigo, cl2.codigo) as resolved_prontuario
+            TRY_CAST(c_cli.A1_CODMS AS INTEGER) AS cli_codms,
+            TRY_CAST(c_pac.A1_CODMS AS INTEGER) AS pac_codms
         FROM gold.protheus_mesclada_vendas g
-        LEFT JOIN clean_clientes c_pat ON g.Paciente = c_pat.A1_COD
-        LEFT JOIN clean_clinisys cl1 ON c_pat.clean_cpf = cl1.clean_cpf_esposa AND c_pat.clean_cpf != ''
-        LEFT JOIN clean_clinisys cl2 ON c_pat.clean_cpf = cl2.clean_cpf_marido AND c_pat.clean_cpf != ''
-        WHERE COALESCE(cl1.codigo, cl2.codigo) IS NOT NULL
+        LEFT JOIN silver.clientes c_cli ON g.Cliente_totvs = c_cli.A1_COD AND g.Loja = c_cli.A1_LOJA
+        LEFT JOIN silver.clientes c_pac ON g.Paciente = c_pac.A1_COD AND c_pac.A1_LOJA = '01'
+    ),
+    medsof_matches AS (
+        SELECT DISTINCT
+            rm.line_number,
+            COALESCE(vp1.codigo, vp2.codigo, vp3.codigo, vp4.codigo) as resolved_prontuario
+        FROM raw_medsof rm
+        LEFT JOIN temp_clinisys_processed vp1 ON rm.pac_codms = vp1.prontuario_esposa
+        LEFT JOIN temp_clinisys_processed vp2 ON rm.pac_codms = vp2.prontuario_marido
+        LEFT JOIN temp_clinisys_processed vp3 ON rm.cli_codms = vp3.prontuario_esposa
+        LEFT JOIN temp_clinisys_processed vp4 ON rm.cli_codms = vp4.prontuario_marido
+        WHERE COALESCE(vp1.codigo, vp2.codigo, vp3.codigo, vp4.codigo) IS NOT NULL
     )
     UPDATE gold.protheus_mesclada_vendas
     SET prontuario = m.resolved_prontuario
-    FROM matches m
+    FROM medsof_matches m
     WHERE gold.protheus_mesclada_vendas.line_number = m.line_number
     """
-    con.execute(match_pat_cpf_sql)
+    con.execute(match_medsof_sql)
+    
+    stats_medsof = con.execute("SELECT COUNT(*), COUNT(CASE WHEN prontuario != -1 THEN 1 END) FROM gold.protheus_mesclada_vendas").fetchone()
+    logger.info(f"Stats after Tier 1 (Medsof ID): Total={stats_medsof[0]:,}, Matched={stats_medsof[1]:,}, Rate={stats_medsof[1]/stats_medsof[0]*100:.2f}%")
 
-    # 2. Match using Client CPF
-    logger.info("Matching using Client CPF...")
-    match_cli_cpf_sql = """
-    WITH clean_clientes AS (
-        SELECT DISTINCT
-            A1_COD,
-            regexp_replace(A1_CGC, '[^0-9]', '', 'g') as clean_cpf
-        FROM silver.clientes
-        WHERE A1_CGC IS NOT NULL AND A1_CGC != ''
-    ),
-    clean_clinisys AS (
+    # 2. Tier 2: Match using CPF
+    logger.info("Tier 2: Matching prontuario via CPF...")
+    match_cpf_sql = """
+    WITH raw_cpf AS (
         SELECT 
-            codigo,
-            regexp_replace(esposa_cpf, '[^0-9]', '', 'g') as clean_cpf_esposa,
-            regexp_replace(marido_cpf, '[^0-9]', '', 'g') as clean_cpf_marido
-        FROM clinisys_all.silver.view_pacientes
-    ),
-    matches AS (
-        SELECT DISTINCT
             g.line_number,
-            COALESCE(cl1.codigo, cl2.codigo) as resolved_prontuario
+            regexp_replace(c_cli.A1_CGC, '[^0-9]', '', 'g') AS cli_cpf,
+            regexp_replace(c_pac.A1_CGC, '[^0-9]', '', 'g') AS pac_cpf
         FROM gold.protheus_mesclada_vendas g
-        LEFT JOIN clean_clientes c_cli ON g.Cliente_totvs = c_cli.A1_COD
-        LEFT JOIN clean_clinisys cl1 ON c_cli.clean_cpf = cl1.clean_cpf_esposa AND c_cli.clean_cpf != ''
-        LEFT JOIN clean_clinisys cl2 ON c_cli.clean_cpf = cl2.clean_cpf_marido AND c_cli.clean_cpf != ''
-        WHERE g.prontuario = -1 AND COALESCE(cl1.codigo, cl2.codigo) IS NOT NULL
+        LEFT JOIN silver.clientes c_cli ON g.Cliente_totvs = c_cli.A1_COD AND g.Loja = c_cli.A1_LOJA
+        LEFT JOIN silver.clientes c_pac ON g.Paciente = c_pac.A1_COD AND c_pac.A1_LOJA = '01'
+        WHERE g.prontuario = -1
+    ),
+    cpf_matches AS (
+        SELECT DISTINCT
+            rc.line_number,
+            COALESCE(vp1.codigo, vp2.codigo, vp3.codigo, vp4.codigo) as resolved_prontuario
+        FROM raw_cpf rc
+        LEFT JOIN temp_clinisys_processed vp1 ON rc.pac_cpf = vp1.clean_cpf_esposa AND rc.pac_cpf != ''
+        LEFT JOIN temp_clinisys_processed vp2 ON rc.pac_cpf = vp2.clean_cpf_marido AND rc.pac_cpf != ''
+        LEFT JOIN temp_clinisys_processed vp3 ON rc.cli_cpf = vp3.clean_cpf_esposa AND rc.cli_cpf != ''
+        LEFT JOIN temp_clinisys_processed vp4 ON rc.cli_cpf = vp4.clean_cpf_marido AND rc.cli_cpf != ''
+        WHERE COALESCE(vp1.codigo, vp2.codigo, vp3.codigo, vp4.codigo) IS NOT NULL
     )
     UPDATE gold.protheus_mesclada_vendas
     SET prontuario = m.resolved_prontuario
-    FROM matches m
+    FROM cpf_matches m
     WHERE gold.protheus_mesclada_vendas.line_number = m.line_number
     """
-    con.execute(match_cli_cpf_sql)
-
-    # Log stats after CPF matching
+    con.execute(match_cpf_sql)
+    
     stats_cpf = con.execute("SELECT COUNT(*), COUNT(CASE WHEN prontuario != -1 THEN 1 END) FROM gold.protheus_mesclada_vendas").fetchone()
-    logger.info(f"Stats after CPF matching: Total={stats_cpf[0]:,}, Matched={stats_cpf[1]:,}, Rate={stats_cpf[1]/stats_cpf[0]*100:.2f}%")
+    logger.info(f"Stats after Tier 2 (CPF): Total={stats_cpf[0]:,}, Matched={stats_cpf[1]:,}, Rate={stats_cpf[1]/stats_cpf[0]*100:.2f}%")
 
-    # Matching steps in priority order — each step only processes rows still unmatched (prontuario = -1)
-    matching_steps = [
-        {
-            "name": "Paciente",
-            "column": "Paciente",
-            "name_field": "Nom Paciente",
-            "filter_condition": 'AND "Paciente" IS NOT NULL AND "Paciente" != \'\'',
-            "numeric_filter": False
-        },
-        {
-            "name": "Cliente",
-            "column": "Cliente",
-            "name_field": "Nome",
-            "filter_condition": 'AND "Cliente" IS NOT NULL',
-            "numeric_filter": False
-        },
-        {
-            "name": "Cliente_totvs",
-            "column": "Cliente_totvs",
-            "name_field": "Nom Paciente",
-            "filter_condition": 'AND "Cliente_totvs" IS NOT NULL AND "Cliente_totvs" != \'\' AND TRY_CAST("Cliente_totvs" AS INTEGER) IS NOT NULL',
-            "numeric_filter": True
-        }
-    ]
+    # 3. Tier 3: Match using Name matching (First names)
+    logger.info("Tier 3: Matching prontuario via first names...")
+    def match_names(name_column, is_inactive):
+        inactive_val = '1' if is_inactive else '0'
+        update_sql = f"""
+        WITH mesclada_extract AS (
+            SELECT DISTINCT
+                "{name_column}" as name_val,
+                strip_accents(LOWER(SPLIT_PART(TRIM("{name_column}"), ' ', 1))) as name_first
+            FROM gold.protheus_mesclada_vendas
+            WHERE prontuario = -1 AND "{name_column}" IS NOT NULL AND "{name_column}" != ''
+        ),
+        matches_esposa AS (
+            SELECT d.*, p.codigo as resolved_prontuario, p.esposa_nome, p.marido_nome, 'esposa' as match_type
+            FROM mesclada_extract d 
+            INNER JOIN temp_clinisys_processed p ON d.name_first = p.esposa_first
+            WHERE p.inativo = '{inactive_val}'
+        ),
+        matches_marido AS (
+            SELECT d.*, p.codigo as resolved_prontuario, p.esposa_nome, p.marido_nome, 'marido' as match_type
+            FROM mesclada_extract d 
+            INNER JOIN temp_clinisys_processed p ON d.name_first = p.marido_first
+            WHERE p.inativo = '{inactive_val}'
+        ),
+        all_matches AS (
+            SELECT * FROM matches_esposa UNION SELECT * FROM matches_marido
+        ),
+        scored_matches AS (
+            SELECT *,
+                   CASE
+                       WHEN match_type = 'esposa' AND strip_accents(LOWER(TRIM(name_val))) = strip_accents(LOWER(TRIM(esposa_nome))) THEN 0
+                       WHEN match_type = 'marido' AND strip_accents(LOWER(TRIM(name_val))) = strip_accents(LOWER(TRIM(marido_nome))) THEN 0
+                       WHEN match_type = 'esposa' THEN 2
+                       ELSE 4
+                   END as score
+            FROM all_matches
+        ),
+        best_matches AS (
+            SELECT name_val, resolved_prontuario FROM (
+                SELECT name_val, resolved_prontuario, ROW_NUMBER() OVER (PARTITION BY name_val ORDER BY score ASC) as rn
+                FROM scored_matches
+            ) WHERE rn = 1
+        )
+        UPDATE gold.protheus_mesclada_vendas
+        SET prontuario = bm.resolved_prontuario
+        FROM best_matches bm
+        WHERE gold.protheus_mesclada_vendas."{name_column}" = bm.name_val
+          AND gold.protheus_mesclada_vendas.prontuario = -1;
+        """
+        con.execute(update_sql)
 
-    logger.info("=== FIRST PASS: Active patients only (inativo = 0) ===")
-    for i, step in enumerate(matching_steps, 1):
-        logger.info(f"Step {i}: Matching using {step['name']} (active patients)...")
-        update_prontuario_with_column(con, step, include_inactive=False)
+    logger.info("Matching Nom Paciente (active)...")
+    match_names("Nom Paciente", is_inactive=False)
+    logger.info("Matching Nome (active)...")
+    match_names("Nome", is_inactive=False)
+    logger.info("Matching Nom Paciente (inactive)...")
+    match_names("Nom Paciente", is_inactive=True)
+    logger.info("Matching Nome (inactive)...")
+    match_names("Nome", is_inactive=True)
 
-    logger.info("=== SECOND PASS: Inactive patients only (inativo = 1) ===")
-    for i, step in enumerate(matching_steps, 1):
-        logger.info(f"Step {i}: Matching using {step['name']} (inactive patients)...")
-        update_prontuario_with_column(con, step, include_inactive=True)
+    stats_final = con.execute("SELECT COUNT(*), COUNT(CASE WHEN prontuario != -1 THEN 1 END) FROM gold.protheus_mesclada_vendas").fetchone()
+    logger.info(f"Final prontuario matching stats: Total={stats_final[0]:,}, Matched={stats_final[1]:,}, Rate={stats_final[1]/stats_final[0]*100:.2f}%")
 
+    con.execute("DROP TABLE temp_clinisys_processed")
     con.execute("DETACH clinisys_all")
     logger.info("Detached clinisys_all")
-
-
-def update_prontuario_with_column(con, step_config, include_inactive=False):
-    """
-    Full 15-match-type prontuario matching algorithm, identical to the validated
-    implementation in finops/01_data_ingestion/03_02_mesclada_to_silver.py.
-    Searches all cross-clinic prontuario fields (esposa/marido/responsavel across
-    PEL, PC, FC, BA clinics) and scores by both name quality and match type priority.
-    """
-    column_name = step_config["name"]
-    column_field = step_config["column"]
-    name_field = step_config["name_field"]
-    filter_condition = step_config["filter_condition"]
-
-    inactive_condition = "inativo = 1" if include_inactive else "inativo = 0"
-    match_type_prefix = column_name.lower()
-
-    update_sql = f"""
-    WITH
-    -- CTE 1: Extract distinct unmatched source keys + first-word name normalization
-    mesclada_extract AS (
-        SELECT DISTINCT
-            "{column_field}" as {column_field},
-            CASE WHEN "Nome" IS NOT NULL
-                 THEN strip_accents(LOWER(SPLIT_PART(TRIM("Nome"), ' ', 1)))
-                 ELSE NULL END as nome_first,
-            CASE WHEN "Nom Paciente" IS NOT NULL
-                 THEN strip_accents(LOWER(SPLIT_PART(TRIM("Nom Paciente"), ' ', 1)))
-                 ELSE NULL END as nom_paciente_first
-        FROM gold.protheus_mesclada_vendas
-        WHERE prontuario = -1
-          {filter_condition}
-    ),
-
-    -- CTE 1B: Pre-process Clinisys data — normalize names, pull all prontuario ID fields
-    clinisys_processed AS (
-        SELECT
-            codigo,
-            prontuario_esposa,
-            prontuario_marido,
-            prontuario_responsavel1,
-            prontuario_responsavel2,
-            prontuario_esposa_pel,
-            prontuario_marido_pel,
-            prontuario_esposa_pc,
-            prontuario_marido_pc,
-            prontuario_responsavel1_pc,
-            prontuario_responsavel2_pc,
-            prontuario_esposa_fc,
-            prontuario_marido_fc,
-            prontuario_esposa_ba,
-            prontuario_marido_ba,
-            strip_accents(LOWER(SPLIT_PART(TRIM(esposa_nome), ' ', 1))) as esposa_nome,
-            strip_accents(LOWER(SPLIT_PART(TRIM(marido_nome), ' ', 1))) as marido_nome,
-            unidade_origem
-        FROM clinisys_all.silver.view_pacientes
-        WHERE {inactive_condition}
-    ),
-
-    -- CTEs 2–16: One join per prontuario field type
-    matches_1 AS (
-        SELECT d.*, p.codigo as prontuario, p.esposa_nome, p.marido_nome, p.unidade_origem,
-               '{match_type_prefix}_main' as match_type
-        FROM mesclada_extract d INNER JOIN clinisys_processed p ON d.{column_field} = p.codigo
-    ),
-    matches_2 AS (
-        SELECT d.*, p.codigo as prontuario, p.esposa_nome, p.marido_nome, p.unidade_origem,
-               '{match_type_prefix}_esposa' as match_type
-        FROM mesclada_extract d INNER JOIN clinisys_processed p ON d.{column_field} = p.prontuario_esposa
-    ),
-    matches_3 AS (
-        SELECT d.*, p.codigo as prontuario, p.esposa_nome, p.marido_nome, p.unidade_origem,
-               '{match_type_prefix}_marido' as match_type
-        FROM mesclada_extract d INNER JOIN clinisys_processed p ON d.{column_field} = p.prontuario_marido
-    ),
-    matches_4 AS (
-        SELECT d.*, p.codigo as prontuario, p.esposa_nome, p.marido_nome, p.unidade_origem,
-               '{match_type_prefix}_responsavel1' as match_type
-        FROM mesclada_extract d INNER JOIN clinisys_processed p ON d.{column_field} = p.prontuario_responsavel1
-    ),
-    matches_5 AS (
-        SELECT d.*, p.codigo as prontuario, p.esposa_nome, p.marido_nome, p.unidade_origem,
-               '{match_type_prefix}_responsavel2' as match_type
-        FROM mesclada_extract d INNER JOIN clinisys_processed p ON d.{column_field} = p.prontuario_responsavel2
-    ),
-    matches_6 AS (
-        SELECT d.*, p.codigo as prontuario, p.esposa_nome, p.marido_nome, p.unidade_origem,
-               '{match_type_prefix}_esposa_pel' as match_type
-        FROM mesclada_extract d INNER JOIN clinisys_processed p ON d.{column_field} = p.prontuario_esposa_pel
-    ),
-    matches_7 AS (
-        SELECT d.*, p.codigo as prontuario, p.esposa_nome, p.marido_nome, p.unidade_origem,
-               '{match_type_prefix}_marido_pel' as match_type
-        FROM mesclada_extract d INNER JOIN clinisys_processed p ON d.{column_field} = p.prontuario_marido_pel
-    ),
-    matches_8 AS (
-        SELECT d.*, p.codigo as prontuario, p.esposa_nome, p.marido_nome, p.unidade_origem,
-               '{match_type_prefix}_esposa_pc' as match_type
-        FROM mesclada_extract d INNER JOIN clinisys_processed p ON d.{column_field} = p.prontuario_esposa_pc
-    ),
-    matches_9 AS (
-        SELECT d.*, p.codigo as prontuario, p.esposa_nome, p.marido_nome, p.unidade_origem,
-               '{match_type_prefix}_marido_pc' as match_type
-        FROM mesclada_extract d INNER JOIN clinisys_processed p ON d.{column_field} = p.prontuario_marido_pc
-    ),
-    matches_10 AS (
-        SELECT d.*, p.codigo as prontuario, p.esposa_nome, p.marido_nome, p.unidade_origem,
-               '{match_type_prefix}_responsavel1_pc' as match_type
-        FROM mesclada_extract d INNER JOIN clinisys_processed p ON d.{column_field} = p.prontuario_responsavel1_pc
-    ),
-    matches_11 AS (
-        SELECT d.*, p.codigo as prontuario, p.esposa_nome, p.marido_nome, p.unidade_origem,
-               '{match_type_prefix}_responsavel2_pc' as match_type
-        FROM mesclada_extract d INNER JOIN clinisys_processed p ON d.{column_field} = p.prontuario_responsavel2_pc
-    ),
-    matches_12 AS (
-        SELECT d.*, p.codigo as prontuario, p.esposa_nome, p.marido_nome, p.unidade_origem,
-               '{match_type_prefix}_esposa_fc' as match_type
-        FROM mesclada_extract d INNER JOIN clinisys_processed p ON d.{column_field} = p.prontuario_esposa_fc
-    ),
-    matches_13 AS (
-        SELECT d.*, p.codigo as prontuario, p.esposa_nome, p.marido_nome, p.unidade_origem,
-               '{match_type_prefix}_marido_fc' as match_type
-        FROM mesclada_extract d INNER JOIN clinisys_processed p ON d.{column_field} = p.prontuario_marido_fc
-    ),
-    matches_14 AS (
-        SELECT d.*, p.codigo as prontuario, p.esposa_nome, p.marido_nome, p.unidade_origem,
-               '{match_type_prefix}_esposa_ba' as match_type
-        FROM mesclada_extract d INNER JOIN clinisys_processed p ON d.{column_field} = p.prontuario_esposa_ba
-    ),
-    matches_15 AS (
-        SELECT d.*, p.codigo as prontuario, p.esposa_nome, p.marido_nome, p.unidade_origem,
-               '{match_type_prefix}_marido_ba' as match_type
-        FROM mesclada_extract d INNER JOIN clinisys_processed p ON d.{column_field} = p.prontuario_marido_ba
-    ),
-
-    -- CTE 17: Union all match types
-    all_matches AS (
-        SELECT * FROM matches_1  UNION SELECT * FROM matches_2  UNION SELECT * FROM matches_3
-        UNION SELECT * FROM matches_4  UNION SELECT * FROM matches_5  UNION SELECT * FROM matches_6
-        UNION SELECT * FROM matches_7  UNION SELECT * FROM matches_8  UNION SELECT * FROM matches_9
-        UNION SELECT * FROM matches_10 UNION SELECT * FROM matches_11 UNION SELECT * FROM matches_12
-        UNION SELECT * FROM matches_13 UNION SELECT * FROM matches_14 UNION SELECT * FROM matches_15
-    ),
-
-    -- CTE 18: Score by name quality + match type priority (lower = better)
-    scored_matches AS (
-        SELECT *,
-               CASE
-                   WHEN (nome_first = esposa_nome AND nom_paciente_first = marido_nome)
-                        OR (nom_paciente_first = esposa_nome AND nome_first = marido_nome) THEN 0
-                   WHEN (nome_first = esposa_nome OR nom_paciente_first = marido_nome)
-                        OR (nom_paciente_first = esposa_nome OR nome_first = marido_nome) THEN 2
-                   ELSE 4
-               END as name_match_score,
-               CASE
-                   WHEN match_type = '{match_type_prefix}_main'             THEN 1
-                   WHEN match_type = '{match_type_prefix}_esposa'           THEN 3
-                   WHEN match_type = '{match_type_prefix}_marido'           THEN 5
-                   WHEN match_type = '{match_type_prefix}_responsavel1'     THEN 7
-                   WHEN match_type = '{match_type_prefix}_responsavel2'     THEN 9
-                   WHEN match_type = '{match_type_prefix}_esposa_pel'       THEN 11
-                   WHEN match_type = '{match_type_prefix}_marido_pel'       THEN 13
-                   WHEN match_type = '{match_type_prefix}_esposa_pc'        THEN 15
-                   WHEN match_type = '{match_type_prefix}_marido_pc'        THEN 17
-                   WHEN match_type = '{match_type_prefix}_responsavel1_pc'  THEN 19
-                   WHEN match_type = '{match_type_prefix}_responsavel2_pc'  THEN 21
-                   WHEN match_type = '{match_type_prefix}_esposa_fc'        THEN 23
-                   WHEN match_type = '{match_type_prefix}_marido_fc'        THEN 25
-                   WHEN match_type = '{match_type_prefix}_esposa_ba'        THEN 27
-                   WHEN match_type = '{match_type_prefix}_marido_ba'        THEN 29
-                   ELSE 31
-               END as match_type_score
-        FROM all_matches
-        WHERE nome_first = esposa_nome OR nome_first = marido_nome
-           OR nom_paciente_first = esposa_nome OR nom_paciente_first = marido_nome
-    ),
-
-    -- CTE 19: Rank by combined score
-    ranked_matches AS (
-        SELECT *,
-               (name_match_score + match_type_score) as combined_score,
-               ROW_NUMBER() OVER (
-                   PARTITION BY {column_field}, "prontuario"
-                   ORDER BY (name_match_score + match_type_score)
-               ) as rn
-        FROM scored_matches
-    ),
-
-    -- CTE 20: Best match per source key
-    best_matches AS (
-        SELECT * FROM ranked_matches rm1
-        WHERE rn = (
-            SELECT MIN(rn) FROM ranked_matches rm2
-            WHERE rm2.{column_field} = rm1.{column_field}
-        )
-    )
-
-    UPDATE gold.protheus_mesclada_vendas
-    SET prontuario = COALESCE(bm.prontuario, -1)
-    FROM best_matches bm
-    WHERE gold.protheus_mesclada_vendas."{column_field}" = bm.{column_field}
-      AND gold.protheus_mesclada_vendas.prontuario = -1
-      AND (strip_accents(TRIM(LOWER(SPLIT_PART(gold.protheus_mesclada_vendas."{name_field}", ' ', 1)))) = bm.nome_first
-        OR strip_accents(TRIM(LOWER(SPLIT_PART(gold.protheus_mesclada_vendas."{name_field}", ' ', 1)))) = bm.nom_paciente_first)
-    """
-
-    try:
-        con.execute(update_sql)
-        result = con.execute("""
-            SELECT
-                COUNT(*) as total_rows,
-                COUNT(CASE WHEN prontuario != -1 THEN 1 END) as matched_rows,
-                COUNT(CASE WHEN prontuario = -1 THEN 1 END) as unmatched_rows
-            FROM gold.protheus_mesclada_vendas
-        """).fetchone()
-        label = "inactive" if include_inactive else "active"
-        logger.info(f"Stats after {column_name} ({label}) matching:")
-        logger.info(f"  Total rows:     {result[0]:,}")
-        logger.info(f"  Matched rows:   {result[1]:,}")
-        logger.info(f"  Unmatched rows: {result[2]:,}")
-        logger.info(f"  Match rate:     {(result[1]/result[0]*100):.2f}%")
-    except Exception as e:
-        logger.error(f"Error in {column_name} matching: {e}")
-        raise
 
 
 def main():
     logger.info("=== PROTHEUS SILVER TO GOLD CONSOLIDATION STARTED ===")
     logger.info(f"Target Database: {DUCKDB_PATH}")
 
-    grp_const = str(int(API_CONF['tenant_id'].split(',')[0]))
     con = duckdb.connect(DUCKDB_PATH)
     con.execute("CREATE SCHEMA IF NOT EXISTS gold")
 

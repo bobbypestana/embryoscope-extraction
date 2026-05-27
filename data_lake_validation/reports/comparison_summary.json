@@ -1,0 +1,372 @@
+{
+    "invoices": {
+        "gold_count": 438000,
+        "silver_count": 452467,
+        "matched": 437999,
+        "gold_only_count": 1,
+        "silver_only_count": 14468,
+        "gold_only_samples": [
+            {
+                "Loja": 30101,
+                "Numero": 30671,
+                "Serie": "NF",
+                "DT_Emissao": "2025-04-01T00:00:00",
+                "line_items": 1,
+                "total_amount": 96000.0
+            }
+        ],
+        "silver_only_samples": [
+            {
+                "Loja": 60101,
+                "Numero": 246991,
+                "Serie": "RPS",
+                "DT_Emissao": "2025-12-15T00:00:00",
+                "line_items": 4,
+                "total_amount": 6376.0
+            },
+            {
+                "Loja": 10150,
+                "Numero": 47130,
+                "Serie": "RPS",
+                "DT_Emissao": "2025-12-15T00:00:00",
+                "line_items": 1,
+                "total_amount": 1100.0
+            },
+            {
+                "Loja": 10150,
+                "Numero": 47108,
+                "Serie": "RPS",
+                "DT_Emissao": "2025-12-15T00:00:00",
+                "line_items": 1,
+                "total_amount": 954.0
+            },
+            {
+                "Loja": 10150,
+                "Numero": 47099,
+                "Serie": "RPS",
+                "DT_Emissao": "2025-12-15T00:00:00",
+                "line_items": 3,
+                "total_amount": 5593.0
+            },
+            {
+                "Loja": 10155,
+                "Numero": 32894,
+                "Serie": "RPS",
+                "DT_Emissao": "2025-12-15T00:00:00",
+                "line_items": 1,
+                "total_amount": 440.0
+            },
+            {
+                "Loja": 10155,
+                "Numero": 32591,
+                "Serie": "RPS",
+                "DT_Emissao": "2025-12-15T00:00:00",
+                "line_items": 1,
+                "total_amount": 3980.0
+            },
+            {
+                "Loja": 30101,
+                "Numero": 30988,
+                "Serie": "3",
+                "DT_Emissao": "2025-12-15T00:00:00",
+                "line_items": 1,
+                "total_amount": 11543.85
+            },
+            {
+                "Loja": 10155,
+                "Numero": 7,
+                "Serie": "PED",
+                "DT_Emissao": "2025-12-15T00:00:00",
+                "line_items": 3,
+                "total_amount": 27282.0
+            },
+            {
+                "Loja": 10150,
+                "Numero": 46736,
+                "Serie": "RPS",
+                "DT_Emissao": "2025-12-13T00:00:00",
+                "line_items": 1,
+                "total_amount": 1218.0
+            },
+            {
+                "Loja": 60101,
+                "Numero": 246933,
+                "Serie": "RPS",
+                "DT_Emissao": "2025-12-12T00:00:00",
+                "line_items": 1,
+                "total_amount": 1995.0
+            },
+            {
+                "Loja": 10101,
+                "Numero": 149527,
+                "Serie": "RPS",
+                "DT_Emissao": "2025-12-12T00:00:00",
+                "line_items": 1,
+                "total_amount": 609.0
+            },
+            {
+                "Loja": 10150,
+                "Numero": 46708,
+                "Serie": "RPS",
+                "DT_Emissao": "2025-12-12T00:00:00",
+                "line_items": 2,
+                "total_amount": 5914.0
+            },
+            {
+                "Loja": 10150,
+                "Numero": 46550,
+                "Serie": "RPS",
+                "DT_Emissao": "2025-12-12T00:00:00",
+                "line_items": 3,
+                "total_amount": 8592.0
+            },
+            {
+                "Loja": 30101,
+                "Numero": 34346,
+                "Serie": "NF",
+                "DT_Emissao": "2025-12-12T00:00:00",
+                "line_items": 2,
+                "total_amount": 4216.0
+            },
+            {
+                "Loja": 10155,
+                "Numero": 32564,
+                "Serie": "RPS",
+                "DT_Emissao": "2025-12-12T00:00:00",
+                "line_items": 1,
+                "total_amount": 2470.0
+            }
+        ]
+    },
+    "patients": {
+        "total_gold": 32158,
+        "total_silver": 32977,
+        "matched": 31600,
+        "gold_only_count": 12,
+        "silver_only_count": 813,
+        "gold_only_samples": [
+            {
+                "Code(s)": "<NA>",
+                "Name(s)": "ANA PAULA DE RESENDE\ufffdLIMA",
+                "Sources": "gold"
+            },
+            {
+                "Code(s)": "<NA>",
+                "Name(s)": "CECILIA CANDIDO TEIXEIRA DILMEN",
+                "Sources": "gold"
+            },
+            {
+                "Code(s)": "<NA>",
+                "Name(s)": "DAILANY SANTOS VASCONCELOS SANT\u00b4ANA VIL",
+                "Sources": "gold"
+            },
+            {
+                "Code(s)": "<NA>",
+                "Name(s)": "ERNESTO ALBUQUERQUE D\u2019ANDREA JUNIOR",
+                "Sources": "gold"
+            },
+            {
+                "Code(s)": "<NA>",
+                "Name(s)": "JULIANA SILVEIRA BORGATTO D\u2019ANDREA",
+                "Sources": "gold"
+            },
+            {
+                "Code(s)": "<NA>",
+                "Name(s)": "LARISSA DE ABREU D\u00b4ORSI",
+                "Sources": "gold"
+            },
+            {
+                "Code(s)": "<NA>",
+                "Name(s)": "LILIAN KELLY PEREIRA DA SILVAA\ufffdRATIER",
+                "Sources": "gold"
+            },
+            {
+                "Code(s)": "<NA>",
+                "Name(s)": "LILIAN KELLY PEREIRA DA SILVA\u00a0RATIER",
+                "Sources": "gold"
+            },
+            {
+                "Code(s)": "<NA>",
+                "Name(s)": "RENATA DOMINGUES SPA\u00adDA",
+                "Sources": "gold"
+            },
+            {
+                "Code(s)": "<NA>",
+                "Name(s)": "ROBERTA D\u00b4 AGOSTO VERNAGLIA",
+                "Sources": "gold"
+            },
+            {
+                "Code(s)": "<NA>",
+                "Name(s)": "RYUZA  JACKELINE\ufffdGONCALVES; RYUZA JACKELINE\ufffdGONCALVES",
+                "Sources": "gold"
+            },
+            {
+                "Code(s)": "<NA>",
+                "Name(s)": "THIANE RISTOW\u00a0CARDINAL",
+                "Sources": "gold"
+            }
+        ],
+        "silver_only_samples": [
+            {
+                "Code(s)": "<NA>",
+                "Name(s)": "0004607",
+                "Sources": "silver"
+            },
+            {
+                "Code(s)": "<NA>",
+                "Name(s)": "ABGAIL MONTEZANO ZIOLKOWSKI",
+                "Sources": "silver"
+            },
+            {
+                "Code(s)": "<NA>",
+                "Name(s)": "ABRAAO MONFRINATO",
+                "Sources": "silver"
+            },
+            {
+                "Code(s)": "<NA>",
+                "Name(s)": "ADILSON PINHEIRO DA ANUNCIACAO",
+                "Sources": "silver"
+            },
+            {
+                "Code(s)": "<NA>",
+                "Name(s)": "AGATA DE FREITAS",
+                "Sources": "silver"
+            },
+            {
+                "Code(s)": "<NA>",
+                "Name(s)": "AGATHA MOLFI FRANCO",
+                "Sources": "silver"
+            },
+            {
+                "Code(s)": "<NA>",
+                "Name(s)": "AILA BACELLAR DE MEIRELLES FONSECA",
+                "Sources": "silver"
+            },
+            {
+                "Code(s)": "<NA>",
+                "Name(s)": "ALAN DOS SANTOS MOREIRA",
+                "Sources": "silver"
+            },
+            {
+                "Code(s)": "<NA>",
+                "Name(s)": "ALAN HUMBERTO JORGE",
+                "Sources": "silver"
+            },
+            {
+                "Code(s)": "<NA>",
+                "Name(s)": "ALBA GABRIELA MOREIRA DE SOUZA",
+                "Sources": "silver"
+            },
+            {
+                "Code(s)": "<NA>",
+                "Name(s)": "ALESSANDRA DE JESUS ALVES ALMEIDA",
+                "Sources": "silver"
+            },
+            {
+                "Code(s)": "<NA>",
+                "Name(s)": "ALESSANDRA VIREQUE",
+                "Sources": "silver"
+            },
+            {
+                "Code(s)": "<NA>",
+                "Name(s)": "ALESSANDRO LUIS DOS SANTOS",
+                "Sources": "silver"
+            },
+            {
+                "Code(s)": "<NA>",
+                "Name(s)": "ALEX SANDER JOSE MIGUEL",
+                "Sources": "silver"
+            },
+            {
+                "Code(s)": "<NA>",
+                "Name(s)": "ALEXANDRE BATISTA DOS SANTOS",
+                "Sources": "silver"
+            }
+        ]
+    },
+    "clients": {
+        "total_gold": 33339,
+        "total_silver": 33920,
+        "matched": 28752,
+        "gold_only_count": 0,
+        "silver_only_count": 644,
+        "gold_only_samples": [],
+        "silver_only_samples": [
+            {
+                "Code(s)": "227420",
+                "Name(s)": "ABGAIL MONTEZA",
+                "Sources": "silver"
+            },
+            {
+                "Code(s)": "802425",
+                "Name(s)": "ABRAHAO FONTAN",
+                "Sources": "silver"
+            },
+            {
+                "Code(s)": "895984",
+                "Name(s)": "ADRIANO SANCHE",
+                "Sources": "silver"
+            },
+            {
+                "Code(s)": "860625",
+                "Name(s)": "AILA BACELLAR",
+                "Sources": "silver"
+            },
+            {
+                "Code(s)": "089378",
+                "Name(s)": "AIRTON FERNAND",
+                "Sources": "silver"
+            },
+            {
+                "Code(s)": "086952",
+                "Name(s)": "ALAN HUMBERTO",
+                "Sources": "silver"
+            },
+            {
+                "Code(s)": "700037",
+                "Name(s)": "ALAYDE MAIA AZ",
+                "Sources": "silver"
+            },
+            {
+                "Code(s)": "883706",
+                "Name(s)": "ALBA GABRIELA",
+                "Sources": "silver"
+            },
+            {
+                "Code(s)": "700863",
+                "Name(s)": "ALESSANDRA VIR",
+                "Sources": "silver"
+            },
+            {
+                "Code(s)": "085658",
+                "Name(s)": "ALESSANDRO LUI",
+                "Sources": "silver"
+            },
+            {
+                "Code(s)": "700857",
+                "Name(s)": "ALEX SANDER JO",
+                "Sources": "silver"
+            },
+            {
+                "Code(s)": "864785",
+                "Name(s)": "ALEXANDRE DE M",
+                "Sources": "silver"
+            },
+            {
+                "Code(s)": "895298",
+                "Name(s)": "ALEXANDRE MAST",
+                "Sources": "silver"
+            },
+            {
+                "Code(s)": "501594",
+                "Name(s)": "ALEXANDRE SHIN",
+                "Sources": "silver"
+            },
+            {
+                "Code(s)": "052919",
+                "Name(s)": "ALEXANDRE VIVO",
+                "Sources": "silver"
+            }
+        ]
+    }
+}

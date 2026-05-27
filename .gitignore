@@ -123,6 +123,9 @@ finops/__pycache__/
 extracted_images/
 files/
 
+# Document exports
+*.pdf
+
 # Agent-generated auxiliary folders and backups
 .agents/
 brain/

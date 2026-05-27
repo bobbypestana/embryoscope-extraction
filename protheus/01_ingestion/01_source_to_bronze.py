@@ -67,17 +67,29 @@ def make_request(path, params=None, tenant_id=None):
     }
     if tenant_id:
         headers["TenantId"] = tenant_id
-    try:
-        r = requests.get(url, params=params, headers=headers, auth=AUTH, timeout=45)
-        if r.status_code == 200:
-            r.encoding = 'utf-8'
-            return r.json()
-        else:
-            logger.error(f"API Error {r.status_code} for {path} (Tenant: {headers.get('TenantId', 'None')}): {r.text[:500]}")
-            return None
-    except Exception as e:
-        logger.error(f"Connection Exception for {path} (Tenant: {headers.get('TenantId', 'None')}): {e}")
-        return None
+        
+    max_attempts = 5
+    timeout = 90  # Increased timeout for offset pagination queries
+    
+    for attempt in range(1, max_attempts + 1):
+        try:
+            r = requests.get(url, params=params, headers=headers, auth=AUTH, timeout=timeout)
+            if r.status_code == 200:
+                r.encoding = 'utf-8'
+                return r.json()
+            elif r.status_code in [400, 404]:
+                logger.error(f"API Error {r.status_code} for {path} (Tenant: {headers.get('TenantId', 'None')}): {r.text[:500]}")
+                return None
+            else:
+                logger.warning(f"Attempt {attempt}/{max_attempts} failed with status code {r.status_code} for {path} (Tenant: {headers.get('TenantId', 'None')}). Retrying...")
+        except Exception as e:
+            logger.warning(f"Attempt {attempt}/{max_attempts} failed with exception for {path} (Tenant: {headers.get('TenantId', 'None')}): {e}")
+            
+        if attempt < max_attempts:
+            sleep_time = attempt * 5
+            time.sleep(sleep_time)
+            
+    raise RuntimeError(f"Failed to fetch {path} (Tenant: {headers.get('TenantId', 'None')}) after {max_attempts} attempts.")
 
 def compute_row_hash(row_dict):
     # Exclude metadata keys from hash computation
@@ -295,43 +307,60 @@ def ingest_notas(con):
                 
             current_start = next_month
 
-def ingest_full_table(con, name, path):
-    logger.info(f"Starting ingestion of '{name}' (full load with row-level incremental append)...")
+def ingest_full_table(con, name, path, max_sweeps=10):
+    """
+    Full-load ingestion with convergence-based sweeping.
+
+    Each sweep paginates sequentially through the full table from page 1.
+    Hash-deduplication accumulates new rows across sweeps.
+    Stops automatically when a full sweep finds 0 new rows (converged),
+    or when max_sweeps is reached.
+
+    Why sequential (not parallel)? The Protheus API uses offset-based
+    pagination with an unstable server-side result set. Concurrent requests
+    destabilise the offsets further and reduce coverage. Sequential sweeps
+    minimise per-sweep drift; multiple sweeps catch records that shifted
+    between pages in prior sweeps.
+    """
+    logger.info(
+        f"Starting ingestion of '{name}' "
+        f"(sequential full load, up to {max_sweeps} convergence sweeps)..."
+    )
     existing_hashes = get_existing_hashes(con, name)
-    new_rows = []
-    
-    extraction_ts = datetime.now().strftime("%Y%m%d_%H%M%S")
-    
-    page = 1
-    page_size = 500  # API sweet spot
-    while True:
-        params = {
-            "nPage": page,
-            "nPageSize": page_size
-        }
-        logger.info(f"Fetching page {page} of {name}...")
-        res = make_request(path, params=params, tenant_id=None)
-        if not res or "data" not in res or not res["data"]:
+    page_size = 500
+
+    for sweep in range(1, max_sweeps + 1):
+        logger.info(f"--- Sweep {sweep} for {name} ---")
+        sweep_new_rows = []
+        extraction_ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+        page = 1
+
+        while True:
+            logger.info(f"Fetching page {page} of {name} (Sweep {sweep})...")
+            res = make_request(path, params={"nPage": page, "nPageSize": page_size}, tenant_id=None)
+            if not res or "data" not in res or not res["data"]:
+                break
+
+            for item in res["data"]:
+                row_dict = item.copy()
+                row_dict["extraction_timestamp"] = extraction_ts
+                row_dict["hash"] = compute_row_hash(row_dict)
+                if row_dict["hash"] not in existing_hashes:
+                    sweep_new_rows.append(row_dict)
+                    existing_hashes.add(row_dict["hash"])
+
+            if not res.get("hasNext", False):
+                break
+            page += 1
+
+        logger.info(f"Sweep {sweep} complete. New unique rows found: {len(sweep_new_rows):,}")
+
+        if sweep_new_rows:
+            logger.info(f"Writing {len(sweep_new_rows):,} new rows to bronze.{name}")
+            write_to_bronze(con, name, sweep_new_rows)
+        else:
+            logger.info(f"Sweep {sweep}: 0 new rows found. Converged — stopping sweeps for {name}.")
             break
-            
-        for item in res["data"]:
-            row_dict = item.copy()
-            row_dict["extraction_timestamp"] = extraction_ts
-            row_dict["hash"] = compute_row_hash(row_dict)
-            if row_dict["hash"] not in existing_hashes:
-                new_rows.append(row_dict)
-                existing_hashes.add(row_dict["hash"])
-                
-        has_next = res.get("hasNext", False)
-        if not has_next:
-            break
-        page += 1
-        
-    if new_rows:
-        logger.info(f"Writing {len(new_rows)} new/modified rows to bronze.{name}")
-        write_to_bronze(con, name, new_rows)
-    else:
-        logger.info(f"No new rows found for bronze.{name}")
 
 def main():
     logger.info("=== PROTHEUS SOURCE TO BRONZE INGESTION STARTED ===")
@@ -350,10 +379,10 @@ def main():
             ingest_notas(con)
             
             # Ingest globally shared full-load tables
-            ingest_full_table(con, "tes", "/rest/CONSTES/tes")
-            ingest_full_table(con, "produtos", "/rest/CONSPROD/produtos")
-            ingest_full_table(con, "clientes", "/rest/CONSCLI/clientes")
-            ingest_full_table(con, "vendedores", "/rest/CONSVEN/vendedores")
+            ingest_full_table(con, "tes", "/rest/CONSTES/tes", max_sweeps=1)
+            ingest_full_table(con, "produtos", "/rest/CONSPROD/produtos", max_sweeps=1)
+            ingest_full_table(con, "clientes", "/rest/CONSCLI/clientes", max_sweeps=1)  # 1 sweep until API pagination is fixed
+            ingest_full_table(con, "vendedores", "/rest/CONSVEN/vendedores", max_sweeps=1)
             
             con.close()
             logger.info("=== PROTHEUS SOURCE TO BRONZE INGESTION FINISHED SUCCESSFUL ===")
