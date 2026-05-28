@@ -85,11 +85,12 @@ def promote_notas(con):
     logger.info(f"Successfully promoted 'notas' to Silver. Rows: {count:,}")
 
 
-def promote_full_load(con, name, pk_cols):
+def promote_full_load(con, name, pk_cols, keep_all=False):
     """
     Generic promotion for full-load tables. Promotes ALL bronze columns.
     is_deleted: TRUE if the record's extraction_timestamp < MAX(extraction_timestamp)
     in bronze — meaning it was present in an older run but absent from the latest batch.
+    If keep_all=True, is_deleted is always set to FALSE (retaining all history, e.g. for clientes).
     This works correctly because 01_source_to_bronze.py assigns a single batch timestamp
     to all pages of a given full-load run.
     """
@@ -106,6 +107,11 @@ def promote_full_load(con, name, pk_cols):
 
     pk_partition = ", ".join(pk_cols)
 
+    if keep_all:
+        is_deleted_expr = "FALSE"
+    else:
+        is_deleted_expr = "extraction_timestamp < (SELECT max_ts FROM latest_batch)"
+
     query = f"""
     CREATE OR REPLACE TABLE silver.{name} AS
     WITH latest_batch AS (
@@ -121,7 +127,7 @@ def promote_full_load(con, name, pk_cols):
     )
     SELECT
         * EXCLUDE (rn),
-        CASE WHEN extraction_timestamp < (SELECT max_ts FROM latest_batch)
+        CASE WHEN {is_deleted_expr}
              THEN TRUE ELSE FALSE END AS is_deleted
     FROM deduped
     WHERE rn = 1;
@@ -144,7 +150,7 @@ def main():
         promote_notas(con)
         promote_full_load(con, "tes",        ["F4_CODIGO"])
         promote_full_load(con, "produtos",   ["B1_COD"])
-        promote_full_load(con, "clientes",   ["A1_COD", "A1_LOJA"])
+        promote_full_load(con, "clientes",   ["A1_COD", "A1_LOJA"], keep_all=True)
         promote_full_load(con, "vendedores", ["A3_COD"])
         logger.info("=== PROTHEUS BRONZE TO SILVER PROMOTION FINISHED SUCCESSFUL ===")
     except Exception as e:

@@ -210,7 +210,59 @@ def get_tenant_start_date(con, company_id, tenant_id, default_start):
         logger.warning(f"Error checking tenant start date for company {company_id}: {e}")
     return default_start
 
-def ingest_notas(con):
+def fetch_invoice_range(tenant_id, company_id, start_date_str, end_date_str, existing_hashes):
+    new_rows = []
+    invoices_read = 0
+    flat_rows_read = 0
+    seen_hashes = set()
+    page = 1
+    page_size = 500
+    
+    while True:
+        params = {
+            "dataIni": start_date_str,
+            "dataFim": end_date_str,
+            "nPage": page,
+            "nPageSize": page_size
+        }
+        res = make_request("/rest/CONSNOTA/notas", params=params, tenant_id=tenant_id)
+        if not res or "data" not in res or not res["data"]:
+            break
+            
+        extraction_ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+        invoices_read += len(res["data"])
+        for invoice in res["data"]:
+            items = invoice.get("ITENS", [])
+            header = {k: v for k, v in invoice.items() if k != "ITENS"}
+            
+            if not items:
+                flat_rows_read += 1
+                flat_row = header.copy()
+                flat_row["company_id"] = company_id
+                flat_row["extraction_timestamp"] = extraction_ts
+                flat_row["hash"] = compute_row_hash(flat_row)
+                if flat_row["hash"] not in existing_hashes and flat_row["hash"] not in seen_hashes:
+                    new_rows.append(flat_row)
+                    seen_hashes.add(flat_row["hash"])
+            else:
+                flat_rows_read += len(items)
+                for item in items:
+                    flat_row = header.copy()
+                    flat_row.update(item)
+                    flat_row["company_id"] = company_id
+                    flat_row["extraction_timestamp"] = extraction_ts
+                    flat_row["hash"] = compute_row_hash(flat_row)
+                    if flat_row["hash"] not in existing_hashes and flat_row["hash"] not in seen_hashes:
+                        new_rows.append(flat_row)
+                        seen_hashes.add(flat_row["hash"])
+                        
+        if not res.get("hasNext", False):
+            break
+        page += 1
+        
+    return new_rows, invoices_read, flat_rows_read
+
+def ingest_notas(con, force_backfill=False):
     table_name = "notas"
     logger.info("Starting ingestion of 'notas' (invoices)...")
     
@@ -238,16 +290,19 @@ def ingest_notas(con):
             continue
             
         # 2. Get start date for this tenant
-        start_dt = get_tenant_start_date(con, company_id, tenant_id, default_start_dt)
+        if force_backfill:
+            start_dt = default_start_dt
+            logger.info(f"Force backfill enabled. Bypassing incremental check.")
+        else:
+            start_dt = get_tenant_start_date(con, company_id, tenant_id, default_start_dt)
         end_dt = today
         
         logger.info(f"Ingestion range for Tenant {tenant_id}: {start_dt.strftime('%Y%m%d')} to {end_dt.strftime('%Y%m%d')}")
         
-        # 3. Chunk monthly to write granularly and keep memory consumption low
+        # 3. Chunk weekly by default, dynamically falling back to daily if volume is close to query limits
         current_start = start_dt
         while current_start <= end_dt:
-            next_month = (current_start.replace(day=28) + timedelta(days=4)).replace(day=1)
-            current_end = next_month - timedelta(days=1)
+            current_end = current_start + timedelta(days=6)
             if current_end > end_dt:
                 current_end = end_dt
                 
@@ -255,57 +310,42 @@ def ingest_notas(con):
             data_fim_str = current_end.strftime("%Y%m%d")
             
             logger.info(f"Processing chunk {data_ini_str}-{data_fim_str} for Tenant {tenant_id}...")
-            new_rows = []
+            new_rows, invoices_read, flat_rows_read = fetch_invoice_range(
+                tenant_id, company_id, data_ini_str, data_fim_str, existing_hashes
+            )
             
-            page = 1
-            page_size = 500  # API sweet spot
-            while True:
-                logger.info(f"  Fetching page {page}...")
-                params = {
-                    "dataIni": data_ini_str,
-                    "dataFim": data_fim_str,
-                    "nPage": page,
-                    "nPageSize": page_size
-                }
-                res = make_request("/rest/CONSNOTA/notas", params=params, tenant_id=tenant_id)
-                if not res or "data" not in res or not res["data"]:
-                    break
-                    
-                extraction_ts = datetime.now().strftime("%Y%m%d_%H%M%S")
-                for invoice in res["data"]:
-                    # Flatten items nested list
-                    items = invoice.get("ITENS", [])
-                    header = {k: v for k, v in invoice.items() if k != "ITENS"}
-                    
-                    if not items:
-                        flat_row = header.copy()
-                        flat_row["company_id"] = company_id
-                        flat_row["extraction_timestamp"] = extraction_ts
-                        flat_row["hash"] = compute_row_hash(flat_row)
-                        if flat_row["hash"] not in existing_hashes:
-                            new_rows.append(flat_row)
-                            existing_hashes.add(flat_row["hash"])
-                    else:
-                        for item in items:
-                            flat_row = header.copy()
-                            flat_row.update(item)
-                            flat_row["company_id"] = company_id
-                            flat_row["extraction_timestamp"] = extraction_ts
-                            flat_row["hash"] = compute_row_hash(flat_row)
-                            if flat_row["hash"] not in existing_hashes:
-                                new_rows.append(flat_row)
-                                existing_hashes.add(flat_row["hash"])
-                                
-                has_next = res.get("hasNext", False)
-                if not has_next:
-                    break
-                page += 1
+            # If the weekly chunk volume is close to or exceeds the cap (e.g. >= 1000 flat rows),
+            # dynamically switch to daily chunking for this week to guarantee no silent truncation.
+            if flat_rows_read >= 1000:
+                logger.warning(
+                    f"Chunk volume ({flat_rows_read} flat rows) is high and poses a truncation risk. "
+                    f"Switching to dynamic daily queries for week {data_ini_str}-{data_fim_str}."
+                )
+                new_rows = []
+                invoices_read = 0
+                flat_rows_read = 0
                 
+                day_start = current_start
+                while day_start <= current_end:
+                    day_str = day_start.strftime("%Y%m%d")
+                    day_rows, day_inv_read, day_flat_read = fetch_invoice_range(
+                        tenant_id, company_id, day_str, day_str, existing_hashes
+                    )
+                    new_rows.extend(day_rows)
+                    invoices_read += day_inv_read
+                    flat_rows_read += day_flat_read
+                    day_start += timedelta(days=1)
+                
+                logger.info(f"Dynamic daily query complete for week {data_ini_str}-{data_fim_str}. Invoices read: {invoices_read}, Flat rows read: {flat_rows_read}. Written to Bronze: {len(new_rows)}")
+            else:
+                logger.info(f"Chunk {data_ini_str}-{data_fim_str} complete. Invoices read: {invoices_read}, Flat rows read: {flat_rows_read}. Written to Bronze: {len(new_rows)}")
+            
             if new_rows:
-                logger.info(f"Writing {len(new_rows)} new/modified invoice rows for chunk {data_ini_str}-{data_fim_str}")
+                for r in new_rows:
+                    existing_hashes.add(r["hash"])
                 write_to_bronze(con, table_name, new_rows)
                 
-            current_start = next_month
+            current_start = current_end + timedelta(days=1)
 
 def ingest_full_table(con, name, path, max_sweeps=10):
     """
@@ -334,6 +374,7 @@ def ingest_full_table(con, name, path, max_sweeps=10):
         sweep_new_rows = []
         extraction_ts = datetime.now().strftime("%Y%m%d_%H%M%S")
         page = 1
+        total_read = 0
 
         while True:
             logger.info(f"Fetching page {page} of {name} (Sweep {sweep})...")
@@ -341,6 +382,7 @@ def ingest_full_table(con, name, path, max_sweeps=10):
             if not res or "data" not in res or not res["data"]:
                 break
 
+            total_read += len(res["data"])
             for item in res["data"]:
                 row_dict = item.copy()
                 row_dict["extraction_timestamp"] = extraction_ts
@@ -353,16 +395,21 @@ def ingest_full_table(con, name, path, max_sweeps=10):
                 break
             page += 1
 
-        logger.info(f"Sweep {sweep} complete. New unique rows found: {len(sweep_new_rows):,}")
+        logger.info(f"Sweep {sweep} complete. Total records read: {total_read:,}. New unique rows found: {len(sweep_new_rows):,}")
 
         if sweep_new_rows:
             logger.info(f"Writing {len(sweep_new_rows):,} new rows to bronze.{name}")
             write_to_bronze(con, name, sweep_new_rows)
         else:
-            logger.info(f"Sweep {sweep}: 0 new rows found. Converged — stopping sweeps for {name}.")
+            logger.info(f"Sweep {sweep} complete. Total records read: {total_read:,}. 0 new rows found. Converged — stopping sweeps for {name}.")
             break
 
 def main():
+    import argparse
+    parser = argparse.ArgumentParser(description="Protheus API Ingestion Script")
+    parser.add_argument("--force-backfill", action="store_true", help="Force a full backfill for all endpoints, bypassing incremental checks")
+    args = parser.parse_args()
+
     logger.info("=== PROTHEUS SOURCE TO BRONZE INGESTION STARTED ===")
     logger.info(f"Target Database: {DUCKDB_PATH}")
     
@@ -376,7 +423,7 @@ def main():
             con.execute("CREATE SCHEMA IF NOT EXISTS bronze")
             
             # Ingest multi-tenant invoices (Notas)
-            ingest_notas(con)
+            ingest_notas(con, force_backfill=args.force_backfill)
             
             # Ingest globally shared full-load tables
             ingest_full_table(con, "tes", "/rest/CONSTES/tes", max_sweeps=1)
