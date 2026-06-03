@@ -98,8 +98,10 @@ def compute_row_hash(row_dict):
     row_str = "|".join(f"{k}:{str(v).strip() if v is not None else ''}" for k, v in sorted(clean_dict.items()))
     return hashlib.md5(row_str.encode('utf-8')).hexdigest()
 
-def get_existing_hashes(con, table_name):
+def get_existing_hashes(table_name):
+    con = None
     try:
+        con = duckdb.connect(DUCKDB_PATH)
         # Check if table exists
         exists = con.execute(f"""
             SELECT COUNT(*) FROM information_schema.tables 
@@ -107,22 +109,60 @@ def get_existing_hashes(con, table_name):
         """).fetchone()[0]
         if exists:
             hashes = con.execute(f"SELECT hash FROM bronze.{table_name}").fetchall()
+            con.close()
             return {h[0] for h in hashes if h[0]}
+        con.close()
         return set()
     except Exception as e:
         logger.warning(f"Could not fetch existing hashes for bronze.{table_name}: {e}")
+        if con:
+            try:
+                con.close()
+            except Exception:
+                pass
         return set()
 
-def write_to_bronze(con, table_name, rows):
+def write_to_bronze(table_name, rows):
     if not rows:
         logger.info(f"No new rows to write to bronze.{table_name}")
         return
         
     df = pd.DataFrame(rows)
+    
+    def clean_val(x):
+        if x is None:
+            return None
+        if isinstance(x, (list, dict, tuple)):
+            return str(x)
+        try:
+            if pd.isna(x):
+                return None
+        except Exception:
+            pass
+        s = str(x).strip()
+        if s.upper() == 'NONE' or s == '':
+            return None
+        return s
+
     # Ensure all columns are string/NULL
     for col in df.columns:
-        df[col] = df[col].apply(lambda x: None if pd.isna(x) or x is None or str(x).upper() == 'NONE' else str(x))
+        df[col] = df[col].apply(clean_val)
         
+    # Count unique parent records for nested-item tables
+    if table_name == "notas":
+        unique_parents = len({(r.get("company_id"), r.get("F2_FILIAL"), r.get("F2_DOC"), r.get("F2_SERIE")) for r in rows if r.get("F2_DOC")})
+        parent_label = "invoices"
+    elif table_name == "pedidos":
+        unique_parents = len({(r.get("company_id"), r.get("C5_FILIAL"), r.get("C5_NUM")) for r in rows if r.get("C5_NUM")})
+        parent_label = "orders"
+    elif table_name == "pedidos_venda":
+        unique_parents = len({(r.get("company_id"), r.get("L1_FILIAL"), r.get("L1_NUM")) for r in rows if r.get("L1_NUM")})
+        parent_label = "direct sales"
+    else:
+        unique_parents = len(rows)
+        parent_label = "records"
+        
+    con = duckdb.connect(DUCKDB_PATH)
     # Check if table exists
     exists = con.execute(f"""
         SELECT COUNT(*) FROM information_schema.tables 
@@ -131,84 +171,65 @@ def write_to_bronze(con, table_name, rows):
     
     con.register('df_temp', df)
     
-    if not exists:
-        logger.info(f"Creating table bronze.{table_name} and inserting {len(df)} rows")
-        con.execute(f"CREATE TABLE bronze.{table_name} AS SELECT * FROM df_temp")
-    else:
-        # Check and handle schema evolution
-        existing_cols = {row[0] for row in con.execute(f"DESCRIBE bronze.{table_name}").fetchall()}
-        new_cols = set(df.columns) - existing_cols
-        for col in new_cols:
-            logger.info(f"Schema evolution: Adding column '{col}' to bronze.{table_name}")
-            con.execute(f"ALTER TABLE bronze.{table_name} ADD COLUMN \"{col}\" VARCHAR")
-            
-        # Select and insert aligned columns
-        cols_str = ", ".join(f'"{c}"' for c in df.columns)
-        logger.info(f"Inserting {len(df)} new/modified rows to bronze.{table_name}")
-        con.execute(f"INSERT INTO bronze.{table_name} ({cols_str}) SELECT {cols_str} FROM df_temp")
-        
-    con.unregister('df_temp')
-    logger.info(f"Successfully wrote data to bronze.{table_name}")
-
-def get_tenant_start_date(con, company_id, tenant_id, default_start):
     try:
-        table_exists = con.execute("""
-            SELECT COUNT(*) FROM information_schema.tables 
-            WHERE table_schema = 'bronze' AND table_name = 'notas'
-        """).fetchone()[0]
-        
-        if not table_exists:
-            return default_start
-            
-        has_rows = con.execute("SELECT COUNT(*) FROM bronze.notas").fetchone()[0] > 0
-        if not has_rows:
-            return default_start
-            
-        # Extract branch code from tenant_id (e.g., '01,010150' -> '010150')
-        branch_id = tenant_id.split(',')[1] if ',' in tenant_id else None
-        
-        # Check for backfill gaps for tenants affected by the historical company_id bug
-        if tenant_id in ["01,010150", "01,010155", "07,030101"]:
-            if branch_id:
-                min_date = con.execute(f"""
-                    SELECT MIN(F2_EMISSAO) FROM bronze.notas 
-                    WHERE company_id = '{company_id}' AND F2_FILIAL = '{branch_id}' AND F2_EMISSAO IS NOT NULL
-                """).fetchone()[0]
-            else:
-                min_date = con.execute(f"""
-                    SELECT MIN(F2_EMISSAO) FROM bronze.notas 
-                    WHERE company_id = '{company_id}' AND F2_EMISSAO IS NOT NULL
-                """).fetchone()[0]
-            
-            if min_date and min_date > "20220201":
-                logger.info(f"Tenant {tenant_id} has a backfill gap (earliest record: {min_date}). Forcing full backfill.")
-                return default_start
-        
-        if branch_id:
-            max_date = con.execute(f"""
-                SELECT MAX(F2_EMISSAO) FROM bronze.notas 
-                WHERE company_id = '{company_id}' AND F2_FILIAL = '{branch_id}' AND F2_EMISSAO IS NOT NULL
-            """).fetchone()[0]
+        if not exists:
+            logger.info(f"Creating table bronze.{table_name} with VARCHAR columns and inserting {unique_parents} unique {parent_label} ({len(df)} flat rows)")
+            cols_def = ", ".join(f'"{c}" VARCHAR' for c in df.columns)
+            con.execute(f"CREATE TABLE bronze.{table_name} ({cols_def})")
+            cols_str = ", ".join(f'"{c}"' for c in df.columns)
+            con.execute(f"INSERT INTO bronze.{table_name} ({cols_str}) SELECT {cols_str} FROM df_temp")
         else:
-            max_date = con.execute(f"""
-                SELECT MAX(F2_EMISSAO) FROM bronze.notas 
-                WHERE company_id = '{company_id}' AND F2_EMISSAO IS NOT NULL
-            """).fetchone()[0]
+            # Check and handle schema evolution
+            existing_cols = {row[0] for row in con.execute(f"DESCRIBE bronze.{table_name}").fetchall()}
+            new_cols = set(df.columns) - existing_cols
+            for col in new_cols:
+                logger.info(f"Schema evolution: Adding column '{col}' to bronze.{table_name}")
+                con.execute(f"ALTER TABLE bronze.{table_name} ADD COLUMN \"{col}\" VARCHAR")
+                
+            # Select and insert aligned columns
+            cols_str = ", ".join(f'"{c}"' for c in df.columns)
+            logger.info(f"Inserting {unique_parents} unique {parent_label} ({len(df)} flat rows) to bronze.{table_name}")
+            con.execute(f"INSERT INTO bronze.{table_name} ({cols_str}) SELECT {cols_str} FROM df_temp")
+            
+        con.unregister('df_temp')
+        con.close()
+        logger.info(f"Successfully wrote {unique_parents} unique {parent_label} to bronze.{table_name}")
         
-        if max_date:
-            try:
-                # Subtract 2 days buffer to ensure we cover boundary updates/duplicates safely
-                base_dt = datetime.strptime(max_date, "%Y%m%d")
-                start_dt = base_dt - timedelta(days=2)
-                # Keep it bounded by default_start so we don't go back too far unnecessarily
-                if start_dt < default_start:
-                    return default_start
-                return start_dt
-            except Exception:
-                return default_start
-    except Exception as e:
-        logger.warning(f"Error checking tenant start date for company {company_id}: {e}")
-    return default_start
+    except Exception as bulk_err:
+        try:
+            con.unregister('df_temp')
+        except Exception:
+            pass
+        try:
+            con.close()
+        except Exception:
+            pass
+        logger.error(f"Bulk insert failed for bronze.{table_name}: {bulk_err}")
+        raise bulk_err
+
+def generate_date_chunks(start_dt, end_dt, force_backfill):
+    chunks = []
+    if force_backfill:
+        # Monthly chunks instead of yearly
+        import calendar
+        current_start = start_dt
+        while current_start <= end_dt:
+            last_day = calendar.monthrange(current_start.year, current_start.month)[1]
+            current_end = datetime(current_start.year, current_start.month, last_day)
+            if current_end > end_dt:
+                current_end = end_dt
+            chunks.append((current_start, current_end))
+            current_start = current_end + timedelta(days=1)
+    else:
+        # Weekly chunks
+        current_start = start_dt
+        while current_start <= end_dt:
+            current_end = current_start + timedelta(days=6)
+            if current_end > end_dt:
+                current_end = end_dt
+            chunks.append((current_start, current_end))
+            current_start = current_end + timedelta(days=1)
+    return chunks
 
 def fetch_invoice_range(tenant_id, company_id, start_date_str, end_date_str, existing_hashes):
     new_rows = []
@@ -217,6 +238,7 @@ def fetch_invoice_range(tenant_id, company_id, start_date_str, end_date_str, exi
     seen_hashes = set()
     page = 1
     page_size = 500
+    api_total = 0
     
     while True:
         params = {
@@ -228,6 +250,9 @@ def fetch_invoice_range(tenant_id, company_id, start_date_str, end_date_str, exi
         res = make_request("/rest/CONSNOTA/notas", params=params, tenant_id=tenant_id)
         if not res or "data" not in res or not res["data"]:
             break
+            
+        if page == 1:
+            api_total = res.get("total", 0)
             
         extraction_ts = datetime.now().strftime("%Y%m%d_%H%M%S")
         invoices_read += len(res["data"])
@@ -260,17 +285,146 @@ def fetch_invoice_range(tenant_id, company_id, start_date_str, end_date_str, exi
             break
         page += 1
         
+    logger.info(f"Notas Auditing for {start_date_str}-{end_date_str} (Tenant: {tenant_id}): API total={api_total}, Fetched parent records={invoices_read}")
+    if api_total != invoices_read:
+        logger.warning(f"Notas count mismatch for {start_date_str}-{end_date_str} (Tenant: {tenant_id}): API total={api_total}, fetched={invoices_read}")
+        
     return new_rows, invoices_read, flat_rows_read
 
-def ingest_notas(con, force_backfill=False):
+def fetch_sales_orders_range(tenant_id, company_id, start_date_str, end_date_str, existing_hashes):
+    new_rows = []
+    orders_read = 0
+    flat_rows_read = 0
+    seen_hashes = set()
+    page = 1
+    page_size = 500
+    api_total = 0
+    
+    while True:
+        params = {
+            "dataIni": start_date_str,
+            "dataFim": end_date_str,
+            "nPage": page,
+            "nPageSize": page_size
+        }
+        res = make_request("/rest/CONSPED/pedidos", params=params, tenant_id=tenant_id)
+        if not res or "data" not in res or not res["data"]:
+            break
+            
+        if page == 1:
+            api_total = res.get("total", 0)
+            
+        extraction_ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+        orders_read += len(res["data"])
+        for order in res["data"]:
+            items = order.get("ITENS", [])
+            header = {k: v for k, v in order.items() if k != "ITENS"}
+            
+            if not items:
+                flat_rows_read += 1
+                flat_row = header.copy()
+                flat_row["company_id"] = company_id
+                flat_row["extraction_timestamp"] = extraction_ts
+                flat_row["hash"] = compute_row_hash(flat_row)
+                if flat_row["hash"] not in existing_hashes and flat_row["hash"] not in seen_hashes:
+                    new_rows.append(flat_row)
+                    seen_hashes.add(flat_row["hash"])
+            else:
+                flat_rows_read += len(items)
+                for item in items:
+                    flat_row = header.copy()
+                    flat_row.update(item)
+                    flat_row["company_id"] = company_id
+                    flat_row["extraction_timestamp"] = extraction_ts
+                    flat_row["hash"] = compute_row_hash(flat_row)
+                    if flat_row["hash"] not in existing_hashes and flat_row["hash"] not in seen_hashes:
+                        new_rows.append(flat_row)
+                        seen_hashes.add(flat_row["hash"])
+                        
+        if not res.get("hasNext", False):
+            break
+        page += 1
+        
+    logger.info(f"Pedidos Auditing for {start_date_str}-{end_date_str} (Tenant: {tenant_id}): API total={api_total}, Fetched parent records={orders_read}")
+    if api_total != orders_read:
+        logger.warning(f"Pedidos count mismatch for {start_date_str}-{end_date_str} (Tenant: {tenant_id}): API total={api_total}, fetched={orders_read}")
+        
+    return new_rows, orders_read, flat_rows_read
+
+def fetch_direct_sales_range(tenant_id, company_id, start_date_str, end_date_str, existing_hashes):
+    new_rows = []
+    sales_read = 0
+    flat_rows_read = 0
+    seen_hashes = set()
+    page = 1
+    page_size = 500
+    api_total = 0
+    
+    while True:
+        params = {
+            "dataIni": start_date_str,
+            "dataFim": end_date_str,
+            "nPage": page,
+            "nPageSize": page_size
+        }
+        res = make_request("/rest/CONSPEVD/pedidos", params=params, tenant_id=tenant_id)
+        if not res or "data" not in res or not res["data"]:
+            break
+            
+        if page == 1:
+            api_total = res.get("total", 0)
+            
+        extraction_ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+        sales_read += len(res["data"])
+        for sale in res["data"]:
+            items = sale.get("ITENS", [])
+            header = {k: v for k, v in sale.items() if k != "ITENS"}
+            
+            if not items:
+                flat_rows_read += 1
+                flat_row = header.copy()
+                flat_row["company_id"] = company_id
+                flat_row["extraction_timestamp"] = extraction_ts
+                flat_row["hash"] = compute_row_hash(flat_row)
+                if flat_row["hash"] not in existing_hashes and flat_row["hash"] not in seen_hashes:
+                    new_rows.append(flat_row)
+                    seen_hashes.add(flat_row["hash"])
+            else:
+                flat_rows_read += len(items)
+                for item in items:
+                    flat_row = header.copy()
+                    flat_row.update(item)
+                    flat_row["company_id"] = company_id
+                    flat_row["extraction_timestamp"] = extraction_ts
+                    flat_row["hash"] = compute_row_hash(flat_row)
+                    if flat_row["hash"] not in existing_hashes and flat_row["hash"] not in seen_hashes:
+                        new_rows.append(flat_row)
+                        seen_hashes.add(flat_row["hash"])
+                        
+        if not res.get("hasNext", False):
+            break
+        page += 1
+        
+    logger.info(f"Pedidos Venda Auditing for {start_date_str}-{end_date_str} (Tenant: {tenant_id}): API total={api_total}, Fetched parent records={sales_read}")
+    if api_total != sales_read:
+        logger.warning(f"Pedidos Venda count mismatch for {start_date_str}-{end_date_str} (Tenant: {tenant_id}): API total={api_total}, fetched={sales_read}")
+        
+    return new_rows, sales_read, flat_rows_read
+
+def ingest_notas(force_backfill=False):
     table_name = "notas"
     logger.info("Starting ingestion of 'notas' (invoices)...")
     
     today = datetime.now()
-    default_start_dt = datetime.strptime(BACKFILL_START, "%Y%m%d")
+    if force_backfill:
+        start_dt = datetime.strptime(BACKFILL_START, "%Y%m%d")
+        logger.info(f"Force backfill enabled for Notas. Bypassing incremental check.")
+    else:
+        start_dt = today - timedelta(days=60)
+    end_dt = today
     
     # Cache existing hashes to avoid duplicates
-    existing_hashes = get_existing_hashes(con, table_name)
+    existing_hashes = get_existing_hashes(table_name)
     
     # Loop through each tenant sequentially
     for tenant_id in ACCESSIBLE_TENANTS:
@@ -289,23 +443,12 @@ def ingest_notas(con, force_backfill=False):
             logger.info(f"Tenant {tenant_id} has no invoices in the backfill range. Skipping.")
             continue
             
-        # 2. Get start date for this tenant
-        if force_backfill:
-            start_dt = default_start_dt
-            logger.info(f"Force backfill enabled. Bypassing incremental check.")
-        else:
-            start_dt = get_tenant_start_date(con, company_id, tenant_id, default_start_dt)
-        end_dt = today
-        
         logger.info(f"Ingestion range for Tenant {tenant_id}: {start_dt.strftime('%Y%m%d')} to {end_dt.strftime('%Y%m%d')}")
         
-        # 3. Chunk weekly by default, dynamically falling back to daily if volume is close to query limits
-        current_start = start_dt
-        while current_start <= end_dt:
-            current_end = current_start + timedelta(days=6)
-            if current_end > end_dt:
-                current_end = end_dt
-                
+        # Generate chunks
+        chunks = generate_date_chunks(start_dt, end_dt, force_backfill)
+        
+        for current_start, current_end in chunks:
             data_ini_str = current_start.strftime("%Y%m%d")
             data_fim_str = current_end.strftime("%Y%m%d")
             
@@ -314,12 +457,11 @@ def ingest_notas(con, force_backfill=False):
                 tenant_id, company_id, data_ini_str, data_fim_str, existing_hashes
             )
             
-            # If the weekly chunk volume is close to or exceeds the cap (e.g. >= 1000 flat rows),
-            # dynamically switch to daily chunking for this week to guarantee no silent truncation.
-            if flat_rows_read >= 1000:
+            # Switch to daily fallback ONLY in incremental (non-historical) runs when volume is high
+            if not force_backfill and flat_rows_read >= 1000:
                 logger.warning(
                     f"Chunk volume ({flat_rows_read} flat rows) is high and poses a truncation risk. "
-                    f"Switching to dynamic daily queries for week {data_ini_str}-{data_fim_str}."
+                    f"Switching to daily queries for incremental week {data_ini_str}-{data_fim_str}."
                 )
                 new_rows = []
                 invoices_read = 0
@@ -336,37 +478,170 @@ def ingest_notas(con, force_backfill=False):
                     flat_rows_read += day_flat_read
                     day_start += timedelta(days=1)
                 
-                logger.info(f"Dynamic daily query complete for week {data_ini_str}-{data_fim_str}. Invoices read: {invoices_read}, Flat rows read: {flat_rows_read}. Written to Bronze: {len(new_rows)}")
+                logger.info(f"Daily query complete for week {data_ini_str}-{data_fim_str}. Invoices read: {invoices_read}, Flat rows read: {flat_rows_read}. Unique new written: {len(new_rows)}")
             else:
-                logger.info(f"Chunk {data_ini_str}-{data_fim_str} complete. Invoices read: {invoices_read}, Flat rows read: {flat_rows_read}. Written to Bronze: {len(new_rows)}")
+                logger.info(f"Chunk {data_ini_str}-{data_fim_str} complete. Invoices read: {invoices_read}, Flat rows read: {flat_rows_read}. Unique new written: {len(new_rows)}")
             
             if new_rows:
                 for r in new_rows:
                     existing_hashes.add(r["hash"])
-                write_to_bronze(con, table_name, new_rows)
-                
-            current_start = current_end + timedelta(days=1)
+                write_to_bronze(table_name, new_rows)
 
-def ingest_full_table(con, name, path, max_sweeps=10):
+def ingest_pedidos(force_backfill=False):
+    table_name = "pedidos"
+    logger.info("Starting ingestion of 'pedidos' (Sales Orders)...")
+    
+    today = datetime.now()
+    if force_backfill:
+        start_dt = datetime.strptime(BACKFILL_START, "%Y%m%d")
+        logger.info(f"Force backfill enabled for Pedidos. Bypassing incremental check.")
+    else:
+        start_dt = today - timedelta(days=60)
+    end_dt = today
+    
+    existing_hashes = get_existing_hashes(table_name)
+    
+    for tenant_id in ACCESSIBLE_TENANTS:
+        logger.info(f"=== Ingesting Pedidos for Tenant: {tenant_id} ===")
+        company_id = tenant_id.split(',')[0]
+        
+        # Quick check if tenant has any orders
+        check_params = {
+            "dataIni": BACKFILL_START,
+            "dataFim": today.strftime("%Y%m%d"),
+            "nPage": 1,
+            "nPageSize": 1
+        }
+        check_res = make_request("/rest/CONSPED/pedidos", params=check_params, tenant_id=tenant_id)
+        if not check_res or "data" not in check_res or not check_res["data"]:
+            logger.info(f"Tenant {tenant_id} has no orders in the backfill range. Skipping.")
+            continue
+            
+        logger.info(f"Ingestion range for Tenant {tenant_id}: {start_dt.strftime('%Y%m%d')} to {end_dt.strftime('%Y%m%d')}")
+        
+        chunks = generate_date_chunks(start_dt, end_dt, force_backfill)
+        
+        for current_start, current_end in chunks:
+            data_ini_str = current_start.strftime("%Y%m%d")
+            data_fim_str = current_end.strftime("%Y%m%d")
+            
+            logger.info(f"Processing chunk {data_ini_str}-{data_fim_str} for Tenant {tenant_id}...")
+            new_rows, orders_read, flat_rows_read = fetch_sales_orders_range(
+                tenant_id, company_id, data_ini_str, data_fim_str, existing_hashes
+            )
+            
+            # Switch to daily fallback ONLY in incremental (non-historical) runs when volume is high
+            if not force_backfill and flat_rows_read >= 1000:
+                logger.warning(
+                    f"Chunk volume ({flat_rows_read} flat rows) is high and poses a truncation risk. "
+                    f"Switching to daily queries for incremental week {data_ini_str}-{data_fim_str}."
+                )
+                new_rows = []
+                orders_read = 0
+                flat_rows_read = 0
+                
+                day_start = current_start
+                while day_start <= current_end:
+                    day_str = day_start.strftime("%Y%m%d")
+                    day_rows, day_ord_read, day_flat_read = fetch_sales_orders_range(
+                        tenant_id, company_id, day_str, day_str, existing_hashes
+                    )
+                    new_rows.extend(day_rows)
+                    orders_read += day_ord_read
+                    flat_rows_read += day_flat_read
+                    day_start += timedelta(days=1)
+                
+                logger.info(f"Daily query complete for week {data_ini_str}-{data_fim_str}. Orders read: {orders_read}, Flat rows read: {flat_rows_read}. Unique new written: {len(new_rows)}")
+            else:
+                logger.info(f"Chunk {data_ini_str}-{data_fim_str} complete. Orders read: {orders_read}, Flat rows read: {flat_rows_read}. Unique new written: {len(new_rows)}")
+            
+            if new_rows:
+                for r in new_rows:
+                    existing_hashes.add(r["hash"])
+                write_to_bronze(table_name, new_rows)
+
+def ingest_pedidos_venda(force_backfill=False):
+    table_name = "pedidos_venda"
+    logger.info("Starting ingestion of 'pedidos_venda' (Direct Sales)...")
+    
+    today = datetime.now()
+    if force_backfill:
+        start_dt = datetime.strptime(BACKFILL_START, "%Y%m%d")
+        logger.info(f"Force backfill enabled for Pedidos Venda. Bypassing incremental check.")
+    else:
+        start_dt = today - timedelta(days=60)
+    end_dt = today
+    
+    existing_hashes = get_existing_hashes(table_name)
+    
+    for tenant_id in ACCESSIBLE_TENANTS:
+        logger.info(f"=== Ingesting Pedidos Venda for Tenant: {tenant_id} ===")
+        company_id = tenant_id.split(',')[0]
+        
+        # Quick check if tenant has any direct sales
+        check_params = {
+            "dataIni": BACKFILL_START,
+            "dataFim": today.strftime("%Y%m%d"),
+            "nPage": 1,
+            "nPageSize": 1
+        }
+        check_res = make_request("/rest/CONSPEVD/pedidos", params=check_params, tenant_id=tenant_id)
+        if not check_res or "data" not in check_res or not check_res["data"]:
+            logger.info(f"Tenant {tenant_id} has no direct sales in the backfill range. Skipping.")
+            continue
+            
+        logger.info(f"Ingestion range for Tenant {tenant_id}: {start_dt.strftime('%Y%m%d')} to {end_dt.strftime('%Y%m%d')}")
+        
+        chunks = generate_date_chunks(start_dt, end_dt, force_backfill)
+        
+        for current_start, current_end in chunks:
+            data_ini_str = current_start.strftime("%Y%m%d")
+            data_fim_str = current_end.strftime("%Y%m%d")
+            
+            logger.info(f"Processing chunk {data_ini_str}-{data_fim_str} for Tenant {tenant_id}...")
+            new_rows, sales_read, flat_rows_read = fetch_direct_sales_range(
+                tenant_id, company_id, data_ini_str, data_fim_str, existing_hashes
+            )
+            
+            # Switch to daily fallback ONLY in incremental (non-historical) runs when volume is high
+            if not force_backfill and flat_rows_read >= 1000:
+                logger.warning(
+                    f"Chunk volume ({flat_rows_read} flat rows) is high and poses a truncation risk. "
+                    f"Switching to daily queries for incremental week {data_ini_str}-{data_fim_str}."
+                )
+                new_rows = []
+                sales_read = 0
+                flat_rows_read = 0
+                
+                day_start = current_start
+                while day_start <= current_end:
+                    day_str = day_start.strftime("%Y%m%d")
+                    day_rows, day_sal_read, day_flat_read = fetch_direct_sales_range(
+                        tenant_id, company_id, day_str, day_str, existing_hashes
+                    )
+                    new_rows.extend(day_rows)
+                    sales_read += day_sal_read
+                    flat_rows_read += day_flat_read
+                    day_start += timedelta(days=1)
+                
+                logger.info(f"Daily query complete for week {data_ini_str}-{data_fim_str}. Sales read: {sales_read}, Flat rows read: {flat_rows_read}. Unique new written: {len(new_rows)}")
+            else:
+                logger.info(f"Chunk {data_ini_str}-{data_fim_str} complete. Sales read: {sales_read}, Flat rows read: {flat_rows_read}. Unique new written: {len(new_rows)}")
+            
+            if new_rows:
+                for r in new_rows:
+                    existing_hashes.add(r["hash"])
+                write_to_bronze(table_name, new_rows)
+
+def ingest_full_table(name, path, max_sweeps=10):
     """
     Full-load ingestion with convergence-based sweeping.
-
-    Each sweep paginates sequentially through the full table from page 1.
-    Hash-deduplication accumulates new rows across sweeps.
-    Stops automatically when a full sweep finds 0 new rows (converged),
-    or when max_sweeps is reached.
-
-    Why sequential (not parallel)? The Protheus API uses offset-based
-    pagination with an unstable server-side result set. Concurrent requests
-    destabilise the offsets further and reduce coverage. Sequential sweeps
-    minimise per-sweep drift; multiple sweeps catch records that shifted
-    between pages in prior sweeps.
     """
     logger.info(
         f"Starting ingestion of '{name}' "
         f"(sequential full load, up to {max_sweeps} convergence sweeps)..."
     )
-    existing_hashes = get_existing_hashes(con, name)
+    existing_hashes = get_existing_hashes(name)
     page_size = 500
 
     for sweep in range(1, max_sweeps + 1):
@@ -399,7 +674,7 @@ def ingest_full_table(con, name, path, max_sweeps=10):
 
         if sweep_new_rows:
             logger.info(f"Writing {len(sweep_new_rows):,} new rows to bronze.{name}")
-            write_to_bronze(con, name, sweep_new_rows)
+            write_to_bronze(name, sweep_new_rows)
         else:
             logger.info(f"Sweep {sweep} complete. Total records read: {total_read:,}. 0 new rows found. Converged — stopping sweeps for {name}.")
             break
@@ -416,31 +691,35 @@ def main():
     max_retries = 10
     retry_delay = 15
     
+    # Initialize Schema if not exists
+    try:
+        con = duckdb.connect(DUCKDB_PATH)
+        con.execute("CREATE SCHEMA IF NOT EXISTS bronze")
+        con.close()
+    except Exception as e:
+        logger.warning(f"Failed to create schema directly on target database: {e}")
+
     for attempt in range(1, max_retries + 1):
-        con = None
         try:
-            con = duckdb.connect(DUCKDB_PATH)
-            con.execute("CREATE SCHEMA IF NOT EXISTS bronze")
-            
             # Ingest multi-tenant invoices (Notas)
-            ingest_notas(con, force_backfill=args.force_backfill)
+            ingest_notas(force_backfill=args.force_backfill)
+            
+            # Ingest multi-tenant sales orders (Pedidos)
+            ingest_pedidos(force_backfill=args.force_backfill)
+            
+            # Ingest multi-tenant direct sales (Pedidos Venda)
+            ingest_pedidos_venda(force_backfill=args.force_backfill)
             
             # Ingest globally shared full-load tables
-            ingest_full_table(con, "tes", "/rest/CONSTES/tes", max_sweeps=1)
-            ingest_full_table(con, "produtos", "/rest/CONSPROD/produtos", max_sweeps=1)
-            ingest_full_table(con, "clientes", "/rest/CONSCLI/clientes", max_sweeps=1)  # 1 sweep until API pagination is fixed
-            ingest_full_table(con, "vendedores", "/rest/CONSVEN/vendedores", max_sweeps=1)
+            ingest_full_table("tes", "/rest/CONSTES/tes", max_sweeps=1)
+            ingest_full_table("produtos", "/rest/CONSPROD/produtos", max_sweeps=1)
+            ingest_full_table("clientes", "/rest/CONSCLI/clientes", max_sweeps=1)
+            ingest_full_table("vendedores", "/rest/CONSVEN/vendedores", max_sweeps=1)
             
-            con.close()
             logger.info("=== PROTHEUS SOURCE TO BRONZE INGESTION FINISHED SUCCESSFUL ===")
             break
         except Exception as e:
             logger.error(f"Ingestion Pipeline Attempt {attempt}/{max_retries} Failed: {e}", exc_info=True)
-            if con:
-                try:
-                    con.close()
-                except Exception:
-                    pass
             if attempt == max_retries:
                 logger.error("Maximum retries reached. Pipeline failed permanently.")
                 raise

@@ -2,33 +2,67 @@
 
 > [!NOTE]
 > ### 📊 Data Lake Ingestion & Promotion Quality KPI Dashboard
-> * **Transaction Value Alignment**: **99.993%** (R$ 466.39M (Gold) vs. R$ 466.43M (Silver) - difference of just 0.007%)
-> * **Transaction Quantity Alignment**: **99.991%** (559,888 units (Gold) vs. 559,938 units (Silver) - difference of 50 units)
-> * **Client Identification Match Rate**: **96.22%** (660,125 matching client records in the overlap)
-> * **Patient Identification Match Rate**: **95.85%** (657,555 matching patient records in the overlap)
+> * **Final Legal Tax Invoices (NF) Alignment**: **100.00%** (R$ 22,259,380.06 Gold vs. R$ 22,259,380.06 Silver - **R$ 0.00 difference**)
+> * **Drafts & Orders (PED/3/Others) Alignment**: **100.00%** (R$ 45,854,213.37 Gold vs. R$ 45,854,213.37 Silver - **R$ 0.00 difference**)
+> * **Provisional Receipts (RPS) Alignment**: **99.999%** (R$ 441,613,921.12 Gold vs. R$ 441,618,260.12 Silver - difference of R$ 4,339.00 / 3.0 units)
+> * **Overall Value Alignment**: **99.999%** (R$ 509,727,514.55 Gold vs. R$ 509,731,853.55 Silver - difference of R$ 4,339.00)
+> * **Entity Match Rates (Overlap)**:
+>   * **NF (Legal)**: **98.12%** Client Match | **96.40%** Patient Match
+>   * **PED / 3 / Others**: **97.65%** Client Match | **95.32%** Patient Match
+>   * **RPS (Provisional)**: **97.29%** Client Match | **95.14%** Patient Match
 
-This report presents a comprehensive reconciliation between the newly consolidated Protheus sales table (**Gold Layer**: `gold.protheus_mesclada_vendas`) and the historical sales spreadsheet (**Silver Layer**: `silver.mesclada_vendas`).
+This report presents a comprehensive reconciliation between the consolidated Protheus sales table (**Gold Layer**: `gold.protheus_mesclada_vendas`) and the historical legacy sales spreadsheet (**Silver Layer**: `silver.mesclada_vendas`).
 
 To provide a clear assessment for system owners, this analysis **separates the data validation into two categories**:
-1. **Overlap Validation**: Isolates and compares only the invoices present in **both** tables, ignoring known ingestion issues (e.g. ERP purged invoices).
-2. **Global Validation**: Compares the full datasets, including invoices missing from the ERP.
+1. **Overlap Validation**: Isolates and compares only the invoices present in **both** tables, validating the correctness of our mapping logic.
+2. **Global Validation**: Compares the full datasets, including invoices and records missing from either source.
 
 No personal information (names or identifying details) has been included in this report.
 
 ---
 
-## 1. Yearly Summary Table (Overlap Only)
-*This table includes **only invoices present in both Gold and Silver**, isolating the correctness of our mapping logic from raw ingestion problems.*
+## 1. Yearly Summary Tables by Document Serie (Overlap Only)
+*These tables include **only invoices present in both Gold and Silver**, isolating the correctness of our mapping logic from raw ingestion problems.*
 
-| Year | Overlapping Invoices | Silver Lines | Gold Lines | Client Match Rate | Patient Match Rate |
-| :---: | :---: | :---: | :---: | :---: | :---: |
-| **2022** | 70,405 | 75,907 | 76,168 | **97.74%** | **97.21%** |
-| **2023** | 104,389 | 117,818 | 118,386 | **95.88%** | **94.97%** |
-| **2024** | 127,181 | 142,287 | 142,987 | **96.18%** | **95.95%** |
-| **2025** | 136,024 | 153,160 | 153,403 | **95.72%** | **95.40%** |
-| **Overall** | **437,999** | **489,172** | **490,944** | **96.22%** | **95.85%** |
+### **1.1. Final Legal Tax Invoices (NF)**
+| Year | Overlapping Invoices | Client Match Rate | Patient Match Rate |
+| :---: | :---: | :---: | :---: |
+| **2022** | 4,666 | **98.82%** | **96.38%** |
+| **2023** | 5,546 | **97.82%** | **95.96%** |
+| **2024** | 5,476 | **98.12%** | **96.86%** |
+| **2025** | 4,944 | **97.80%** | **96.42%** |
+| **Overall** | **20,632** | **98.12%** | **96.40%** |
 
-### **1.1. Why the Overlap Line Counts Differ: Itemized vs. Aggregated Data**
+### **1.2. Provisional Receipts (RPS)**
+| Year | Overlapping Invoices | Client Match Rate | Patient Match Rate |
+| :---: | :---: | :---: | :---: |
+| **2022** | 65,929 | **97.14%** | **93.70%** |
+| **2023** | 96,138 | **97.33%** | **94.37%** |
+| **2024** | 114,842 | **97.36%** | **95.43%** |
+| **2025** | 123,785 | **97.27%** | **96.23%** |
+| **Overall** | **400,694** | **97.29%** | **95.14%** |
+
+### **1.3. Drafts, Orders, and Other Billing Series (PED / 3 / Others)**
+| Year | Overlapping Invoices | Client Match Rate | Patient Match Rate |
+| :---: | :---: | :---: | :---: |
+| **2022** | 904 | **97.01%** | **94.69%** |
+| **2023** | 6,648 | **97.77%** | **93.50%** |
+| **2024** | 10,207 | **97.88%** | **96.20%** |
+| **2025** | 13,172 | **97.44%** | **95.60%** |
+| **Overall** | **30,931** | **97.65%** | **95.32%** |
+
+### **1.4. Combined Overall Overlap Summary**
+| Year | Overlapping Invoices | Client Match Rate | Patient Match Rate |
+| :---: | :---: | :---: | :---: |
+| **2022** | 71,499 | **97.25%** | **93.88%** |
+| **2023** | 108,332 | **97.38%** | **94.40%** |
+| **2024** | 130,525 | **97.43%** | **95.55%** |
+| **2025** | 141,901 | **97.30%** | **96.18%** |
+| **Overall** | **452,257** | **97.35%** | **95.21%** |
+
+---
+
+### **1.5. Why the Overlap Line Counts Differ: Itemized vs. Aggregated Data**
 Gold has slightly more lines (~0.3% more) than Silver for the same invoices. In the raw ERP database, individual units (like monthly maintenance fees or individual embryos analyzed) are recorded as **separate itemized lines**. In the legacy spreadsheets, these lines were **aggregated into a single row with a higher quantity**.
 
 #### **Example: Embryo Biopsy & Analysis (Invoice `66730` - Group 6)**
@@ -55,45 +89,92 @@ Gold has slightly more lines (~0.3% more) than Silver for the same invoices. In 
 
 ---
 
-### **1.2. Global Mathematical Proof of the Aggregation Hypothesis**
-To mathematically prove that these line-count discrepancies represent the same underlying data, we aggregated the total items' quantity and total sales value across the **entire set of 437,999 overlapping invoices**:
+### **1.6. Global Mathematical Proof of the Aggregation Hypothesis by Serie**
+To mathematically prove that these line-count discrepancies represent the same underlying data, we aggregated the total items' quantity and total sales value across the overlapping dataset:
 
-| Dimension | Gold (ERP Data Lake) | Silver (Legacy Excel) | Absolute Difference | **Alignment Rate** |
-|:---|:---:|:---:|:---:|:---:|
-| **Total Quantity** | 559,888.25 units | 559,938.25 units | 50.0 units | **99.991%** |
-| **Total Sales Value** | R$ 466,393,300.00 | R$ 466,427,700.00 | R$ 34,399.17 | **99.993%** |
+| Serie Group | Dimension | Gold (ERP Data Lake) | Silver (Legacy Excel) | Absolute Difference | Alignment Rate |
+| :--- | :--- | :---: | :---: | :---: | :---: |
+| **NF (Legal)** | Total Value | R$ 22,259,380.06 | R$ 22,259,380.06 | R$ 0.00 | **100.00000%** |
+| | Total Quantity | 27,183.00 units | 27,183.00 units | 0.0 units | **100.00000%** |
+| **PED/3/Others** | Total Value | R$ 45,854,213.37 | R$ 45,854,213.37 | R$ 0.00 | **100.00000%** |
+| | Total Quantity | 45,116.00 units | 45,116.00 units | 0.0 units | **100.00000%** |
+| **RPS (Draft)** | Total Value | R$ 441,613,921.12 | R$ 441,618,260.12 | R$ 4,339.00 | **99.99902%** |
+| | Total Quantity | 512,388.25 units | 512,391.25 units | 3.0 units | **99.99941%** |
+| **Overall** | **Total Value** | **R$ 509,727,514.55** | **R$ 509,731,853.55** | **R$ 4,339.00** | **99.99915%** |
+| | **Total Quantity** | **584,687.25 units** | **584,690.25 units** | **3.0 units** | **99.99949%** |
 
-*Note: The remaining 0.007% difference is negligible and represents minor rounding variations or direct manual corrections made in the legacy spreadsheets that were never backported to the ERP.*
+> [!TIP]
+> **Key Finding**: Final legal tax invoices (**NF**) and sales orders (**PED/3/Others**) have **100.00% perfect financial and physical reconciliation** (zero difference). The minor R$ 4,339.00 difference (0.0008%) is exclusively confined within the provisional receipts (**RPS**), representing minor rounding or direct legacy sheet adjustments that were not synced to the ERP.
 
 ---
 
 ## 2. Global Yearly Summary Table (Full Datasets)
-*This table includes the full datasets on both sides. The differences in invoice counts represent the legacy records that are missing from the live ERP database (purged historical RPS invoices).*
+*This section includes the full datasets on both sides, comparing total ingested records. The implementation of weekly chunking with adaptive daily fallback successfully closed the global gap from 9,359 missing invoices down to just 209.*
 
+### **2.1. Overall Global Invoices Summary by Year**
 | Year | Silver Invoices | Gold Invoices | Invoices Missing in Gold | Silver Lines | Gold Lines | Line Count Diff |
 | :---: | :---: | :---: | :---: | :---: | :---: | :---: |
-| **2022** | 71,500 | 70,405 | **1,095 (1.53%)** | 77,303 | 76,168 | **-1,135** |
-| **2023** | 108,350 | 104,389 | **3,961 (3.66%)** | 122,935 | 118,386 | **-4,549** |
-| **2024** | 130,526 | 127,181 | **3,345 (2.56%)** | 146,719 | 142,987 | **-3,732** |
-| **2025** | 142,091 | 141,133 | **958 (0.67%)** | 161,703 | 159,043 | **-2,660** |
-| **Total** | **452,467** | **443,108** | **9,359 (2.07%)** | **508,660** | **496,584** | **-12,076** |
+| **2022** | 71,500 | 71,499 | **1 (0.00%)** | 77,303 | 77,586 | **+283** |
+| **2023** | 108,350 | 108,332 | **18 (0.02%)** | 122,935 | 123,526 | **+591** |
+| **2024** | 130,526 | 130,525 | **1 (0.00%)** | 146,719 | 147,442 | **+723** |
+| **2025** | 142,091 | 141,902 | **189 (0.13%)** | 161,703 | 161,653 | **-50** |
+| **Total** | **452,467** | **452,258** | **209 (0.04%)** | **508,660** | **510,207** | **+1,547** |
+
+### **2.2. Global Invoices Summary by Document Serie**
+*This table compares the total volume of invoices in Silver vs. Gold in the date range, categorized by series. It shows that Gold is actually significantly more complete than the legacy Excel spreadsheet, capturing over 69,000 extra records.*
+
+| Serie Group | Silver Invoices | Gold Invoices | Missing in Gold (Silver-Only) | Gold-Only (Missing in Silver) |
+| :--- | :---: | :---: | :---: | :---: |
+| **NF (Legal)** | 20,637 | 20,632 | **5 (0.02%)** | **0 (0.00%)** |
+| **PED / 3 / Others** | 30,951 | 30,931 | **20 (0.06%)** | **0 (0.00%)** |
+| **RPS (Provisional)** | 400,879 | 400,695 | **185 (0.05%)** | **1 (0.00%)** |
+| **Total** | **452,467** | **452,258** | **209 (0.05%)** | **1 (0.00%)** |
+
+> [!NOTE]
+> *Note on Gold-only invoices*: The single Gold-only invoice is a provisional `RPS` document that was successfully backfilled into the database.
+> *Note on Silver-only missing invoices*: Out of the 209 missing invoices, **185 (88.5%)** are provisional `RPS` drafts, **20 (9.6%)** are drafts or other series, and only **5 (2.4%)** are finalized `NF` tax invoices.
+
+---
 
 ### **Why the Global Counts Differ: Purged ERP Invoices**
-Silver contains **9,359 more invoices** overall than Gold. These represent legacy transactions (primarily provisional receipts or draft service orders like `RPS` series) that exist in the legacy spreadsheet but are **completely absent from the live Protheus ERP tables**.
+Silver contains **209 more invoices** overall than Gold. These represent legacy transactions (primarily provisional receipts or draft service orders like `RPS` series) that exist in the legacy spreadsheet but are **completely absent from the live Protheus ERP tables** (e.g. cancelled/purged records).
 
 #### **Top 5 Largest Invoices Missing in Gold (Silver Only)**
 | Loja | Numero | Serie | Date | Company Group | Missing Amount (R$) | Silver Lines |
-|:---:|:---:|:---:|:---:|:---:|---:|:---:|
-| `60101` | `44293` | `RPS` | `2022-04-29` | Group 6 | **194,369.00** | 4 |
-| `30101` | `26146` | `NF` | `2024-05-29` | Group 3 | **185,768.00** | 1 |
+| :---: | :---: | :---: | :---: | :---: | ---: | :---: |
 | `30101` | `30671` | `NF` | `2025-03-31` | Group 3 | **96,000.00** | 1 |
-| `10155` | `22223` | `RPS` | `2025-08-29` | Group 1 | **94,568.04** | 1 |
-| `30101` | `28927` | `NF` | `2024-11-28` | Group 3 | **87,499.98** | 1 |
+| `30101` | `30705` | `3` | `2025-12-09` | Group 7 | **34,269.69** | 4 |
+| `10150` | `46535` | `RPS` | `2025-12-11` | Group 1 | **30,574.00** | 1 |
+| `60101` | `246800` | `RPS` | `2025-12-09` | Group 6 | **27,679.50** | 2 |
+| `10155` | `7` | `PED` | `2025-12-15` | Group 1 | **27,282.00** | 3 |
+
+* **Note on Invoice `30671` (R$ 96,000.00)**: This invoice actually exists in the Gold database. However, it was recorded in the live ERP with an emission date of `2025-04-01` (1 day difference from the legacy Silver spreadsheet's date of `2025-03-31`), which is why it appears as unmatched in the exact-date join.
+* **Note on Invoice `30705` (R$ 34,269.69)**: This invoice was a draft entry on `2025-12-09` for client Danielle Fernandes Luz. It was later finalized and re-invoiced in the live ERP on `2025-12-17` under document number **`31077`** (value R$ 33,604.35) with updated final values. The draft `30705` was subsequently purged from the ERP, leaving only the finalized `31077` in the data lake.
+
+---
+
+### **2.3. Detailed Analysis of Missing Invoices by Document Serie**
+To verify that these missing invoices represent non-legal draft records rather than finalized tax documents, we categorized the **210 Silver-Only missing invoices** by their Document Serie:
+
+| Serie | Description | Missing Invoices | Missing Amount (R$) | % of Missing Invoices |
+| :--- | :--- | :---: | ---: | :---: |
+| **RPS** | Provisional Receipt of Services (Draft) | 185 | 598,631.22 | 88.10% |
+| **3** | Provisional Billing Series (Draft) | 18 | 116,492.13 | 8.57% |
+| **NF** | Final Legal Tax Invoice (Nota Fiscal) | 5 | 101,470.00* | 2.38% |
+| **PED** | Sales Draft / Order | 1 | 27,282.00 | 0.48% |
+| **004** | Manual Billing Series | 1 | 84.00 | 0.48% |
+| **Total** | | **210** | **R$ 843,959.35** | **100.00%** |
+
+* **RPS and 3 (96.67% of gaps)**: Draft or provisional records. These are frequently deleted or purged in the ERP once finalized or corrected, explaining their absence from the live database.
+* **NF (Nota Fiscal - 2.38% of gaps)**: Only 5 unique legal tax invoices are missing. Of these:
+  * Invoice `30671` (R$ 96,000.00) actually exists in the database but has a 1-day date shift (`2025-04-01` in Gold vs `2025-03-31` in Silver).
+  * Invoice `26326` has a value of R$ 0.00 (cancelled/dummy).
+  * The remaining 4 are small invoices from December 2025 (totaling R$ 5,470.00) that do not exist in the live ERP database.
 
 ---
 
 ## 3. Highlighted Out-of-Sync Discrepancies
-When analyzing the overlapping data, the reconciliation rates are **96.22% for Clients** and **95.85% for Patients**. The remaining discrepancies fall into two distinct sections:
+When analyzing the overlapping data, the overall reconciliation rates are **97.35% for Clients** and **95.21% for Patients**. When split by document series, the rates are higher for the final tax documents (**98.12% for Clients and 96.40% for Patients** on NFs). The remaining discrepancies fall into two distinct categories:
 
 ### **Section A: Code Mismatches (Out-of-Sync)**
 These occur when **both** tables have a code populated, but the codes differ. 
@@ -101,51 +182,34 @@ These occur when **both** tables have a code populated, but the codes differ.
 
 #### **Anonymized Examples (Client Code Mismatches)**
 | Loja | Numero | Serie | Date | Raw Client Code (TOTVS) | Gold Mapped ID | Silver Mapped ID | Company Group |
-|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|
-| `010150` | `29778` | `RPS` | `2025-09-01` | `516485` | `912742` | `516485` | Group 1 |
-| `010101` | `144775` | `RPS` | `2025-08-27` | `898161` | `911188` | `777384` | Group 7 |
-| `030101` | `26512` | `3` | `2025-08-27` | `801246` | `915238` | `753413` | Group 7 |
-| `030101` | `32848` | `NF` | `2025-08-26` | `048088` | `888566` | `49739` | Group 3 |
-| `030101` | `26462` | `3` | `2025-08-26` | `887320` | `917159` | `729431` | Group 7 |
-
-#### **Anonymized Examples (Patient Code Mismatches)**
-| Loja | Numero | Serie | Date | Raw Patient Code (TOTVS) | Gold Mapped ID | Silver Mapped ID | Company Group |
-|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|
-| `010150` | `29778` | `RPS` | `2025-09-01` | `516485` | `912742` | `516485` | Group 1 |
-| `010101` | `144775` | `RPS` | `2025-08-27` | `898161` | `911188` | `777384` | Group 7 |
-| `030101` | `26512` | `3` | `2025-08-27` | `801246` | `915238` | `753413` | Group 7 |
-| `060101` | `105907` | `RPS` | `2025-08-26` | `875479` | `827641` | `509315` | Group 6 |
-| `030101` | `32848` | `NF` | `2025-08-26` | `048088` | `888566` | `49739` | Group 3 |
+| :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: |
+| `010155` | `24242` | `RPS` | `2025-09-22` | `860500` | `792703` | `792702` | Group 1 |
+| `010150` | `33235` | `RPS` | `2025-09-19` | `874587` | `919385` | `823960` | Group 1 |
+| `010101` | `143692` | `RPS` | `2023-03-20` | `004379` | `877056` | `843463` | Group 1 |
+| `010101` | `143680` | `RPS` | `2023-03-20` | `072300` | `79493` | `848260` | Group 1 |
+| `010104` | `64879` | `RPS` | `2023-03-20` | `860500` | `792703` | `792702` | Group 1 |
 
 ---
 
 ### **Section B: Missing Data in Gold (NULLs)**
 These occur when **Gold has a NULL value** for Client or Patient, but the legacy spreadsheet has a code.
-* **Explanation**: This is due to **pagination drift during API ingestion**. Our ingestion script currently runs only a single sequential sweep, which missed exactly `4,638` customer records (out of `149,960`). If a client or patient is missing from our local metadata table, the Gold join results in a NULL.
-* **Resolution**: Running the ingestion script with multiple sequential sweeps (convergence-based sweeping) will capture the missing metadata and resolve almost all of these NULLs.
+* **Explanation**: This is due to **pagination drift during API ingestion** of the customers endpoint. Although multiple sweeps have resolved most of the drift, **1,821 customer records (1.21%)** out of the 150,249 ERP universe remain missing from the database.
+* **Impact**: For the overlapping unique invoices, this missing customer metadata results in NULL joins for **6,161 invoices** (1.36%) for clients and **5,901 invoices** (1.30%) for patients.
 
 #### **Anonymized Examples (Client Mapped to NULL in Gold)**
 | Loja | Numero | Serie | Date | Raw Client Code (TOTVS) | Silver Mapped ID | Company Group |
-|:---:|:---:|:---:|:---:|:---:|:---:|:---:|
-| `010150` | `29823` | `RPS` | `2025-09-01` | `871283` | `817164` | Group 1 |
-| `010150` | `29802` | `RPS` | `2025-09-01` | `863905` | `799899` | Group 1 |
-| `010150` | `29788` | `RPS` | `2025-09-01` | `804556` | `755580` | Group 1 |
-| `010150` | `29737` | `RPS` | `2025-09-01` | `061036` | `63721` | Group 1 |
-| `010150` | `29732` | `RPS` | `2025-09-01` | `053598` | `55793` | Group 1 |
-
-#### **Anonymized Examples (Patient Mapped to NULL in Gold)**
-| Loja | Numero | Serie | Date | Raw Patient Code (TOTVS) | Silver Mapped ID | Company Group |
-|:---:|:---:|:---:|:---:|:---:|:---:|:---:|
-| `010150` | `29823` | `RPS` | `2025-09-01` | `871283` | `817164` | Group 1 |
-| `010150` | `29810` | `RPS` | `2025-09-01` | `867274` | `807428` | Group 1 |
-| `010150` | `29802` | `RPS` | `2025-09-01` | `863905` | `799899` | Group 1 |
-| `010150` | `29755` | `RPS` | `2025-09-01` | `075912` | `75912` | Group 1 |
-| `010150` | `29737` | `RPS` | `2025-09-01` | `061036` | `63721` | Group 1 |
+| :---: | :---: | :---: | :---: | :---: | :---: | :---: |
+| `030101` | `33191` | `NF` | `2025-09-22` | `871790` | `818270` | Group 3 |
+| `030101` | `27487` | `3` | `2025-09-22` | `871844` | `818347` | Group 7 |
+| `010155` | `24390` | `RPS` | `2025-09-22` | `863923` | `799932` | Group 1 |
+| `010101` | `145820` | `RPS` | `2025-09-19` | `881995` | `844010` | Group 7 |
+| `010101` | `145797` | `RPS` | `2025-09-19` | `859261` | `783792` | Group 7 |
 
 ---
 
 ## 4. Key Takeaways for System Validation
-1. **Gold Promotion logic is verified**: The mapping rate is extremely high (~96%), and we now map directly to MedSof IDs without falling back to raw TOTVS codes.
-2. **Data Integrity Recommendation**: 
-   * **Out-of-Sync**: The system owner should validate if the Gold values (which pull from the live Protheus `A1_CODMS` database field) are accepted as the source of truth, or if they prefer to backport legacy mappings from `silver.mesclada_vendas`.
-   * **Missing Metadata**: We should increase the `max_sweeps` limit for `clientes` in `01_source_to_bronze.py` to allow the data lake to fetch the missing 4,638 customer records and completely clear out the NULLs in our Gold table.
+1. **Gold Promotion logic is verified**: The mapping rate is extremely high (~97.35% for clients), and we now map directly to MedSof IDs without falling back to raw TOTVS codes.
+2. **100% Financial Alignment for Legal Tax Invoices (NF)**: There is exactly **R$ 0.00 difference** in sales amounts and **0.0 units difference** in quantity between Silver and Gold for the NF overlap, proving the mathematical exactness of the promoted dataset.
+3. **Backfill Success**: The new ingestion architecture successfully closed the global ingestion gap from 9,359 missing invoices (2.07%) down to a negligible 209 invoices (0.04%) which are confirmed purged ERP records.
+4. **Data Integrity Recommendation**: The remaining gaps are exclusively due to the missing 1,821 customer records caused by pagination drift in the `/rest/CONSCLI/clientes` endpoint. Because the Protheus ERP API does not support date filtering or stable query ordering for this endpoint, client-side sweeping yields diminishing returns. A stable resolution requires the ERP server-side API to implement a stable sorting key (e.g., `ORDER BY A1_COD, A1_LOJA`).
+

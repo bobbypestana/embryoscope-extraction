@@ -1,10 +1,10 @@
 {
     "invoices": {
-        "gold_count": 438000,
+        "gold_count": 452258,
         "silver_count": 452467,
-        "matched": 437999,
+        "matched": 452257,
         "gold_only_count": 1,
-        "silver_only_count": 14468,
+        "silver_only_count": 210,
         "gold_only_samples": [
             {
                 "Loja": 30101,
@@ -139,20 +139,15 @@
         ]
     },
     "patients": {
-        "total_gold": 32158,
+        "total_gold": 32964,
         "total_silver": 32977,
-        "matched": 31600,
+        "matched": 32383,
         "gold_only_count": 12,
-        "silver_only_count": 813,
+        "silver_only_count": 30,
         "gold_only_samples": [
             {
                 "Code(s)": "<NA>",
                 "Name(s)": "ANA PAULA DE RESENDE\ufffdLIMA",
-                "Sources": "gold"
-            },
-            {
-                "Code(s)": "<NA>",
-                "Name(s)": "CECILIA CANDIDO TEIXEIRA DILMEN",
                 "Sources": "gold"
             },
             {
@@ -187,6 +182,11 @@
             },
             {
                 "Code(s)": "<NA>",
+                "Name(s)": "NATALIA GARRIDO DE SALLES\u00a0MEIRA",
+                "Sources": "gold"
+            },
+            {
+                "Code(s)": "<NA>",
                 "Name(s)": "RENATA DOMINGUES SPA\u00adDA",
                 "Sources": "gold"
             },
@@ -209,162 +209,132 @@
         "silver_only_samples": [
             {
                 "Code(s)": "<NA>",
-                "Name(s)": "0004607",
+                "Name(s)": "ANA PAULA DE RESENDEA\u00a0LIMA",
                 "Sources": "silver"
             },
             {
                 "Code(s)": "<NA>",
-                "Name(s)": "ABGAIL MONTEZANO ZIOLKOWSKI",
+                "Name(s)": "BRUNA FONSECA MOTHA\u2030",
                 "Sources": "silver"
             },
             {
                 "Code(s)": "<NA>",
-                "Name(s)": "ABRAAO MONFRINATO",
+                "Name(s)": "CAMILA TEIXEIRA CARIBA\u2030 RIBEIRO",
                 "Sources": "silver"
             },
             {
                 "Code(s)": "<NA>",
-                "Name(s)": "ADILSON PINHEIRO DA ANUNCIACAO",
+                "Name(s)": "DAILANY SANTOS VASCONCELOS SANTA\u00b4ANA VIL",
                 "Sources": "silver"
             },
             {
                 "Code(s)": "<NA>",
-                "Name(s)": "AGATA DE FREITAS",
+                "Name(s)": "ERNESTO ALBUQUERQUE DA\u20ac\u2122ANDREA JUNIOR",
                 "Sources": "silver"
             },
             {
                 "Code(s)": "<NA>",
-                "Name(s)": "AGATHA MOLFI FRANCO",
+                "Name(s)": "FABIANA PEDREIRA GUIMARA\u0192ES",
                 "Sources": "silver"
             },
             {
                 "Code(s)": "<NA>",
-                "Name(s)": "AILA BACELLAR DE MEIRELLES FONSECA",
+                "Name(s)": "FELIPE ROJAS ANTONINI",
                 "Sources": "silver"
             },
             {
                 "Code(s)": "<NA>",
-                "Name(s)": "ALAN DOS SANTOS MOREIRA",
+                "Name(s)": "ISABEL GALVA\u0192O DE ALMEIDA",
                 "Sources": "silver"
             },
             {
                 "Code(s)": "<NA>",
-                "Name(s)": "ALAN HUMBERTO JORGE",
+                "Name(s)": "ISRAEL MIELLI DE CASTRO",
                 "Sources": "silver"
             },
             {
                 "Code(s)": "<NA>",
-                "Name(s)": "ALBA GABRIELA MOREIRA DE SOUZA",
+                "Name(s)": "JORDANA MARIA RAMOS CARDOSO COELHO",
                 "Sources": "silver"
             },
             {
                 "Code(s)": "<NA>",
-                "Name(s)": "ALESSANDRA DE JESUS ALVES ALMEIDA",
+                "Name(s)": "JULIA MENDONA\u2021A ROCHA",
                 "Sources": "silver"
             },
             {
                 "Code(s)": "<NA>",
-                "Name(s)": "ALESSANDRA VIREQUE",
+                "Name(s)": "LARISSA DA\u00b4ORSI",
                 "Sources": "silver"
             },
             {
                 "Code(s)": "<NA>",
-                "Name(s)": "ALESSANDRO LUIS DOS SANTOS",
+                "Name(s)": "LARISSA DE ABREU DA\u00b4ORSI",
                 "Sources": "silver"
             },
             {
                 "Code(s)": "<NA>",
-                "Name(s)": "ALEX SANDER JOSE MIGUEL",
+                "Name(s)": "LARISSA SUZART PINTO",
                 "Sources": "silver"
             },
             {
                 "Code(s)": "<NA>",
-                "Name(s)": "ALEXANDRE BATISTA DOS SANTOS",
+                "Name(s)": "LARYSSA MUA\u2018OZ RAMOS PITANGA",
                 "Sources": "silver"
             }
         ]
     },
     "clients": {
-        "total_gold": 33339,
+        "total_gold": 34015,
         "total_silver": 33920,
-        "matched": 28752,
+        "matched": 29516,
         "gold_only_count": 0,
-        "silver_only_count": 644,
+        "silver_only_count": 9,
         "gold_only_samples": [],
         "silver_only_samples": [
             {
-                "Code(s)": "227420",
-                "Name(s)": "ABGAIL MONTEZA",
+                "Code(s)": "227516",
+                "Name(s)": "FELIPE ROJAS A",
                 "Sources": "silver"
             },
             {
-                "Code(s)": "802425",
-                "Name(s)": "ABRAHAO FONTAN",
+                "Code(s)": "227941",
+                "Name(s)": "HAMILTON LACER",
                 "Sources": "silver"
             },
             {
-                "Code(s)": "895984",
-                "Name(s)": "ADRIANO SANCHE",
+                "Code(s)": "226814",
+                "Name(s)": "ISRAEL MIELLI",
                 "Sources": "silver"
             },
             {
-                "Code(s)": "860625",
-                "Name(s)": "AILA BACELLAR",
+                "Code(s)": "874291",
+                "Name(s)": "JORDANA MARIA",
                 "Sources": "silver"
             },
             {
-                "Code(s)": "089378",
-                "Name(s)": "AIRTON FERNAND",
+                "Code(s)": "227630",
+                "Name(s)": "LARISSA SUZART",
                 "Sources": "silver"
             },
             {
-                "Code(s)": "086952",
-                "Name(s)": "ALAN HUMBERTO",
+                "Code(s)": "036448",
+                "Name(s)": "LEANDRA CREPAL",
                 "Sources": "silver"
             },
             {
-                "Code(s)": "700037",
-                "Name(s)": "ALAYDE MAIA AZ",
+                "Code(s)": "893246",
+                "Name(s)": "NEILA BORGES D",
                 "Sources": "silver"
             },
             {
-                "Code(s)": "883706",
-                "Name(s)": "ALBA GABRIELA",
+                "Code(s)": "227695",
+                "Name(s)": "RAYNNE RANNE G",
                 "Sources": "silver"
             },
             {
-                "Code(s)": "700863",
-                "Name(s)": "ALESSANDRA VIR",
-                "Sources": "silver"
-            },
-            {
-                "Code(s)": "085658",
-                "Name(s)": "ALESSANDRO LUI",
-                "Sources": "silver"
-            },
-            {
-                "Code(s)": "700857",
-                "Name(s)": "ALEX SANDER JO",
-                "Sources": "silver"
-            },
-            {
-                "Code(s)": "864785",
-                "Name(s)": "ALEXANDRE DE M",
-                "Sources": "silver"
-            },
-            {
-                "Code(s)": "895298",
-                "Name(s)": "ALEXANDRE MAST",
-                "Sources": "silver"
-            },
-            {
-                "Code(s)": "501594",
-                "Name(s)": "ALEXANDRE SHIN",
-                "Sources": "silver"
-            },
-            {
-                "Code(s)": "052919",
-                "Name(s)": "ALEXANDRE VIVO",
+                "Code(s)": "897951",
+                "Name(s)": "ROBERTO EDUARD",
                 "Sources": "silver"
             }
         ]

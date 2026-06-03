@@ -138,6 +138,85 @@ def promote_full_load(con, name, pk_cols, keep_all=False):
     deleted_count = con.execute(f"SELECT COUNT(*) FROM silver.{name} WHERE is_deleted = TRUE").fetchone()[0]
     logger.info(f"Successfully promoted '{name}' to Silver. Rows: {count:,} (Deleted: {deleted_count:,})")
 
+def promote_pedidos(con):
+    logger.info("Promoting table 'pedidos' from Bronze to Silver...")
+
+    exists = con.execute("""
+        SELECT COUNT(*) FROM information_schema.tables
+        WHERE table_schema = 'bronze' AND table_name = 'pedidos'
+    """).fetchone()[0]
+
+    if not exists:
+        logger.error("Bronze table 'bronze.pedidos' not found.")
+        return
+
+    # Promote ALL columns from bronze, only replacing fields that need type casting.
+    # Deduplicate by business primary keys: company_id, C5_FILIAL, C5_NUM, C6_ITEM
+    query = """
+    CREATE OR REPLACE TABLE silver.pedidos AS
+    SELECT * REPLACE (
+        CAST(try_strptime(C5_EMISSAO, '%Y%m%d') AS DATE) AS C5_EMISSAO,
+        TRY_CAST(C6_QTDVEN  AS DOUBLE) AS C6_QTDVEN,
+        TRY_CAST(C6_PRCVEN  AS DOUBLE) AS C6_PRCVEN,
+        TRY_CAST(C6_VALOR   AS DOUBLE) AS C6_VALOR,
+        TRY_CAST(C6_DESCONT AS DOUBLE) AS C6_DESCONT
+    ),
+    FALSE AS is_deleted
+    FROM (
+        SELECT *,
+               ROW_NUMBER() OVER (
+                   PARTITION BY company_id, C5_FILIAL, C5_NUM, C6_ITEM
+                   ORDER BY extraction_timestamp DESC
+               ) AS rn
+        FROM bronze.pedidos
+    )
+    WHERE rn = 1;
+    """
+
+    con.execute(query)
+    count = con.execute("SELECT COUNT(*) FROM silver.pedidos").fetchone()[0]
+    logger.info(f"Successfully promoted 'pedidos' to Silver. Rows: {count:,}")
+
+
+def promote_pedidos_venda(con):
+    logger.info("Promoting table 'pedidos_venda' from Bronze to Silver...")
+
+    exists = con.execute("""
+        SELECT COUNT(*) FROM information_schema.tables
+        WHERE table_schema = 'bronze' AND table_name = 'pedidos_venda'
+    """).fetchone()[0]
+
+    if not exists:
+        logger.error("Bronze table 'bronze.pedidos_venda' not found.")
+        return
+
+    # Promote ALL columns from bronze, only replacing fields that need type casting.
+    # Deduplicate by business primary keys: company_id, L1_FILIAL, L1_NUM, L2_ITEM
+    query = """
+    CREATE OR REPLACE TABLE silver.pedidos_venda AS
+    SELECT * REPLACE (
+        CAST(try_strptime(L1_EMISSAO, '%Y%m%d') AS DATE) AS L1_EMISSAO,
+        TRY_CAST(L2_QUANT   AS DOUBLE) AS L2_QUANT,
+        TRY_CAST(L2_VRUNIT  AS DOUBLE) AS L2_VRUNIT,
+        TRY_CAST(L2_VLRITEM AS DOUBLE) AS L2_VLRITEM,
+        TRY_CAST(L2_DESC    AS DOUBLE) AS L2_DESC
+    ),
+    FALSE AS is_deleted
+    FROM (
+        SELECT *,
+               ROW_NUMBER() OVER (
+                   PARTITION BY company_id, L1_FILIAL, L1_NUM, L2_ITEM
+                   ORDER BY extraction_timestamp DESC
+               ) AS rn
+        FROM bronze.pedidos_venda
+    )
+    WHERE rn = 1;
+    """
+
+    con.execute(query)
+    count = con.execute("SELECT COUNT(*) FROM silver.pedidos_venda").fetchone()[0]
+    logger.info(f"Successfully promoted 'pedidos_venda' to Silver. Rows: {count:,}")
+
 
 def main():
     logger.info("=== PROTHEUS BRONZE TO SILVER PROMOTION STARTED ===")
@@ -148,6 +227,8 @@ def main():
 
     try:
         promote_notas(con)
+        promote_pedidos(con)
+        promote_pedidos_venda(con)
         promote_full_load(con, "tes",        ["F4_CODIGO"])
         promote_full_load(con, "produtos",   ["B1_COD"])
         promote_full_load(con, "clientes",   ["A1_COD", "A1_LOJA"], keep_all=True)

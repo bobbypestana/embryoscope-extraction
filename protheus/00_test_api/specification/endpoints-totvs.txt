@@ -1,4 +1,4 @@
-
+--- entrega de 13/05/2026
 
 Nota Fiscal
 
@@ -109,3 +109,25 @@ TenantId = Grupo,Empresa e Filial. Exemplo: 07,030101
  
 
 · Para o parâmetro datetime, caso não seja enviado, o sistema vai buscar os registros a partir do ultimo consultado.
+
+
+--- entrega de 28/05/2026
+
+Pedido de Venda
+https://huntingtoncentro175132.protheus.cloudtotvs.com.br:4050/rest/CONSPED/pedidos
+
+Parametros:
+dataIni= AAAAMMDD
+dataFim=AAAAMMDD
+nPage = Numero da pagina  - opcional
+nPageSize =  Quantidade de registros por pagina  - opcional
+
+
+Venda Direta
+https://huntingtoncentro175132.protheus.cloudtotvs.com.br:4050/rest/CONSPEVD/pedidos
+
+Parametros:
+dataIni= AAAAMMDD
+dataFim=AAAAMMDD
+nPage = Numero da pagina  - opcional
+nPageSize =  Quantidade de registros por pagina  - opcional
