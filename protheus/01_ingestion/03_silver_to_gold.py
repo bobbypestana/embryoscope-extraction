@@ -52,6 +52,7 @@ def create_gold_table(con):
         COALESCE(c_cli.A1_NOME, n.F2_NOMPACI) AS "Nome",
         TRY_CAST(c_pac.A1_CODMS AS INTEGER)::VARCHAR AS "Paciente",
         n.F2_NOMPACI AS "Nom Paciente",
+        c_cli.A1_CGC as CPF,
         TRY_CAST(-1 AS INTEGER) AS prontuario,
         CAST(n.F2_EMISSAO AS TIMESTAMP) AS "DT Emissao",
         p.B1_DESC AS "Descricao",
