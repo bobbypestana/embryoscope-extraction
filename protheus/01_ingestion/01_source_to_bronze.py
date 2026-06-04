@@ -209,26 +209,15 @@ def write_to_bronze(table_name, rows):
 
 def generate_date_chunks(start_dt, end_dt, force_backfill):
     chunks = []
-    if force_backfill:
-        # Monthly chunks instead of yearly
-        import calendar
-        current_start = start_dt
-        while current_start <= end_dt:
-            last_day = calendar.monthrange(current_start.year, current_start.month)[1]
-            current_end = datetime(current_start.year, current_start.month, last_day)
-            if current_end > end_dt:
-                current_end = end_dt
-            chunks.append((current_start, current_end))
-            current_start = current_end + timedelta(days=1)
-    else:
-        # Weekly chunks
-        current_start = start_dt
-        while current_start <= end_dt:
-            current_end = current_start + timedelta(days=6)
-            if current_end > end_dt:
-                current_end = end_dt
-            chunks.append((current_start, current_end))
-            current_start = current_end + timedelta(days=1)
+    import calendar
+    current_start = start_dt
+    while current_start <= end_dt:
+        last_day = calendar.monthrange(current_start.year, current_start.month)[1]
+        current_end = datetime(current_start.year, current_start.month, last_day)
+        if current_end > end_dt:
+            current_end = end_dt
+        chunks.append((current_start, current_end))
+        current_start = current_end + timedelta(days=1)
     return chunks
 
 def fetch_invoice_range(tenant_id, company_id, start_date_str, end_date_str, existing_hashes):
@@ -457,30 +446,7 @@ def ingest_notas(force_backfill=False):
                 tenant_id, company_id, data_ini_str, data_fim_str, existing_hashes
             )
             
-            # Switch to daily fallback ONLY in incremental (non-historical) runs when volume is high
-            if not force_backfill and flat_rows_read >= 1000:
-                logger.warning(
-                    f"Chunk volume ({flat_rows_read} flat rows) is high and poses a truncation risk. "
-                    f"Switching to daily queries for incremental week {data_ini_str}-{data_fim_str}."
-                )
-                new_rows = []
-                invoices_read = 0
-                flat_rows_read = 0
-                
-                day_start = current_start
-                while day_start <= current_end:
-                    day_str = day_start.strftime("%Y%m%d")
-                    day_rows, day_inv_read, day_flat_read = fetch_invoice_range(
-                        tenant_id, company_id, day_str, day_str, existing_hashes
-                    )
-                    new_rows.extend(day_rows)
-                    invoices_read += day_inv_read
-                    flat_rows_read += day_flat_read
-                    day_start += timedelta(days=1)
-                
-                logger.info(f"Daily query complete for week {data_ini_str}-{data_fim_str}. Invoices read: {invoices_read}, Flat rows read: {flat_rows_read}. Unique new written: {len(new_rows)}")
-            else:
-                logger.info(f"Chunk {data_ini_str}-{data_fim_str} complete. Invoices read: {invoices_read}, Flat rows read: {flat_rows_read}. Unique new written: {len(new_rows)}")
+            logger.info(f"Chunk {data_ini_str}-{data_fim_str} complete. Invoices read: {invoices_read}, Flat rows read: {flat_rows_read}. Unique new written: {len(new_rows)}")
             
             if new_rows:
                 for r in new_rows:
@@ -530,30 +496,7 @@ def ingest_pedidos(force_backfill=False):
                 tenant_id, company_id, data_ini_str, data_fim_str, existing_hashes
             )
             
-            # Switch to daily fallback ONLY in incremental (non-historical) runs when volume is high
-            if not force_backfill and flat_rows_read >= 1000:
-                logger.warning(
-                    f"Chunk volume ({flat_rows_read} flat rows) is high and poses a truncation risk. "
-                    f"Switching to daily queries for incremental week {data_ini_str}-{data_fim_str}."
-                )
-                new_rows = []
-                orders_read = 0
-                flat_rows_read = 0
-                
-                day_start = current_start
-                while day_start <= current_end:
-                    day_str = day_start.strftime("%Y%m%d")
-                    day_rows, day_ord_read, day_flat_read = fetch_sales_orders_range(
-                        tenant_id, company_id, day_str, day_str, existing_hashes
-                    )
-                    new_rows.extend(day_rows)
-                    orders_read += day_ord_read
-                    flat_rows_read += day_flat_read
-                    day_start += timedelta(days=1)
-                
-                logger.info(f"Daily query complete for week {data_ini_str}-{data_fim_str}. Orders read: {orders_read}, Flat rows read: {flat_rows_read}. Unique new written: {len(new_rows)}")
-            else:
-                logger.info(f"Chunk {data_ini_str}-{data_fim_str} complete. Orders read: {orders_read}, Flat rows read: {flat_rows_read}. Unique new written: {len(new_rows)}")
+            logger.info(f"Chunk {data_ini_str}-{data_fim_str} complete. Orders read: {orders_read}, Flat rows read: {flat_rows_read}. Unique new written: {len(new_rows)}")
             
             if new_rows:
                 for r in new_rows:
@@ -603,30 +546,7 @@ def ingest_pedidos_venda(force_backfill=False):
                 tenant_id, company_id, data_ini_str, data_fim_str, existing_hashes
             )
             
-            # Switch to daily fallback ONLY in incremental (non-historical) runs when volume is high
-            if not force_backfill and flat_rows_read >= 1000:
-                logger.warning(
-                    f"Chunk volume ({flat_rows_read} flat rows) is high and poses a truncation risk. "
-                    f"Switching to daily queries for incremental week {data_ini_str}-{data_fim_str}."
-                )
-                new_rows = []
-                sales_read = 0
-                flat_rows_read = 0
-                
-                day_start = current_start
-                while day_start <= current_end:
-                    day_str = day_start.strftime("%Y%m%d")
-                    day_rows, day_sal_read, day_flat_read = fetch_direct_sales_range(
-                        tenant_id, company_id, day_str, day_str, existing_hashes
-                    )
-                    new_rows.extend(day_rows)
-                    sales_read += day_sal_read
-                    flat_rows_read += day_flat_read
-                    day_start += timedelta(days=1)
-                
-                logger.info(f"Daily query complete for week {data_ini_str}-{data_fim_str}. Sales read: {sales_read}, Flat rows read: {flat_rows_read}. Unique new written: {len(new_rows)}")
-            else:
-                logger.info(f"Chunk {data_ini_str}-{data_fim_str} complete. Sales read: {sales_read}, Flat rows read: {flat_rows_read}. Unique new written: {len(new_rows)}")
+            logger.info(f"Chunk {data_ini_str}-{data_fim_str} complete. Sales read: {sales_read}, Flat rows read: {flat_rows_read}. Unique new written: {len(new_rows)}")
             
             if new_rows:
                 for r in new_rows:
