@@ -126,6 +126,12 @@ files/
 # Document exports
 *.pdf
 
+# Scratch files and directories
+scratch/
+
+# Protheus test results
+protheus/00_test_api/resultados/
+
 # Agent-generated auxiliary folders and backups
 .agents/
 brain/

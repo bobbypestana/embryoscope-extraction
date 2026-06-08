@@ -1,7 +1,7 @@
 """
-run_strategy_h.py
+run_strategy_i.py
 =================
-Runs Strategy H prontuario matching on main.mapped_patients in
+Runs Strategy I patient matching on main.mapped_patients in
 database/test_mapped_patients.duckdb, and compares performance and accuracy.
 """
 
@@ -18,7 +18,7 @@ _HERE = os.path.dirname(os.path.abspath(__file__))
 _LOG_DIR = os.path.join(_HERE, "logs")
 os.makedirs(_LOG_DIR, exist_ok=True)
 
-log_file = os.path.join(_LOG_DIR, f"run_strategy_h_{datetime.now():%Y%m%d_%H%M%S}.log")
+log_file = os.path.join(_LOG_DIR, f"run_strategy_i_{datetime.now():%Y%m%d_%H%M%S}.log")
 formatter = logging.Formatter("%(asctime)s %(levelname)-8s %(message)s")
 
 fh = logging.FileHandler(log_file, encoding="utf-8")
@@ -37,7 +37,7 @@ logging.info("Clinisys DB : %s", CLINISYS_DB)
 logging.info("Log file    : %s", log_file)
 
 # Import matching engine
-from prontuario_matching_v1 import run_strategy_h
+from matching_engine_i import run_strategy_i
 
 def main():
     if not os.path.exists(CLINISYS_DB):
@@ -54,19 +54,19 @@ def main():
         cols_df = con.execute("PRAGMA table_info('main.mapped_patients')").df()
         existing_cols = {c.lower() for c in cols_df["name"]}
         
-        for col in ["prontuario_H", "clinisys_name_H", "clinisys_matched_name_H"]:
+        for col in ["prontuario_I", "clinisys_name_I", "clinisys_matched_name_I"]:
             if col.lower() in existing_cols:
-                if col == "prontuario_H":
+                if col == "prontuario_I":
                     logging.info("Resetting column %s to -1...", col)
-                    con.execute("UPDATE main.mapped_patients SET prontuario_H = -1")
+                    con.execute("UPDATE main.mapped_patients SET prontuario_I = -1")
                 else:
                     logging.info("Resetting column %s to NULL...", col)
                     con.execute(f"UPDATE main.mapped_patients SET {col} = NULL")
 
-        # 2. Run Strategy H
-        logging.info("--- RUNNING STRATEGY H ---")
+        # 2. Run Strategy I
+        logging.info("--- RUNNING STRATEGY I ---")
         t_start = time.perf_counter()
-        df_h = run_strategy_h(
+        df_i = run_strategy_i(
             source_con=con,
             clinisys_db_path=CLINISYS_DB,
             source_schema="main",
@@ -75,57 +75,56 @@ def main():
             name_col="name",
             birthdate_col="birthdate",
             cpf_col="cpf",
-            label="mapped_patients_h",
-            suffix="_H",
+            label="mapped_patients_i",
         )
         t_duration = time.perf_counter() - t_start
-        logging.info("Strategy H completed in %.2f seconds.", t_duration)
+        logging.info("Strategy I completed in %.2f seconds.", t_duration)
 
         # 3. Print comparison stats
         total_rows = con.execute("SELECT COUNT(*) FROM main.mapped_patients").fetchone()[0]
         
         stats_queries = []
         strategies = []
-        for strat in ["A", "B", "D", "E", "G"]:
+        for strat in ["A", "B", "D", "E", "G", "H"]:
             col_name = f"prontuario_{strat}"
             if col_name.lower() in existing_cols:
                 stats_queries.append(f"COUNT(CASE WHEN {col_name} != -1 THEN 1 END) AS matched_{strat.lower()}")
                 strategies.append(strat)
         
-        stats_queries.append("COUNT(CASE WHEN prontuario_H != -1 THEN 1 END) AS matched_h")
+        stats_queries.append("COUNT(CASE WHEN prontuario_I != -1 THEN 1 END) AS matched_i")
         
         stats = con.execute(f"SELECT {', '.join(stats_queries)} FROM main.mapped_patients").fetchone()
         
         logging.info("="*60)
-        logging.info("STRATEGY PERFORMANCE & ACCURACY COMPARISON (H)")
+        logging.info("STRATEGY PERFORMANCE & ACCURACY COMPARISON (I)")
         logging.info("="*60)
         logging.info("Total rows in test table : %d", total_rows)
         for i, strat in enumerate(strategies):
             logging.info("Matched by Strategy %s    : %d (%.2f%%)", strat, stats[i], (stats[i]/total_rows*100) if total_rows else 0.0)
-        logging.info("Matched by Strategy H    : %d (%.2f%%)", stats[-1], (stats[-1]/total_rows*100) if total_rows else 0.0)
+        logging.info("Matched by Strategy I    : %d (%.2f%%)", stats[-1], (stats[-1]/total_rows*100) if total_rows else 0.0)
         logging.info("-" * 60)
         
-        # Check conflicts between G and H
-        if "prontuario_g" in existing_cols:
-            conflicts_gh = con.execute("""
+        # Check conflicts between H and I
+        if "prontuario_h" in existing_cols:
+            conflicts_hi = con.execute("""
                 SELECT COUNT(*) FROM main.mapped_patients 
-                WHERE prontuario_G != prontuario_H AND prontuario_G != -1 AND prontuario_H != -1
+                WHERE prontuario_H != prontuario_I AND prontuario_H != -1 AND prontuario_I != -1
             """).fetchone()[0]
-            logging.info("Conflicts: G vs H        : %d", conflicts_gh)
+            logging.info("Conflicts: H vs I        : %d", conflicts_hi)
             
-            if conflicts_gh > 0:
-                logging.info("Sample mismatches (G vs H where both match):")
-                sample_gh = con.execute("""
-                    SELECT id, name, birthdate, cpf, prontuario_G, clinisys_name_G, prontuario_H, clinisys_name_H, clinisys_matched_name_H
+            if conflicts_hi > 0:
+                logging.info("Sample mismatches (H vs I where both match):")
+                sample_hi = con.execute("""
+                    SELECT id, name, birthdate, cpf, prontuario_H, clinisys_name_H, prontuario_I, clinisys_name_I, clinisys_matched_name_I
                     FROM main.mapped_patients
-                    WHERE prontuario_G != prontuario_H AND prontuario_G != -1 AND prontuario_H != -1
+                    WHERE prontuario_H != prontuario_I AND prontuario_H != -1 AND prontuario_I != -1
                     LIMIT 10
                 """).df()
-                print(sample_gh.to_string(index=False))
+                print(sample_hi.to_string(index=False))
                 print("\n")
 
-        # 4. Validate the 17 conflict cases specifically
-        logging.info("Checking the 17 conflict cases evaluation...")
+        # 4. Validate the 19 conflict cases specifically
+        logging.info("Checking the 19 conflict cases evaluation...")
         
         conflict_cases = [
             ("11200", "CANGUSSU, LARISSA PORTO", 611200),
@@ -155,22 +154,22 @@ def main():
         for cid, cname, expected_p in conflict_cases:
             # Query the database
             row_db = con.execute("""
-                SELECT prontuario_H, clinisys_name_H, clinisys_matched_name_H
+                SELECT prontuario_I, clinisys_name_I, clinisys_matched_name_I
                 FROM main.mapped_patients
                 WHERE id = ? AND name IS NOT DISTINCT FROM ?
                 LIMIT 1
             """, (cid, cname)).fetchone()
             
             if row_db:
-                p_h, name_esposa, name_matched = row_db
-                status = "PASS" if p_h == expected_p else "FAIL"
+                p_i, name_esposa, name_matched = row_db
+                status = "PASS" if p_i == expected_p else "FAIL"
                 if status == "PASS":
                     success_count += 1
                 results_list.append({
                     "ID": cid,
                     "Name": cname,
                     "Expected": expected_p,
-                    "Got_H": p_h,
+                    "Got_I": p_i,
                     "Status": status,
                     "Clinisys_Wife": name_esposa,
                     "Clinisys_Matched": name_matched
@@ -180,7 +179,7 @@ def main():
                     "ID": cid,
                     "Name": cname,
                     "Expected": expected_p,
-                    "Got_H": "NOT FOUND",
+                    "Got_I": "NOT FOUND",
                     "Status": "FAIL",
                     "Clinisys_Wife": "",
                     "Clinisys_Matched": ""
@@ -194,7 +193,7 @@ def main():
         logging.info("="*60)
 
     except Exception as e:
-        logging.exception("Error running strategy H runner: %s", e)
+        logging.exception("Error running strategy I runner: %s", e)
         sys.exit(1)
     finally:
         con.close()

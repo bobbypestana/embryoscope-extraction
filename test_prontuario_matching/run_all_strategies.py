@@ -12,6 +12,11 @@ import time
 import subprocess
 from datetime import datetime
 
+if hasattr(sys.stdout, 'reconfigure'):
+    sys.stdout.reconfigure(errors='replace')
+if hasattr(sys.stderr, 'reconfigure'):
+    sys.stderr.reconfigure(errors='replace')
+
 _HERE = os.path.dirname(os.path.abspath(__file__))
 _LOG_DIR = os.path.join(_HERE, "logs")
 os.makedirs(_LOG_DIR, exist_ok=True)
@@ -32,7 +37,7 @@ def run(script_name):
     t0 = time.perf_counter()
     result = subprocess.run(
         [sys.executable, os.path.join(_HERE, script_name)],
-        capture_output=True, text=True, encoding="utf-8"
+        capture_output=True, text=True, encoding="utf-8", errors="replace"
     )
     elapsed = time.perf_counter() - t0
     if result.stdout:
@@ -57,6 +62,8 @@ def main():
     t_e  = run("run_strategy_e.py")
     t_g  = run("run_strategy_g.py")
     t_h  = run("run_strategy_h.py")
+    t_i  = run("run_strategy_i.py")
+    t_j  = run("run_strategy_j.py")
 
     # Final comparison
     import duckdb
@@ -71,7 +78,7 @@ def main():
     existing = {c.lower() for c in info["name"]}
 
     rows = []
-    for strat, col in [("A","prontuario_A"),("B","prontuario_B"),("D","prontuario_D"),("E","prontuario_E"),("G","prontuario_G"),("H","prontuario_H")]:
+    for strat, col in [("A","prontuario_A"),("B","prontuario_B"),("D","prontuario_D"),("E","prontuario_E"),("G","prontuario_G"),("H","prontuario_H"),("I","prontuario_I"),("J","prontuario_J")]:
         if col.lower() in existing:
             n = con.execute(f"SELECT COUNT(CASE WHEN {col} != -1 THEN 1 END) FROM main.mapped_patients").fetchone()[0]
             rows.append({"Strategy": strat, "Matched": n, "Total": total, "Rate_%": round(n/total*100,2)})
@@ -81,7 +88,7 @@ def main():
     logging.info("FINAL COMPARISON SUMMARY")
     logging.info("="*60)
     logging.info("\n%s", df_summary.to_string(index=False))
-    logging.info("\nTiming: A+B=%.1fs  D=%.1fs  E=%.1fs  G=%.1fs  H=%.1fs", t_ab, t_d, t_e, t_g, t_h)
+    logging.info("\nTiming: A+B=%.1fs  D=%.1fs  E=%.1fs  G=%.1fs  H=%.1fs  I=%.1fs  J=%.1fs", t_ab, t_d, t_e, t_g, t_h, t_i, t_j)
 
     # Conflict between E and G
     if "prontuario_e" in existing and "prontuario_g" in existing:
@@ -111,6 +118,45 @@ def main():
         else:
             logging.info("SUCCESS: Strategy G and Strategy H matches are 100% identical!")
 
+    # Discrepancies between H and I
+    if "prontuario_h" in existing and "prontuario_i" in existing:
+        discrepancies_hi = con.execute("""
+            SELECT COUNT(*) FROM main.mapped_patients
+            WHERE prontuario_H != prontuario_I
+        """).fetchone()[0]
+        logging.info("H vs I total discrepancies (different or one-sided match): %d", discrepancies_hi)
+        
+        if discrepancies_hi > 0:
+            logging.info("Discrepancies found between Strategy H and Strategy I (due to spelling tolerance):")
+            sample_disc_hi = con.execute("""
+                SELECT id, name, birthdate, cpf, prontuario_H, clinisys_name_H, prontuario_I, clinisys_name_I
+                FROM main.mapped_patients
+                WHERE prontuario_H != prontuario_I
+                LIMIT 20
+            """).df()
+            print(sample_disc_hi.to_string(index=False))
+        else:
+            logging.info("SUCCESS: Strategy H and Strategy I matches are 100% identical!")
+
+    # Discrepancies between I and J (Identity validation)
+    if "prontuario_i" in existing and "prontuario_j" in existing:
+        discrepancies_ij = con.execute("""
+            SELECT COUNT(*) FROM main.mapped_patients
+            WHERE prontuario_I != prontuario_J
+        """).fetchone()[0]
+        logging.info("I vs J total discrepancies (should be 0): %d", discrepancies_ij)
+        if discrepancies_ij == 0:
+            logging.info("SUCCESS: Strategy I and Strategy J matches are 100% identical!")
+        else:
+            logging.error("FAILURE: Strategy I and Strategy J matches differ!")
+            sample_disc_ij = con.execute("""
+                SELECT id, name, birthdate, prontuario_I, clinisys_name_I, prontuario_J, clinisys_name_J
+                FROM main.mapped_patients
+                WHERE prontuario_I != prontuario_J
+                LIMIT 20
+            """).df()
+            print(sample_disc_ij.to_string(index=False))
+
     # Reference cases
     conflict_cases = [
         ("11200", "CANGUSSU, LARISSA PORTO", 611200),
@@ -137,7 +183,7 @@ def main():
     results = []
     for cid, cname, expected in conflict_cases:
         cols_sel = []
-        for strat, col in [("E","prontuario_E"),("G","prontuario_G"),("H","prontuario_H")]:
+        for strat, col in [("E","prontuario_E"),("G","prontuario_G"),("H","prontuario_H"),("I","prontuario_I"),("J","prontuario_J")]:
             if col.lower() in existing:
                 cols_sel.append(col)
         if not cols_sel:

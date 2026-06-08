@@ -1,9 +1,10 @@
 """
-matching_engine_h.py — Strategy H: Unified Hierarchical Patient Matching in SQL with Dynamic Schema Discovery
-==========================================================================================================
-A generalized patient matching engine that runs entirely in DuckDB SQL, with dynamic
-discovery of the Clinisys silver.view_pacientes database columns at runtime to prevent
-hardcoding and ensure 100% robustness to new fields.
+matching_engine_i.py — Strategy I: Patient Matching in SQL with Levenshtein Spelling Safeguards
+=============================================================================================
+A patient matching engine that extends Strategy H to support relaxed first-name comparison.
+Uses DuckDB's built-in levenshtein() with explicit gender safeguards (detecting and rejecting
+-o/-a swaps and gender suffix extensions like Gabriel/Gabriela) to prevent false positive matches
+for spouses and family members.
 
 Updates the target table in-place and returns a pandas DataFrame.
 """
@@ -20,7 +21,7 @@ logger = logging.getLogger(__name__)
 def _t(label: str, start: float) -> None:
     logger.info("  [T] %-40s %6.0f ms", label, (time.perf_counter() - start) * 1000)
 
-def run_strategy_h(
+def run_strategy_i(
     source_con: duckdb.DuckDBPyConnection,
     clinisys_db_path: str,
     source_schema: str,
@@ -30,18 +31,18 @@ def run_strategy_h(
     birthdate_col: str = None,
     cpf_col: str = None,
     label: str = "",
-    target_pront_col: str = "prontuario_H",
-    target_name_col: str = "clinisys_name_H",
-    target_matched_name_col: str = "clinisys_matched_name_H",
+    target_pront_col: str = "prontuario_I",
+    target_name_col: str = "clinisys_name_I",
+    target_matched_name_col: str = "clinisys_matched_name_I",
 ) -> pd.DataFrame:
     """
-    Runs Strategy H patient matching on the source table.
+    Runs Strategy I patient matching on the source table.
     Updates the table in-place by adding/updating target columns.
     Returns a pd.DataFrame with results.
     """
     tag = label or f"{source_schema}.{source_table}"
     t_start = time.perf_counter()
-    logger.info("[%s] Starting Strategy H matching", tag)
+    logger.info("[%s] Starting Strategy I matching", tag)
 
     # 1. Attach clinisys DB
     try:
@@ -130,14 +131,77 @@ def run_strategy_h(
     """)
     _t("Extract and clean source records", t0)
 
-    # 3. Create name scoring macro in session
+    # 3. Create name scoring macro with Levenshtein & spelling safeguards
     source_con.execute("""
+        CREATE OR REPLACE TEMPORARY MACRO norm_name(w) AS (
+            replace(
+                replace(
+                    replace(
+                        replace(
+                            replace(
+                                replace(
+                                    replace(
+                                        replace(
+                                            replace(
+                                                replace(
+                                                    replace(
+                                                        replace(
+                                                            replace(
+                                                                replace(
+                                                                    replace(w, 'ph', 'f'),
+                                                                    'y', 'i'
+                                                                ),
+                                                                'w', 'v'
+                                                            ),
+                                                            'z', 's'
+                                                        ),
+                                                        'k', 'c'
+                                                    ),
+                                                    'ss', 's'
+                                                ),
+                                                'll', 'l'
+                                            ),
+                                            'rr', 'r'
+                                        ),
+                                        'nn', 'n'
+                                    ),
+                                    'tt', 't'
+                                ),
+                                'cc', 'c'
+                            ),
+                            'pp', 'p'
+                        ),
+                        'ff', 'f'
+                    ),
+                    'mm', 'm'
+                ),
+                'h', ''
+            )
+        );
+
         CREATE OR REPLACE TEMPORARY MACRO score_name(p_w, c_w) AS (
             CASE
                 WHEN p_w IS NULL OR len(p_w) = 0 THEN 1
                 WHEN c_w IS NULL OR len(c_w) = 0 THEN 5
                 WHEN p_w = c_w THEN 1
-                WHEN NOT list_contains(c_w, p_w[1]) THEN 5
+                WHEN NOT (
+                    list_contains(c_w, p_w[1]) OR (
+                        len(p_w) > 0 AND len(c_w) > 0 AND
+                        levenshtein(norm_name(p_w[1]), norm_name(c_w[1])) <= 1 AND
+                        NOT (
+                            (right(norm_name(p_w[1]), 1) = 'o' AND right(norm_name(c_w[1]), 1) = 'a') OR
+                            (right(norm_name(p_w[1]), 1) = 'a' AND right(norm_name(c_w[1]), 1) = 'o') OR
+                            (right(norm_name(p_w[1]), 1) = 'o' AND right(norm_name(c_w[1]), 1) = 'e') OR
+                            (right(norm_name(p_w[1]), 1) = 'e' AND right(norm_name(c_w[1]), 1) = 'o') OR
+                            (right(norm_name(p_w[1]), 2) = 'an' AND right(norm_name(c_w[1]), 2) = 'ne') OR
+                            (right(norm_name(p_w[1]), 2) = 'ne' AND right(norm_name(c_w[1]), 2) = 'an') OR
+                            (right(norm_name(p_w[1]), 3) = 'dre' AND right(norm_name(c_w[1]), 3) = 'dra') OR
+                            (right(norm_name(p_w[1]), 3) = 'dra' AND right(norm_name(c_w[1]), 3) = 'dre') OR
+                            norm_name(c_w[1]) = norm_name(p_w[1]) || 'a' OR
+                            norm_name(p_w[1]) = norm_name(c_w[1]) || 'a'
+                        )
+                    )
+                ) THEN 5
                 WHEN list_contains(c_w, p_w[-1]) THEN 2
                 WHEN len(list_filter(p_w, w -> list_contains(c_w, w))) > 1 THEN 3
                 ELSE 4
@@ -468,7 +532,7 @@ def run_strategy_h(
             source_con.execute(f"ALTER TABLE {source_schema}.\"{source_table}\" ADD COLUMN {col_name} {col_type}")
 
     # Register temporary view of df_matched to update
-    source_con.register("df_h_temp", df_matched)
+    source_con.register("df_i_temp", df_matched)
     
     # Update target table in-place using indexed join
     where_clause = f"""
@@ -483,10 +547,10 @@ def run_strategy_h(
         SET {target_pront_col} = m.prontuario,
             {target_name_col} = m.clinisys_name,
             {target_matched_name_col} = m.clinisys_matched_name
-        FROM df_h_temp m
+        FROM df_i_temp m
         {where_clause};
     """)
-    logger.info("[%s] Strategy H in-place updates applied to %s.%s", tag, source_schema, source_table)
+    logger.info("[%s] Strategy I in-place updates applied to %s.%s", tag, source_schema, source_table)
 
     # Clean up temp tables
     try:
@@ -498,13 +562,14 @@ def run_strategy_h(
         source_con.execute("DROP TABLE IF EXISTS __matches_all")
         source_con.execute("DROP TABLE IF EXISTS __matches_ranked")
         source_con.execute("DROP TEMPORARY MACRO score_name")
-        source_con.execute("DROP TABLE IF EXISTS df_h_temp")
+        source_con.execute("DROP TEMPORARY MACRO norm_name")
+        source_con.execute("DROP TABLE IF EXISTS df_i_temp")
     except Exception:
         pass
 
     n_matched = len(df_matched[df_matched["prontuario"] != -1])
     total = len(df_matched)
-    logger.info("[%s] Strategy H: %d/%d matched (%.2f%%) in %.1f seconds",
+    logger.info("[%s] Strategy I: %d/%d matched (%.2f%%) in %.1f seconds",
                 tag, n_matched, total, (n_matched/total*100) if total else 0.0, time.perf_counter() - t_start)
 
     return df_matched

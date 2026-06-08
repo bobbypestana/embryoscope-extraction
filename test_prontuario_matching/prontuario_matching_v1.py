@@ -1,5 +1,5 @@
 """
-matching_engine_h.py — Strategy H: Unified Hierarchical Patient Matching in SQL with Dynamic Schema Discovery
+prontuario_matching_v1.py — Strategy H: Unified Hierarchical Patient Matching in SQL with Dynamic Schema Discovery
 ==========================================================================================================
 A generalized patient matching engine that runs entirely in DuckDB SQL, with dynamic
 discovery of the Clinisys silver.view_pacientes database columns at runtime to prevent
@@ -30,9 +30,7 @@ def run_strategy_h(
     birthdate_col: str = None,
     cpf_col: str = None,
     label: str = "",
-    target_pront_col: str = "prontuario_H",
-    target_name_col: str = "clinisys_name_H",
-    target_matched_name_col: str = "clinisys_matched_name_H",
+    suffix: str = "",
 ) -> pd.DataFrame:
     """
     Runs Strategy H patient matching on the source table.
@@ -42,6 +40,14 @@ def run_strategy_h(
     tag = label or f"{source_schema}.{source_table}"
     t_start = time.perf_counter()
     logger.info("[%s] Starting Strategy H matching", tag)
+
+    target_pront_col = f"prontuario{suffix}"
+    if suffix:
+        target_name_col = f"clinisys_name{suffix}"
+        target_matched_name_col = f"clinisys_matched_name{suffix}"
+    else:
+        target_name_col = None
+        target_matched_name_col = None
 
     # 1. Attach clinisys DB
     try:
@@ -453,15 +459,18 @@ def run_strategy_h(
     """).df()
     _t("Rank matches and select winners", t0)
 
-    # Ensure target columns exist in the source table
-    columns_to_add = [
-        (target_pront_col, "BIGINT"),
-        (target_name_col, "VARCHAR"),
-        (target_matched_name_col, "VARCHAR"),
-    ]
     # Check if target prontuario column exists initially
     pront_col_exists = target_pront_col.lower() in col_names
 
+    # Ensure target columns exist in the source table
+    columns_to_add = [
+        (target_pront_col, "BIGINT"),
+    ]
+    if suffix:
+        columns_to_add.extend([
+            (target_name_col, "VARCHAR"),
+            (target_matched_name_col, "VARCHAR"),
+        ])
     for col_name, col_type in columns_to_add:
         if col_name.lower() not in col_names:
             logger.info("[%s] Adding column %s (%s) to target table...", tag, col_name, col_type)
@@ -471,21 +480,36 @@ def run_strategy_h(
     source_con.register("df_h_temp", df_matched)
     
     # Update target table in-place using indexed join
-    where_clause = f"""
-        WHERE target."{id_col}" = m.source_id
-          AND target."{name_col if name_col else 'id'}" IS NOT DISTINCT FROM m.patient_name
-    """
-    if pront_col_exists:
-        where_clause += f'          AND target."{target_pront_col}" = -1'
+    if suffix:
+        where_clause = f"""
+            WHERE target."{id_col}" = m.source_id
+              AND target."{name_col if name_col else 'id'}" IS NOT DISTINCT FROM m.patient_name
+        """
+        if pront_col_exists:
+            where_clause += f'              AND target."{target_pront_col}" = -1'
 
-    source_con.execute(f"""
-        UPDATE {source_schema}.\"{source_table}\" AS target
-        SET {target_pront_col} = m.prontuario,
-            {target_name_col} = m.clinisys_name,
-            {target_matched_name_col} = m.clinisys_matched_name
-        FROM df_h_temp m
-        {where_clause};
-    """)
+        source_con.execute(f"""
+            UPDATE {source_schema}.\"{source_table}\" AS target
+            SET {target_pront_col} = m.prontuario,
+                {target_name_col} = m.clinisys_name,
+                {target_matched_name_col} = m.clinisys_matched_name
+            FROM df_h_temp m
+            {where_clause};
+        """)
+    else:
+        where_clause = f"""
+            WHERE target."{id_col}" = m.source_id
+              AND target."{name_col if name_col else 'id'}" IS NOT DISTINCT FROM m.patient_name
+        """
+        if pront_col_exists:
+            where_clause += f'              AND target."{target_pront_col}" = -1'
+
+        source_con.execute(f"""
+            UPDATE {source_schema}.\"{source_table}\" AS target
+            SET {target_pront_col} = m.prontuario
+            FROM df_h_temp m
+            {where_clause};
+        """)
     logger.info("[%s] Strategy H in-place updates applied to %s.%s", tag, source_schema, source_table)
 
     # Clean up temp tables
