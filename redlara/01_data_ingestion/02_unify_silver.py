@@ -1,5 +1,14 @@
+import sys
 import duckdb
 from pathlib import Path
+
+# Add Huntington root directory to sys.path to resolve commons
+_script_dir = Path(__file__).resolve().parent
+_root_dir = _script_dir.parent.parent
+if str(_root_dir) not in sys.path:
+    sys.path.insert(0, str(_root_dir))
+
+from commons.prontuario_matching_v1 import find_prontuarios
 
 # Updated DB Path to 'database' folder
 DB_PATH = Path(r"g:\My Drive\projetos_individuais\Huntington\database\huntington_data_lake.duckdb")
@@ -36,6 +45,8 @@ TABLE_CONFIGS = {
             'number_of_embryos_transferred': 'number_of_embryos_transferred',
             
             'year': 'year',
+            'patient_name': None,
+            'date_of_birth': 'date_of_birth',
             'unidade': 'unidade',
             'prontuario': None
         }
@@ -63,6 +74,8 @@ TABLE_CONFIGS = {
             
             # Metadata keys (usually present)
             'year': 'year',
+            'patient_name': 'NOME',
+            'date_of_birth': 'date_of_birth',
             'unidade': 'unidade',
             'prontuario': None
         }
@@ -89,6 +102,8 @@ TABLE_CONFIGS = {
             'number_of_embryos_transferred': 'Number of embryos transferred',
 
             'year': 'year',
+            'patient_name': None,
+            'date_of_birth': "Woman's Date of birth",
             'unidade': 'unidade',
             'prontuario': None
         }
@@ -115,6 +130,8 @@ TABLE_CONFIGS = {
             'number_of_embryos_transferred': 'Number of embryos transferred',
 
             'year': 'year',
+            'patient_name': 'NOME',
+            'date_of_birth': "Woman's Date of birth",
             'unidade': 'unidade',
             'prontuario': None
         }
@@ -141,6 +158,8 @@ TABLE_CONFIGS = {
             'number_of_embryos_transferred': 'Number of embryos transferred',
 
             'year': 'year',
+            'patient_name': None,
+            'date_of_birth': 'Date of Birth',
             'unidade': 'unidade',
             'prontuario': None
         }
@@ -167,6 +186,8 @@ TABLE_CONFIGS = {
             'number_of_embryos_transferred': 'Number of embryos transferred',
 
             'year': 'year',
+            'patient_name': None,
+            'date_of_birth': 'Date of Birth',
             'unidade': 'unidade',
             'prontuario': None
         }
@@ -193,6 +214,8 @@ TABLE_CONFIGS = {
             'number_of_embryos_transferred': 'Number of embryos transferred',
             
             'year': 'year',
+            'patient_name': 'NOME',
+            'date_of_birth': 'Date of Birth',
             'unidade': 'unidade',
             'prontuario': None
         }
@@ -219,6 +242,8 @@ TABLE_CONFIGS = {
             'number_of_embryos_transferred': 'Number of embryos transferred',
 
             'year': 'year',
+            'patient_name': 'Nome',
+            'date_of_birth': "Woman's Date of birth",
             'unidade': 'unidade',
             'prontuario': None
         }
@@ -245,6 +270,8 @@ TABLE_CONFIGS = {
             'number_of_embryos_transferred': 'Number of embryos transferred',
 
             'year': 'year',
+            'patient_name': None,
+            'date_of_birth': 'Date of birth',
             'unidade': 'unidade',
             'prontuario': None
         }
@@ -271,6 +298,8 @@ TABLE_CONFIGS = {
             'number_of_embryos_transferred': 'Number of embryos transferred',
 
             'year': 'year',
+            'patient_name': 'Nome',
+            'date_of_birth': 'Date of birth',
             'unidade': 'unidade',
             'prontuario': None
         }
@@ -297,6 +326,8 @@ TABLE_CONFIGS = {
             'number_of_embryos_transferred': 'Number of embryos transferred',
 
             'year': 'year',
+            'patient_name': 'Nome',
+            'date_of_birth': "Woman's Date of birth",
             'unidade': 'unidade',
             'prontuario': None
         }
@@ -323,6 +354,8 @@ TABLE_CONFIGS = {
             'number_of_embryos_transferred': 'Number of embryos transferred',
 
             'year': 'year',
+            'patient_name': 'Nome',
+            'date_of_birth': "Woman's Date of birth",
             'unidade': 'unidade',
             'prontuario': None
         }
@@ -388,51 +421,27 @@ def unify_tables():
             if not clinisys_db_path.exists():
                 print(f"  Warning: {clinisys_db_path} not found. Skipping prontuario matching.")
             else:
-                conn.execute(f"ATTACH '{clinisys_db_path}' AS clinisys_all (READ_ONLY)")
-                
-                # Logic adapted from planilha_embriologia pipeline
-                update_sql = f"""
-                WITH pin_matches AS (
-                    SELECT DISTINCT
-                        p.chart_or_pin,
-                        COALESCE(
-                            -- Try direct match with codigo (main prontuario)
-                            (SELECT codigo FROM clinisys_all.silver.view_pacientes v 
-                             WHERE TRY_CAST(p.chart_or_pin AS INTEGER) = v.codigo AND v.inativo = 0 LIMIT 1),
-                            -- Try match with prontuario_esposa
-                            (SELECT codigo FROM clinisys_all.silver.view_pacientes v 
-                             WHERE TRY_CAST(p.chart_or_pin AS INTEGER) = v.prontuario_esposa AND v.inativo = 0 LIMIT 1),
-                            -- Try match with prontuario_marido
-                            (SELECT codigo FROM clinisys_all.silver.view_pacientes v 
-                             WHERE TRY_CAST(p.chart_or_pin AS INTEGER) = v.prontuario_marido AND v.inativo = 0 LIMIT 1),
-                            -- Try match with prontuario_responsavel1
-                            (SELECT codigo FROM clinisys_all.silver.view_pacientes v 
-                             WHERE TRY_CAST(p.chart_or_pin AS INTEGER) = v.prontuario_responsavel1 AND v.inativo = 0 LIMIT 1),
-                            -- Try match with prontuario_responsavel2
-                            (SELECT codigo FROM clinisys_all.silver.view_pacientes v 
-                             WHERE TRY_CAST(p.chart_or_pin AS INTEGER) = v.prontuario_responsavel2 AND v.inativo = 0 LIMIT 1)
-                        ) as matched_prontuario
-                    FROM {TARGET_TABLE} p
-                    WHERE p.chart_or_pin IS NOT NULL
-                )
-                UPDATE {TARGET_TABLE}
-                SET prontuario = m.matched_prontuario
-                FROM pin_matches m
-                WHERE {TARGET_TABLE}.chart_or_pin = m.chart_or_pin
-                  AND m.matched_prontuario IS NOT NULL
-                """
-                conn.execute(update_sql)
-                
-                stats = conn.execute(f"""
-                    SELECT 
-                        COUNT(*) as total,
-                        COUNT(CASE WHEN prontuario IS NOT NULL THEN 1 END) as matched
-                    FROM {TARGET_TABLE}
-                    WHERE chart_or_pin IS NOT NULL
-                """).fetchone()
-                
-                print(f"  Matched {stats[1]} out of {stats[0]} rows with PIN/Chart ({stats[1]/stats[0]*100 if stats[0]>0 else 0:.1f}%)")
-                conn.execute("DETACH clinisys_all")
+                try:
+                    df_matches = find_prontuarios(
+                        source_con=conn,
+                        clinisys_db_path=str(clinisys_db_path),
+                        source_schema='silver',
+                        source_table='redlara_unified',
+                        id_col='chart_or_pin',
+                        name_col='patient_name',
+                        birthdate_col='date_of_birth',
+                        cpf_col=None,
+                        label='redlara_unified',
+                        suffix='',
+                    )
+                    total = len(df_matches)
+                    matched = int((df_matches['prontuario'] != -1).sum())
+                    rate = matched / total * 100 if total else 0.0
+                    print(f"  Successfully ran Strategy L matching on redlara_unified.")
+                    print(f"  Total: {total:,} | Matched: {matched:,} ({rate:.2f}%)")
+                except Exception as e:
+                    print(f"Error in prontuario matching for redlara_unified: {e}")
+                    raise
 
         except Exception as e:
             print(f"Error creating/matching table: {e}")

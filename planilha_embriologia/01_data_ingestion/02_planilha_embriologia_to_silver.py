@@ -13,8 +13,16 @@ import numpy as np
 import duckdb
 from datetime import datetime
 import os
+import sys
 import unicodedata
 import re
+
+# -- Path setup ---------------------------------------------------------------
+_script_dir = os.path.dirname(os.path.abspath(__file__))
+_root_dir   = os.path.dirname(os.path.dirname(_script_dir))  # Huntington/
+sys.path.insert(0, _root_dir)
+
+from commons.prontuario_matching_v1 import find_prontuarios
 
 # Setup logging
 LOGS_DIR = os.path.join(os.path.dirname(__file__), 'logs')
@@ -48,17 +56,18 @@ REFERENCE_TABLES = {
 # Column Whitelist (normalized names as snake_case)
 WHITELIST = {
     'fresh': [
-        'pin', 
-        'data_da_puncao', 
-        'fator_1', 
-        'incubadora', 
+        'pin',
+        'nome_da_paciente',
+        'data_de_nasc',
+        'data_da_puncao',
+        'fator_1',
+        'incubadora',
         'data_crio',
         'tipo_1',
         'tipo_de_inseminacao',
         'tipo_biopsia',
         'altura',
         'peso',
-        'data_de_nasc',
         'idade_espermatozoide',
         'origem',
         'tipo',
@@ -72,11 +81,13 @@ WHITELIST = {
         'dia_cryo'
     ],
     'fet': [
-        'pin', 
-        'data_da_fet', 
-        'data_crio', 
-        'result', 
-        'tipo_do_resultado', 
+        'pin',
+        'nome_da_paciente',
+        'data_de_nasc',
+        'data_da_fet',
+        'data_crio',
+        'result',
+        'tipo_do_resultado',
         'no_nascidos',
         'tipo_1',
         'tipo_de_tratamento',
@@ -107,12 +118,13 @@ SYNONYMS = {
     'n_nascidos': 'no_nascidos',
     'num_nascidos': 'no_nascidos',
     'no_nascidos': 'no_nascidos',
-    'n_nascidos': 'no_nascidos',
     'na_nascidos': 'no_nascidos',
     'n_o_nascidos': 'no_nascidos',
     'data_crio_somente_a_primeira_data_do_cong': 'data_crio',
     'tipo_de_tratamento': 'tipo_1',
-    'data_cryo': 'data_crio'
+    'data_cryo': 'data_crio',
+    # Name column: older tables use bare 'NOME', newer ones 'NOME DA PACIENTE'
+    'nome': 'nome_da_paciente',
 }
 
 # ==============================================================================
@@ -127,6 +139,8 @@ TABLE_CONFIGS = {
         'header_row': 1,
         'fresh': {
             'mapping': {
+                'nome_da_paciente': 'NOME',
+                'data_de_nasc': 'DATA DE NASC.',
                 'pin': 'PIN',
                 'tipo_1': 'TIPO 1',
                 'data_da_puncao': 'DIA',
@@ -138,7 +152,6 @@ TABLE_CONFIGS = {
                 'tipo_biopsia': 'TIPO 3',  
                 'altura': 'ALTURA',
                 'peso': 'PESO',
-                'data_de_nasc': 'DATA DE NASC.',
                 'idade_espermatozoide': '', 
                 'origem_espermatozoide': '',
                 'tipo_espermatozoide': '',
@@ -155,6 +168,8 @@ TABLE_CONFIGS = {
         },
         'fet': {
             'mapping': {
+                'nome_da_paciente': 'NOME',
+                'data_de_nasc': 'DATA DE NASC.',
                 'pin': 'PIN',
                 'tipo_1': 'TIPO 1',
                 'data_da_fet': 'DIA',
@@ -185,6 +200,8 @@ TABLE_CONFIGS = {
         'header_row': 2,
         'fresh': {
             'mapping': {
+                'nome_da_paciente': 'NOME',
+                'data_de_nasc': 'DATA DE NASC.',
                 'pin': 'PIN',
                 'tipo_1': 'TIPO 1',
                 'data_da_puncao': 'DATA',
@@ -196,7 +213,6 @@ TABLE_CONFIGS = {
                 'tipo_biopsia': 'TIPO 3',  
                 'altura': 'ALTURA',
                 'peso': 'PESO',
-                'data_de_nasc': 'DATA DE NASC.',
                 'idade_espermatozoide': '', 
                 'origem_espermatozoide': '',
                 'tipo_espermatozoide': '',
@@ -213,6 +229,8 @@ TABLE_CONFIGS = {
         },
         'fet': {
             'mapping': {
+                'nome_da_paciente': 'NOME',
+                'data_de_nasc': 'DATA DE NASC.',
                 'pin': 'PIN',
                 'tipo_1': 'TIPO 1',
                 'data_da_fet': 'DATA',
@@ -243,6 +261,8 @@ TABLE_CONFIGS = {
         'header_row': 2,
         'fresh': {
             'mapping': {
+                'nome_da_paciente': 'NOME',
+                'data_de_nasc': 'DATA DE NASC.',
                 'pin': 'PIN',
                 'tipo_1': 'TIPO 1',
                 'data_da_puncao': 'DIA',
@@ -254,7 +274,6 @@ TABLE_CONFIGS = {
                 'tipo_biopsia': 'TIPO 3',  
                 'altura': 'ALTURA',
                 'peso': 'PESO',
-                'data_de_nasc': 'DATA DE NASC.',
                 'idade_espermatozoide': '', 
                 'origem_espermatozoide': '',
                 'tipo_espermatozoide': '',
@@ -271,6 +290,8 @@ TABLE_CONFIGS = {
         },
         'fet': {
             'mapping': {
+                'nome_da_paciente': 'NOME',
+                'data_de_nasc': 'DATA DE NASC.',
                 'pin': 'PIN',
                 'tipo_1': 'TIPO 1',
                 'data_da_fet': 'DIA',
@@ -301,6 +322,8 @@ TABLE_CONFIGS = {
         'header_row': 1,
         'fresh': {
             'mapping': {
+                'nome_da_paciente': 'NOME',
+                'data_de_nasc': 'DATA DE NASC.',
                 'pin': 'PIN',
                 'tipo_1': 'TIPO 1',
                 'data_da_puncao': 'DIA',
@@ -312,7 +335,6 @@ TABLE_CONFIGS = {
                 'tipo_biopsia': 'TIPO 3',  
                 'altura': 'ALTURA',
                 'peso': 'PESO',
-                'data_de_nasc': 'DATA DE NASC.',
                 'idade_espermatozoide': '', 
                 'origem_espermatozoide': '',
                 'tipo_espermatozoide': '',
@@ -329,6 +351,8 @@ TABLE_CONFIGS = {
         },
         'fet': {
             'mapping': {
+                'nome_da_paciente': 'NOME',
+                'data_de_nasc': 'DATA DE NASC.',
                 'pin': 'PIN',
                 'tipo_1': 'TIPO 1',
                 'data_da_fet': 'DIA',
@@ -359,6 +383,8 @@ TABLE_CONFIGS = {
         'header_row': 2,
         'fresh': {
             'mapping': {
+                'nome_da_paciente': 'NOME',
+                'data_de_nasc': 'DATA DE NASC.',
                 'pin': 'PIN',
                 'tipo_1': 'TIPO 1',
                 'data_da_puncao': 'DIA',
@@ -370,7 +396,6 @@ TABLE_CONFIGS = {
                 'tipo_biopsia': 'TIPO 3',  
                 'altura': 'ALTURA',
                 'peso': 'PESO',
-                'data_de_nasc': 'DATA DE NASC.',
                 'idade_espermatozoide': '', 
                 'origem_espermatozoide': '',
                 'tipo_espermatozoide': '',
@@ -387,6 +412,8 @@ TABLE_CONFIGS = {
         },
         'fet': {
             'mapping': {
+                'nome_da_paciente': 'NOME',
+                'data_de_nasc': 'DATA DE NASC.',
                 'pin': 'PIN',
                 'tipo_1': 'TIPO 1',
                 'data_da_fet': 'DIA',
@@ -417,6 +444,8 @@ TABLE_CONFIGS = {
         'header_row': 2,
         'fresh': {
             'mapping': {
+                'nome_da_paciente': 'NOME',
+                'data_de_nasc': 'DATA DE NASC.',
                 'pin': 'PIN',
                 'tipo_1': 'TIPO 1',
                 'data_da_puncao': 'DIA',
@@ -428,7 +457,6 @@ TABLE_CONFIGS = {
                 'tipo_biopsia': 'TIPO 3',  
                 'altura': 'ALTURA',
                 'peso': 'PESO',
-                'data_de_nasc': 'DATA DE NASC.',
                 'idade_espermatozoide': '', 
                 'origem_espermatozoide': '',
                 'tipo_espermatozoide': '',
@@ -445,6 +473,8 @@ TABLE_CONFIGS = {
         },
         'fet': {
             'mapping': {
+                'nome_da_paciente': 'NOME',
+                'data_de_nasc': 'DATA DE NASC.',
                 'pin': 'PIN',
                 'tipo_1': 'TIPO 1',
                 'data_da_fet': 'DIA',
@@ -475,6 +505,8 @@ TABLE_CONFIGS = {
         'header_row': 1,
         'fresh': {
             'mapping': {
+                'nome_da_paciente': 'NOME',
+                'data_de_nasc': 'DATA DE NASC.',
                 'pin': 'PIN',
                 'tipo_1': 'TIPO 1',
                 'data_da_puncao': 'DIA',
@@ -486,7 +518,6 @@ TABLE_CONFIGS = {
                 'tipo_biopsia': 'TIPO 3',  
                 'altura': 'ALTURA',
                 'peso': 'PESO',
-                'data_de_nasc': 'DATA DE NASC.',
                 'idade_espermatozoide': '', 
                 'origem_espermatozoide': '',
                 'tipo_espermatozoide': '',
@@ -503,6 +534,8 @@ TABLE_CONFIGS = {
         },
         'fet': {
             'mapping': {
+                'nome_da_paciente': 'NOME',
+                'data_de_nasc': 'DATA DE NASC.',
                 'pin': 'PIN',
                 'tipo_1': 'TIPO 1',
                 'data_da_fet': 'DIA',
@@ -533,6 +566,8 @@ TABLE_CONFIGS = {
         'header_row': 2,
         'fresh': {
             'mapping': {
+                'nome_da_paciente': 'NOME',
+                'data_de_nasc': 'DATA DE NASC.',
                 'pin': 'PIN',
                 'tipo_1': 'TIPO 1',
                 'data_da_puncao': 'DIA',
@@ -544,7 +579,6 @@ TABLE_CONFIGS = {
                 'tipo_biopsia': 'TIPO 3',  
                 'altura': 'ALTURA',
                 'peso': 'PESO',
-                'data_de_nasc': 'DATA DE NASC.',
                 'idade_espermatozoide': '', 
                 'origem_espermatozoide': '',
                 'tipo_espermatozoide': '',
@@ -561,6 +595,8 @@ TABLE_CONFIGS = {
         },
         'fet': {
             'mapping': {
+                'nome_da_paciente': 'NOME',
+                'data_de_nasc': 'DATA DE NASC.',
                 'pin': 'PIN',
                 'tipo_1': 'TIPO 1',
                 'data_da_fet': 'DIA',
@@ -591,6 +627,8 @@ TABLE_CONFIGS = {
         'header_row': 2,
         'fresh': {
             'mapping': {
+                'nome_da_paciente': 'NOME',
+                'data_de_nasc': 'DATA DE NASC.',
                 'pin': 'PIN',
                 'tipo_1': 'TIPO 1',
                 'data_da_puncao': 'DIA',
@@ -602,7 +640,6 @@ TABLE_CONFIGS = {
                 'tipo_biopsia': 'TIPO 3',  
                 'altura': 'ALTURA',
                 'peso': 'PESO',
-                'data_de_nasc': 'DATA DE NASC.',
                 'idade_espermatozoide': '', 
                 'origem_espermatozoide': '',
                 'tipo_espermatozoide': '',
@@ -619,6 +656,8 @@ TABLE_CONFIGS = {
         },
         'fet': {
             'mapping': {
+                'nome_da_paciente': 'NOME',
+                'data_de_nasc': 'DATA DE NASC.',
                 'pin': 'PIN',
                 'tipo_1': 'TIPO 1',
                 'data_da_fet': 'DIA',
@@ -649,6 +688,8 @@ TABLE_CONFIGS = {
         'header_row': 1,
         'fresh': {
             'mapping': {
+                'nome_da_paciente': 'NOME',
+                'data_de_nasc': 'DATA DE NASC.',
                 'pin': 'PIN',
                 'tipo_1': 'TIPO DE TRATAMENTO',
                 'data_da_puncao': 'DATA DA PUNÇÃO',
@@ -659,7 +700,6 @@ TABLE_CONFIGS = {
                 'tipo_biopsia': 'TIPO BIÓPSIA',
                 'altura': 'ALTURA',
                 'peso': 'PESO',
-                'data_de_nasc': 'DATA DE NASC.',
                 'idade_espermatozoide': 'IDADE ESPERMATOZOIDE',
                 'origem_espermatozoide': 'ORIGEM',
                 'tipo_espermatozoide': 'TIPO',
@@ -680,6 +720,8 @@ TABLE_CONFIGS = {
         'header_row': 1,
         'fet': {
             'mapping': {
+                'nome_da_paciente': 'NOME',
+                'data_de_nasc': 'DATA DE NASC.',
                 'pin': 'PIN',
                 'tipo_1': 'TIPO DE TRATAMENTO',
                 'data_da_fet': 'DATA DA FET',
@@ -1093,72 +1135,63 @@ def transform_data_types(df, column_types):
     return df_transformed
 
 def add_prontuario_column(con, silver_table):
-    """Add and populate prontuario column by matching PIN with view_pacientes"""
-    logger.info(f"Matching PIN values with view_pacientes to populate prontuario column...")
-    
+    """Populate prontuario column via find_prontuarios (Strategy L)."""
+    logger.info(f"Running prontuario matching for silver.{silver_table} ...")
+
+    _TIER_LABELS = {
+        0: 'Tier 0 (Direct ID)',
+        1: 'Tier 1 (CPF)',
+        2: 'Tier 2 (ID + Birthdate)',
+        3: 'Tier 3 (Spousal link)',
+    }
+
     try:
-        # Attach clinisys_all database
-        clinisys_db_path = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), 'database', 'clinisys_all.duckdb')
-        logger.info(f"Attaching clinisys_all database from: {clinisys_db_path}")
-        con.execute(f"ATTACH '{clinisys_db_path}' AS clinisys_all (READ_ONLY)")
-        
-        # Update prontuario column using PIN matching
-        # Try matching PIN against all prontuario fields in view_pacientes
-        update_sql = f"""
-        WITH pin_matches AS (
-            SELECT DISTINCT
-                p.PIN,
-                COALESCE(
-                    -- Try direct match with codigo (main prontuario)
-                    (SELECT codigo FROM clinisys_all.silver.view_pacientes v 
-                     WHERE CAST(p.PIN AS INTEGER) = v.codigo AND v.inativo = 0 LIMIT 1),
-                    -- Try match with prontuario_esposa
-                    (SELECT codigo FROM clinisys_all.silver.view_pacientes v 
-                     WHERE CAST(p.PIN AS INTEGER) = v.prontuario_esposa AND v.inativo = 0 LIMIT 1),
-                    -- Try match with prontuario_marido
-                    (SELECT codigo FROM clinisys_all.silver.view_pacientes v 
-                     WHERE CAST(p.PIN AS INTEGER) = v.prontuario_marido AND v.inativo = 0 LIMIT 1),
-                    -- Try match with prontuario_responsavel1
-                    (SELECT codigo FROM clinisys_all.silver.view_pacientes v 
-                     WHERE CAST(p.PIN AS INTEGER) = v.prontuario_responsavel1 AND v.inativo = 0 LIMIT 1),
-                    -- Try match with prontuario_responsavel2
-                    (SELECT codigo FROM clinisys_all.silver.view_pacientes v 
-                     WHERE CAST(p.PIN AS INTEGER) = v.prontuario_responsavel2 AND v.inativo = 0 LIMIT 1)
-                ) as matched_prontuario
-            FROM silver.{silver_table} p
-            WHERE p.PIN IS NOT NULL
+        clinisys_db_path = os.path.join(
+            os.path.dirname(os.path.dirname(os.path.dirname(__file__))),
+            'database', 'clinisys_all.duckdb'
         )
-        UPDATE silver.{silver_table}
-        SET prontuario = m.matched_prontuario
-        FROM pin_matches m
-        WHERE silver.{silver_table}.PIN = m.PIN
-          AND m.matched_prontuario IS NOT NULL
-        """
-        
-        con.execute(update_sql)
-        
-        # Get statistics
-        stats = con.execute(f"""
-            SELECT 
-                COUNT(*) as total,
-                COUNT(CASE WHEN prontuario IS NOT NULL THEN 1 END) as matched,
-                COUNT(CASE WHEN prontuario IS NULL THEN 1 END) as unmatched
-            FROM silver.{silver_table}
-            WHERE PIN IS NOT NULL
-        """).fetchone()
-        
-        if stats[0] > 0:
-            match_rate = (stats[1] / stats[0] * 100)
-            logger.info(f"Prontuario matching results for {silver_table}:")
-            logger.info(f"  Total rows with PIN: {stats[0]:,}")
-            logger.info(f"  Matched: {stats[1]:,} ({match_rate:.2f}%)")
-            logger.info(f"  Unmatched: {stats[2]:,} ({100-match_rate:.2f}%)")
-        
-        # Detach database
-        con.execute("DETACH clinisys_all")
-        
+        df_matches = find_prontuarios(
+            source_con=con,
+            clinisys_db_path=clinisys_db_path,
+            source_schema='silver',
+            source_table=silver_table,
+            id_col='pin',
+            name_col='nome_da_paciente',
+            birthdate_col='data_de_nasc',
+            cpf_col=None,
+            label=silver_table,
+            suffix='',
+        )
+
+        total   = len(df_matches)
+        matched = int((df_matches['prontuario'] != -1).sum())
+        rate    = matched / total * 100 if total else 0.0
+
+        logger.info(f"=== PRONTUARIO MATCHING SUMMARY for {silver_table} ===")
+        logger.info(f"  Total    : {total:,}")
+        logger.info(f"  Matched  : {matched:,}  ({rate:.2f}%)")
+        logger.info(f"  Unmatched: {total - matched:,}")
+        if total > 0:
+            tier_counts = (
+                df_matches[df_matches['prontuario'] != -1]
+                .groupby('match_tier')['source_id']
+                .count()
+                .sort_index()
+            )
+            for tier, cnt in tier_counts.items():
+                logger.info(f"    {_TIER_LABELS.get(tier, f'Tier {tier}')}: {cnt:,}")
+        if rate >= 95:
+            logger.info(f"  Quality: EXCELLENT (>=95%)")
+        elif rate >= 85:
+            logger.info(f"  Quality: GOOD (>=85%)")
+        elif rate >= 70:
+            logger.info(f"  Quality: ACCEPTABLE (>=70%)")
+        else:
+            logger.warning(f"  Quality: NEEDS ATTENTION (<70%)")
+        logger.info(f"=== END PRONTUARIO MATCHING SUMMARY ===")
+
     except Exception as e:
-        logger.error(f"Error adding prontuario column: {e}")
+        logger.error(f"Error in prontuario matching for {silver_table}: {e}")
         raise
 
 def create_silver_table(con, df, column_types, silver_table):

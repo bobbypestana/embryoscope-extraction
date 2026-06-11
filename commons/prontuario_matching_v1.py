@@ -1,7 +1,7 @@
 """
 prontuario_matching_v1.py — Strategy L: Standalone Production Matching Engine
 ==============================================================================
-Self-contained production matching engine (copy of Strategy L logic) that runs
+Self-contained production matching engine (Strategy L logic) that runs
 entirely in DuckDB SQL, with dynamic discovery of Clinisys silver.view_pacientes
 columns at runtime.
 
@@ -20,8 +20,8 @@ Strategy L name scoring:
 
 Public API
 ----------
-  run_strategy_l(source_con, clinisys_db_path, source_schema, source_table,
-                 id_col, name_col, birthdate_col, cpf_col, label, suffix)
+  find_prontuarios(source_con, clinisys_db_path, source_schema, source_table,
+                   id_col, name_col, birthdate_col, cpf_col, label, suffix)
 
   suffix=""   → production mode: only updates the bare `prontuario` column.
   suffix="_L" → benchmark mode: also adds `clinisys_name_L` and
@@ -40,7 +40,7 @@ logger = logging.getLogger(__name__)
 def _t(label: str, start: float) -> None:
     logger.info("  [T] %-40s %6.0f ms", label, (time.perf_counter() - start) * 1000)
 
-def run_strategy_l(
+def find_prontuarios(
     source_con: duckdb.DuckDBPyConnection,
     clinisys_db_path: str,
     source_schema: str,
@@ -628,7 +628,7 @@ def run_strategy_l(
           AND target."{name_col if name_col else 'id'}" IS NOT DISTINCT FROM m.patient_name
     """
     if pront_col_exists:
-        where_clause += f'          AND target."{target_pront_col}" = -1'
+        where_clause += f'          AND (target."{target_pront_col}" = -1 OR target."{target_pront_col}" IS NULL)'
 
     if suffix:
         source_con.execute(f"""
