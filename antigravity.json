@@ -1,0 +1,11 @@
+{
+    "hooks": {
+        "BeforeTool": [
+            {
+                "name": "project_level_prevent_kill",
+                "type": "command",
+                "command": "python \".\\.antigravity\\validate_kill.py\""
+            }
+        ]
+    }
+}

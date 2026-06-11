@@ -218,7 +218,25 @@ cd /d "%PROJECT_ROOT%"
 
 echo.
 echo ========================================
-echo STEP 10: Running Mesclada Pipeline
+echo STEP 10: Running Protheus Ingestion Pipeline
+echo ========================================
+if not exist "protheus\01_ingestion\00_run_dataflow_protheus.bat" (
+    echo ERROR: Cannot find protheus\01_ingestion\00_run_dataflow_protheus.bat
+    echo Current directory: %CD%
+    pause
+    exit /b 1
+)
+call "protheus\01_ingestion\00_run_dataflow_protheus.bat" 10
+if %errorlevel% neq 0 (
+    echo ERROR: Step 10 failed
+    pause
+    exit /b 1
+)
+cd /d "%PROJECT_ROOT%"
+
+echo.
+echo ========================================
+echo STEP 11: Running Mesclada Pipeline
 echo ========================================
 @REM if not exist "finops\01_data_ingestion\00_run_mesclada_pipeline.bat" (
 @REM     echo ERROR: Cannot find finops\01_data_ingestion\00_run_mesclada_pipeline.bat
@@ -226,25 +244,7 @@ echo ========================================
 @REM     pause
 @REM     exit /b 1
 @REM )
-@REM call "finops\01_data_ingestion\00_run_mesclada_pipeline.bat" 10
-@REM if %errorlevel% neq 0 (
-@REM     echo ERROR: Step 10 failed
-@REM     pause
-@REM     exit /b 1
-@REM )
-@REM cd /d "%PROJECT_ROOT%"
-
-echo.
-echo ========================================
-echo STEP 11: Running Complete FinOps Pipeline
-echo ========================================
-@REM if not exist "finops\02_create_tables\00_run_complete_finops_pipeline.bat" (
-@REM     echo ERROR: Cannot find finops\02_create_tables\00_run_complete_finops_pipeline.bat
-@REM     echo Current directory: %CD%
-@REM     pause
-@REM     exit /b 1
-@REM )
-@REM call "finops\02_create_tables\00_run_complete_finops_pipeline.bat" 11
+@REM call "finops\01_data_ingestion\00_run_mesclada_pipeline.bat" 11
 @REM if %errorlevel% neq 0 (
 @REM     echo ERROR: Step 11 failed
 @REM     pause
@@ -254,7 +254,25 @@ echo ========================================
 
 echo.
 echo ========================================
-echo STEP 12: Cleaning Up Old Log Files
+echo STEP 12: Running Complete FinOps Pipeline
+echo ========================================
+@REM if not exist "finops\02_create_tables\00_run_complete_finops_pipeline.bat" (
+@REM     echo ERROR: Cannot find finops\02_create_tables\00_run_complete_finops_pipeline.bat
+@REM     echo Current directory: %CD%
+@REM     pause
+@REM     exit /b 1
+@REM )
+@REM call "finops\02_create_tables\00_run_complete_finops_pipeline.bat" 12
+@REM if %errorlevel% neq 0 (
+@REM     echo ERROR: Step 12 failed
+@REM     pause
+@REM     exit /b 1
+@REM )
+@REM cd /d "%PROJECT_ROOT%"
+
+echo.
+echo ========================================
+echo STEP 13: Cleaning Up Old Log Files
 echo ========================================
 cd /d "%PROJECT_ROOT%"
 python data_lake_scripts\cleanup_old_logs.py
@@ -264,7 +282,7 @@ if %errorlevel% neq 0 (
 
 echo.
 echo ========================================
-echo STEP 13: Running Image Extraction Pipeline
+echo STEP 14: Running Image Extraction Pipeline
 echo ========================================
 @REM if not exist "embryoscope_api\00_run_image_extraction_pipeline.bat" (
 @REM     echo ERROR: Cannot find embryoscope_api\00_run_image_extraction_pipeline.bat
@@ -272,9 +290,9 @@ echo ========================================
 @REM     pause
 @REM     exit /b 1
 @REM )
-@REM call "embryoscope_api\00_run_image_extraction_pipeline.bat" 13
+@REM call "embryoscope_api\00_run_image_extraction_pipeline.bat" 14
 @REM if %errorlevel% neq 0 (
-@REM     echo ERROR: Step 13 failed
+@REM     echo ERROR: Step 14 failed
 @REM     pause
 @REM     exit /b 1
 @REM )
@@ -286,7 +304,7 @@ echo ========================================
 echo COMPLETE DATAFLOW FINISHED SUCCESSFULLY!
 echo ========================================
 echo.
-echo All 13 pipeline steps completed without errors.
+echo All 14 pipeline steps completed without errors.
 echo Log cleanup completed.
 echo.
 pause

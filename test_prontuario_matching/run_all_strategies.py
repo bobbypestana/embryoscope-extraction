@@ -64,6 +64,7 @@ def main():
     t_h  = run("run_strategy_h.py")
     t_i  = run("run_strategy_i.py")
     t_j  = run("run_strategy_j.py")
+    t_l  = run("run_strategy_l.py")
 
     # Final comparison
     import duckdb
@@ -78,7 +79,7 @@ def main():
     existing = {c.lower() for c in info["name"]}
 
     rows = []
-    for strat, col in [("A","prontuario_A"),("B","prontuario_B"),("D","prontuario_D"),("E","prontuario_E"),("G","prontuario_G"),("H","prontuario_H"),("I","prontuario_I"),("J","prontuario_J")]:
+    for strat, col in [("A","prontuario_A"),("B","prontuario_B"),("D","prontuario_D"),("E","prontuario_E"),("G","prontuario_G"),("H","prontuario_H"),("I","prontuario_I"),("J","prontuario_J"),("L","prontuario_L")]:
         if col.lower() in existing:
             n = con.execute(f"SELECT COUNT(CASE WHEN {col} != -1 THEN 1 END) FROM main.mapped_patients").fetchone()[0]
             rows.append({"Strategy": strat, "Matched": n, "Total": total, "Rate_%": round(n/total*100,2)})
@@ -88,7 +89,7 @@ def main():
     logging.info("FINAL COMPARISON SUMMARY")
     logging.info("="*60)
     logging.info("\n%s", df_summary.to_string(index=False))
-    logging.info("\nTiming: A+B=%.1fs  D=%.1fs  E=%.1fs  G=%.1fs  H=%.1fs  I=%.1fs  J=%.1fs", t_ab, t_d, t_e, t_g, t_h, t_i, t_j)
+    logging.info("\nTiming: A+B=%.1fs  D=%.1fs  E=%.1fs  G=%.1fs  H=%.1fs  I=%.1fs  J=%.1fs  L=%.1fs", t_ab, t_d, t_e, t_g, t_h, t_i, t_j, t_l)
 
     # Conflict between E and G
     if "prontuario_e" in existing and "prontuario_g" in existing:
@@ -183,7 +184,7 @@ def main():
     results = []
     for cid, cname, expected in conflict_cases:
         cols_sel = []
-        for strat, col in [("E","prontuario_E"),("G","prontuario_G"),("H","prontuario_H"),("I","prontuario_I"),("J","prontuario_J")]:
+        for strat, col in [("E","prontuario_E"),("G","prontuario_G"),("H","prontuario_H"),("I","prontuario_I"),("J","prontuario_J"),("L","prontuario_L")]:
             if col.lower() in existing:
                 cols_sel.append(col)
         if not cols_sel:

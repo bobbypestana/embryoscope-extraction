@@ -1,11 +1,8 @@
 """
-prontuario_matching_v1.py — Strategy H: Unified Hierarchical Patient Matching in SQL with Dynamic Schema Discovery
-==========================================================================================================
-A generalized patient matching engine that runs entirely in DuckDB SQL, with dynamic
-discovery of the Clinisys silver.view_pacientes database columns at runtime to prevent
-hardcoding and ensure 100% robustness to new fields.
-
-Updates the target table in-place and returns a pandas DataFrame.
+matching_engine_l.py — Strategy L: Patient matching with spelling & couple-folder fallbacks
+==========================================================================================
+Extends Strategy J with spelling tolerance fallback (first-name Levenshtein = 2 with exact last name match)
+and couple folder fallback (direct ID match with Jaro-Winkler >= 0.72 and >= 2 matching non-preposition words).
 """
 
 import os
@@ -20,7 +17,7 @@ logger = logging.getLogger(__name__)
 def _t(label: str, start: float) -> None:
     logger.info("  [T] %-40s %6.0f ms", label, (time.perf_counter() - start) * 1000)
 
-def run_strategy_h(
+def run_strategy_l(
     source_con: duckdb.DuckDBPyConnection,
     clinisys_db_path: str,
     source_schema: str,
@@ -30,24 +27,18 @@ def run_strategy_h(
     birthdate_col: str = None,
     cpf_col: str = None,
     label: str = "",
-    suffix: str = "",
+    target_pront_col: str = "prontuario_L",
+    target_name_col: str = "clinisys_name_L",
+    target_matched_name_col: str = "clinisys_matched_name_L",
 ) -> pd.DataFrame:
     """
-    Runs Strategy H patient matching on the source table.
+    Runs Strategy L patient matching on the source table.
     Updates the table in-place by adding/updating target columns.
     Returns a pd.DataFrame with results.
     """
     tag = label or f"{source_schema}.{source_table}"
     t_start = time.perf_counter()
-    logger.info("[%s] Starting Strategy H matching", tag)
-
-    target_pront_col = f"prontuario{suffix}"
-    if suffix:
-        target_name_col = f"clinisys_name{suffix}"
-        target_matched_name_col = f"clinisys_matched_name{suffix}"
-    else:
-        target_name_col = None
-        target_matched_name_col = None
+    logger.info("[%s] Starting Strategy L matching", tag)
 
     # 1. Attach clinisys DB
     try:
@@ -116,34 +107,152 @@ def run_strategy_h(
                 w -> length(w) > 0
             )
         """
+        p_full_select = f"""
+            regexp_replace(
+                strip_accents(
+                    lower(
+                        trim(
+                            CASE
+                                WHEN "{name_col}" IS NOT NULL THEN
+                                    CASE
+                                        WHEN POSITION(',' IN "{name_col}") > 0 THEN
+                                            SPLIT_PART("{name_col}", ',', 2) || ' ' || SPLIT_PART("{name_col}", ',', 1)
+                                        ELSE "{name_col}"
+                                    END
+                                ELSE NULL
+                            END
+                        )
+                    )
+                ),
+                '[^a-z]', ' ', 'g'
+            )
+        """
     else:
         p_words_select = "CAST([] AS VARCHAR[])"
+        p_full_select = "CAST(NULL AS VARCHAR)"
 
-    # 2. Extract source IDs and parse names
+    # Create temporary macro in session for one-time normalization
+    source_con.execute("""
+        CREATE OR REPLACE TEMPORARY MACRO norm_name(w) AS (
+            replace(
+                replace(
+                    replace(
+                        replace(
+                            replace(
+                                replace(
+                                    replace(
+                                        replace(
+                                            replace(
+                                                replace(
+                                                    replace(
+                                                        replace(
+                                                            replace(
+                                                                replace(
+                                                                    replace(w, 'ph', 'f'),
+                                                                    'y', 'i'
+                                                                ),
+                                                                'w', 'v'
+                                                                ),
+                                                            'z', 's'
+                                                        ),
+                                                        'k', 'c'
+                                                    ),
+                                                    'ss', 's'
+                                                ),
+                                                'll', 'l'
+                                            ),
+                                            'rr', 'r'
+                                        ),
+                                        'nn', 'n'
+                                    ),
+                                    'tt', 't'
+                                ),
+                                'cc', 'c'
+                            ),
+                            'pp', 'p'
+                        ),
+                        'ff', 'f'
+                    ),
+                    'mm', 'm'
+                ),
+                'h', ''
+            )
+        );
+    """)
+
+    # 2. Extract source IDs and parse names (with CTE to pre-normalize first word)
     t0 = time.perf_counter()
     source_con.execute(f"""
         CREATE OR REPLACE TEMP TABLE __source_extract AS
-        SELECT DISTINCT
-            CAST("{id_col}" AS VARCHAR) AS source_id,
-            TRY_CAST("{id_col}" AS BIGINT) AS source_id_numeric,
-            {name_select} AS patient_name,
-            {birthdate_select} AS src_birthdate,
-            {cpf_select} AS src_cpf,
-            {orig_pront_select} AS original_prontuario,
-            {p_words_select} AS p_words
-        FROM {source_schema}."{source_table}"
-        WHERE "{id_col}" IS NOT NULL AND TRIM(CAST("{id_col}" AS VARCHAR)) != '';
+        WITH raw_extract AS (
+            SELECT DISTINCT
+                CAST("{id_col}" AS VARCHAR) AS source_id,
+                TRY_CAST("{id_col}" AS BIGINT) AS source_id_numeric,
+                {name_select} AS patient_name,
+                {birthdate_select} AS src_birthdate,
+                {cpf_select} AS src_cpf,
+                {orig_pront_select} AS original_prontuario,
+                {p_words_select} AS p_words,
+                {p_full_select} AS p_full
+            FROM {source_schema}."{source_table}"
+            WHERE "{id_col}" IS NOT NULL AND TRIM(CAST("{id_col}" AS VARCHAR)) != ''
+        )
+        SELECT *,
+               CASE WHEN len(p_words) > 0 THEN norm_name(p_words[1]) ELSE NULL END AS norm_p_w1
+        FROM raw_extract;
     """)
     _t("Extract and clean source records", t0)
 
-    # 3. Create name scoring macro in session
+    # 3. Create name scoring macro with fallback matching rules
     source_con.execute("""
-        CREATE OR REPLACE TEMPORARY MACRO score_name(p_w, c_w) AS (
+        CREATE OR REPLACE TEMPORARY MACRO score_name(p_w, c_w, norm_p_w1, norm_c_w1, p_full, c_full, is_direct_id) AS (
             CASE
                 WHEN p_w IS NULL OR len(p_w) = 0 THEN 1
                 WHEN c_w IS NULL OR len(c_w) = 0 THEN 5
                 WHEN p_w = c_w THEN 1
-                WHEN NOT list_contains(c_w, p_w[1]) THEN 5
+                WHEN NOT (
+                    -- Rule 1: Exact first name match
+                    list_contains(c_w, p_w[1]) OR 
+                    
+                    -- Rule 2: First name spelling tolerance (Levenshtein <= 1) with gender safeguards
+                    (
+                        norm_p_w1 IS NOT NULL AND norm_c_w1 IS NOT NULL AND
+                        levenshtein(norm_p_w1, norm_c_w1) <= 1 AND
+                        NOT (
+                            (right(norm_p_w1, 1) = 'o' AND right(norm_c_w1, 1) = 'a') OR
+                            (right(norm_p_w1, 1) = 'a' AND right(norm_c_w1, 1) = 'o') OR
+                            (right(norm_p_w1, 1) = 'o' AND right(norm_c_w1, 1) = 'e') OR
+                            (right(norm_p_w1, 1) = 'e' AND right(norm_c_w1, 1) = 'o') OR
+                            (right(norm_p_w1, 2) = 'an' AND right(norm_c_w1, 2) = 'ne') OR
+                            (right(norm_p_w1, 2) = 'ne' AND right(norm_c_w1, 2) = 'an') OR
+                            (right(norm_p_w1, 3) = 'dre' AND right(norm_c_w1, 3) = 'dra') OR
+                            (right(norm_p_w1, 3) = 'dra' AND right(norm_c_w1, 3) = 'dre') OR
+                            norm_c_w1 = norm_p_w1 || 'a' OR
+                            norm_p_w1 = norm_c_w1 || 'a'
+                        )
+                    ) OR
+                    
+                    -- Rule 3: First-name spelling tolerance fallback (Levenshtein = 2) if last name matches exactly
+                    (
+                        norm_p_w1 IS NOT NULL AND norm_c_w1 IS NOT NULL AND
+                        levenshtein(norm_p_w1, norm_c_w1) = 2 AND
+                        list_contains(c_w, p_w[-1]) AND
+                        NOT (
+                            (right(norm_p_w1, 1) = 'o' AND right(norm_c_w1, 1) = 'a') OR
+                            (right(norm_p_w1, 1) = 'a' AND right(norm_c_w1, 1) = 'o') OR
+                            (right(norm_p_w1, 1) = 'o' AND right(norm_c_w1, 1) = 'e') OR
+                            (right(norm_p_w1, 1) = 'e' AND right(norm_c_w1, 1) = 'o')
+                        )
+                    ) OR
+                    
+                    -- Rule 4: Direct ID couple/spousal folder fallback using full name Jaro-Winkler similarity
+                    (
+                        is_direct_id AND
+                        p_full IS NOT NULL AND c_full IS NOT NULL AND
+                        jaro_winkler_similarity(p_full, c_full) >= 0.72 AND
+                        len(list_filter(p_w, w -> w NOT IN ('de', 'da', 'do', 'dos', 'das', 'e', 'a', 'o') AND list_contains(c_w, w))) >= 2
+                    )
+                ) THEN 5
                 WHEN list_contains(c_w, p_w[-1]) THEN 2
                 WHEN len(list_filter(p_w, w -> list_contains(c_w, w))) > 1 THEN 3
                 ELSE 4
@@ -195,7 +304,6 @@ def run_strategy_h(
     logger.info("[%s] Found prontuario link columns: %s", tag, pront_cols)
 
     # 4. Extract candidates and unpivot them
-    # Build candidate select WHERE filter dynamically
     cand_conditions = [
         "codigo IN (SELECT source_id_numeric FROM __source_extract WHERE source_id_numeric IS NOT NULL)"
     ]
@@ -214,8 +322,6 @@ def run_strategy_h(
             )
             
     cand_where = "\n           OR ".join(cand_conditions)
-
-    # Discover prefixes list for role names
     prefixes_list = sorted(list(discovered_prefixes))
 
     # Helper function to generate SELECT expressions for a given role prefix
@@ -281,7 +387,6 @@ def run_strategy_h(
     for col in pront_cols:
         if col == "prontuario":
             continue
-        # Find which role this column matches via prefix substring
         matched_config = None
         for role_key, config in ROLES_CONFIG.items():
             if config["prefix"] in col:
@@ -301,17 +406,26 @@ def run_strategy_h(
     union_all_join = "\n        UNION ALL\n        "
     unpivoted_union_sql = union_all_join.join(union_parts)
 
-    # Build parsed columns dynamically for all roles
+    # Build parsed columns dynamically for all roles with pre-normalized first words & full names
     parsed_cols = []
     for pref in prefixes_list:
         col = f"{pref}_nome"
         parsed_cols.append(col)
-        parsed_cols.append(
-            f"list_filter(regexp_split_to_array(regexp_replace(strip_accents(lower(trim({col}))), '[^a-z]', ' ', 'g'), '\\s+'), w -> length(w) > 0) AS {pref}_words"
-        )
+        
+        # Word list expression
+        w_expr = f"list_filter(regexp_split_to_array(regexp_replace(strip_accents(lower(trim({col}))), '[^a-z]', ' ', 'g'), '\\s+'), w -> length(w) > 0)"
+        parsed_cols.append(f"{w_expr} AS {pref}_words")
+        
+        # Pre-normalized first word
+        parsed_cols.append(f"CASE WHEN len({w_expr}) > 0 THEN norm_name(({w_expr})[1]) ELSE NULL END AS norm_{pref}_w1")
+        
+        # Normalized full name string
+        f_expr = f"regexp_replace(strip_accents(lower(trim({col}))), '[^a-z]', ' ', 'g')"
+        parsed_cols.append(f"{f_expr} AS {pref}_full")
+
     parsed_cols_sql = ", ".join(parsed_cols)
 
-    # Execute dynamic queries
+    # Execute dynamic queries (with CTE to compute norm_c_w1 once)
     source_con.execute(f"""
         CREATE OR REPLACE TEMP TABLE __clinisys_candidate_codigos AS
         SELECT codigo FROM clinisys_all.silver.view_pacientes
@@ -325,37 +439,46 @@ def run_strategy_h(
         {unpivoted_union_sql};
 
         CREATE OR REPLACE TEMP TABLE __clinisys_parsed AS
-        SELECT
-            prontuario,
-            link_id,
-            priority_group,
-            matched_role,
-            CASE
-                WHEN length(regexp_replace(matched_cpf, '[^0-9]', '', 'g')) < 9 THEN NULL
-                WHEN matched_cpf IN (
-                    '00000000000', '11111111111', '22222222222', '33333333333', '44444444444',
-                    '55555555555', '66666666666', '77777777777', '88888888888', '99999999999'
-                ) THEN NULL
-                ELSE matched_cpf
-            END AS matched_cpf,
-            matched_birthdate,
-            matched_name,
-            inativo,
-            list_filter(regexp_split_to_array(regexp_replace(strip_accents(lower(trim(matched_name))), '[^a-z]', ' ', 'g'), '\\s+'), w -> length(w) > 0) AS c_words,
-            {parsed_cols_sql}
-        FROM __clinisys_unpivoted;
+        WITH raw_parsed AS (
+            SELECT
+                prontuario,
+                link_id,
+                priority_group,
+                matched_role,
+                CASE
+                    WHEN length(regexp_replace(matched_cpf, '[^0-9]', '', 'g')) < 9 THEN NULL
+                    WHEN matched_cpf IN (
+                        '00000000000', '11111111111', '22222222222', '33333333333', '44444444444',
+                        '55555555555', '66666666666', '77777777777', '88888888888', '99999999999'
+                    ) THEN NULL
+                    ELSE matched_cpf
+                END AS matched_cpf,
+                matched_birthdate,
+                matched_name,
+                inativo,
+                list_filter(regexp_split_to_array(regexp_replace(strip_accents(lower(trim(matched_name))), '[^a-z]', ' ', 'g'), '\\s+'), w -> length(w) > 0) AS c_words,
+                {parsed_cols_sql}
+            FROM __clinisys_unpivoted
+        )
+        SELECT *,
+               CASE WHEN len(c_words) > 0 THEN norm_name(c_words[1]) ELSE NULL END AS norm_c_w1,
+               regexp_replace(strip_accents(lower(trim(matched_name))), '[^a-z]', ' ', 'g') AS c_full
+        FROM raw_parsed;
     """)
-    _t("Extract, unpivot, and parse candidates dynamically", t0)
+    _t("Extract, unpivot, and parse candidates dynamically (with pre-normalization)", t0)
 
     # 7. Join tables based on matching rules and score name matches
     t0 = time.perf_counter()
     
     role_names_select = ", ".join([f"c.{pref}_nome" for pref in prefixes_list])
-    score_exprs_sql = "score_name(s.p_words, c.c_words) AS name_score"
-    for pref in prefixes_list:
-        score_exprs_sql += f", score_name(s.p_words, c.{pref}_words) AS {pref}_score"
 
-    def get_tier_select(tier_num, join_clause, where_clause):
+    def get_tier_select(tier_num, join_clause, where_clause, is_direct_id: bool):
+        is_direct_str = "true" if is_direct_id else "false"
+        score_exprs = [f"score_name(s.p_words, c.c_words, s.norm_p_w1, c.norm_c_w1, s.p_full, c.c_full, {is_direct_str}) AS name_score"]
+        for pref in prefixes_list:
+            score_exprs.append(f"score_name(s.p_words, c.{pref}_words, s.norm_p_w1, c.norm_{pref}_w1, s.p_full, c.{pref}_full, {is_direct_str}) AS {pref}_score")
+        score_exprs_sql = ", ".join(score_exprs)
+
         return f"""
         SELECT
             s.source_id,
@@ -375,7 +498,7 @@ def run_strategy_h(
         {where_clause}
         """
 
-    tier_1_sql = get_tier_select(1, "INNER JOIN __clinisys_parsed c ON s.src_cpf = c.matched_cpf", "WHERE s.src_cpf IS NOT NULL AND length(s.src_cpf) = 11")
+    tier_1_sql = get_tier_select(1, "INNER JOIN __clinisys_parsed c ON s.src_cpf = c.matched_cpf", "WHERE s.src_cpf IS NOT NULL AND length(s.src_cpf) = 11", False)
     tier_2_sql = get_tier_select(2, "INNER JOIN __clinisys_parsed c ON s.source_id_numeric = c.link_id", """
         WHERE (s.src_cpf IS NULL OR length(s.src_cpf) < 11)
           AND s.src_birthdate IS NOT NULL
@@ -387,9 +510,9 @@ def run_strategy_h(
                 AND DATE_TRUNC('month', s.src_birthdate) = DATE_TRUNC('month', c.matched_birthdate)
             )
           )
-    """)
-    tier_0_sql = get_tier_select(0, "INNER JOIN __clinisys_parsed c ON s.source_id_numeric = c.link_id", "WHERE c.priority_group = 1")
-    tier_3_sql = get_tier_select(3, "INNER JOIN __clinisys_parsed c ON s.source_id_numeric = c.link_id", "WHERE c.priority_group >= 2")
+    """, False)
+    tier_0_sql = get_tier_select(0, "INNER JOIN __clinisys_parsed c ON s.source_id_numeric = c.link_id", "WHERE c.priority_group = 1", True)
+    tier_3_sql = get_tier_select(3, "INNER JOIN __clinisys_parsed c ON s.source_id_numeric = c.link_id", "WHERE c.priority_group >= 2", True)
 
     source_con.execute(f"""
         CREATE OR REPLACE TEMP TABLE __matches_all AS
@@ -459,58 +582,40 @@ def run_strategy_h(
     """).df()
     _t("Rank matches and select winners", t0)
 
-    # Check if target prontuario column exists initially
-    pront_col_exists = target_pront_col.lower() in col_names
-
     # Ensure target columns exist in the source table
     columns_to_add = [
         (target_pront_col, "BIGINT"),
+        (target_name_col, "VARCHAR"),
+        (target_matched_name_col, "VARCHAR"),
     ]
-    if suffix:
-        columns_to_add.extend([
-            (target_name_col, "VARCHAR"),
-            (target_matched_name_col, "VARCHAR"),
-        ])
+    # Check if target prontuario column exists initially
+    pront_col_exists = target_pront_col.lower() in col_names
+
     for col_name, col_type in columns_to_add:
         if col_name.lower() not in col_names:
             logger.info("[%s] Adding column %s (%s) to target table...", tag, col_name, col_type)
             source_con.execute(f"ALTER TABLE {source_schema}.\"{source_table}\" ADD COLUMN {col_name} {col_type}")
 
     # Register temporary view of df_matched to update
-    source_con.register("df_h_temp", df_matched)
+    source_con.register("df_l_temp", df_matched)
     
     # Update target table in-place using indexed join
-    if suffix:
-        where_clause = f"""
-            WHERE target."{id_col}" = m.source_id
-              AND target."{name_col if name_col else 'id'}" IS NOT DISTINCT FROM m.patient_name
-        """
-        if pront_col_exists:
-            where_clause += f'              AND target."{target_pront_col}" = -1'
+    where_clause = f"""
+        WHERE target."{id_col}" = m.source_id
+          AND target."{name_col if name_col else 'id'}" IS NOT DISTINCT FROM m.patient_name
+    """
+    if pront_col_exists:
+        where_clause += f'          AND target."{target_pront_col}" = -1'
 
-        source_con.execute(f"""
-            UPDATE {source_schema}.\"{source_table}\" AS target
-            SET {target_pront_col} = m.prontuario,
-                {target_name_col} = m.clinisys_name,
-                {target_matched_name_col} = m.clinisys_matched_name
-            FROM df_h_temp m
-            {where_clause};
-        """)
-    else:
-        where_clause = f"""
-            WHERE target."{id_col}" = m.source_id
-              AND target."{name_col if name_col else 'id'}" IS NOT DISTINCT FROM m.patient_name
-        """
-        if pront_col_exists:
-            where_clause += f'              AND target."{target_pront_col}" = -1'
-
-        source_con.execute(f"""
-            UPDATE {source_schema}.\"{source_table}\" AS target
-            SET {target_pront_col} = m.prontuario
-            FROM df_h_temp m
-            {where_clause};
-        """)
-    logger.info("[%s] Strategy H in-place updates applied to %s.%s", tag, source_schema, source_table)
+    source_con.execute(f"""
+        UPDATE {source_schema}.\"{source_table}\" AS target
+        SET {target_pront_col} = m.prontuario,
+            {target_name_col} = m.clinisys_name,
+            {target_matched_name_col} = m.clinisys_matched_name
+        FROM df_l_temp m
+        {where_clause};
+    """)
+    logger.info("[%s] Strategy L in-place updates applied to %s.%s", tag, source_schema, source_table)
 
     # Clean up temp tables
     try:
@@ -522,13 +627,14 @@ def run_strategy_h(
         source_con.execute("DROP TABLE IF EXISTS __matches_all")
         source_con.execute("DROP TABLE IF EXISTS __matches_ranked")
         source_con.execute("DROP TEMPORARY MACRO score_name")
-        source_con.execute("DROP TABLE IF EXISTS df_h_temp")
+        source_con.execute("DROP TEMPORARY MACRO norm_name")
+        source_con.execute("DROP TABLE IF EXISTS df_l_temp")
     except Exception:
         pass
 
     n_matched = len(df_matched[df_matched["prontuario"] != -1])
     total = len(df_matched)
-    logger.info("[%s] Strategy H: %d/%d matched (%.2f%%) in %.1f seconds",
+    logger.info("[%s] Strategy L: %d/%d matched (%.2f%%) in %.1f seconds",
                 tag, n_matched, total, (n_matched/total*100) if total else 0.0, time.perf_counter() - t_start)
 
     return df_matched

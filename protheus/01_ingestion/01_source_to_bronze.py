@@ -46,6 +46,73 @@ AUTH = HTTPBasicAuth(API_CONF['username'], API_CONF['password'])
 BASE_URL = API_CONF['base_url']
 BACKFILL_START = API_CONF.get('backfill_start_date', '20220101')
 
+# Primary keys for each table to help identify deleted records from the source
+TABLE_PKS = {
+    "notas": ["F2_FILIAL", "F2_DOC", "F2_SERIE", "D2_ITEM"],
+    "pedidos": ["C5_FILIAL", "C5_NUM", "C6_ITEM"],
+    "pedidos_venda": ["L1_FILIAL", "L1_NUM", "L2_ITEM"],
+    "tes": ["F4_CODIGO"],
+    "produtos": ["B1_COD"],
+    "clientes": ["A1_COD", "A1_LOJA"],
+    "vendedores": ["A3_COD"]
+}
+
+# The field to filter dates for incremental tables
+TABLE_DATE_COLS = {
+    "notas": "F2_EMISSAO",
+    "pedidos": "C5_EMISSAO",
+    "pedidos_venda": "L1_EMISSAO"
+}
+
+def get_existing_pks(table_name, company_id=None, start_date=None, end_date=None):
+    """
+    Retrieves the set of existing primary key tuples/strings from the DuckDB database.
+    If company_id and date range are provided, filters the query for incremental tables.
+    """
+    pks = TABLE_PKS.get(table_name, [])
+    if not pks:
+        return set()
+        
+    con = None
+    try:
+        con = duckdb.connect(DUCKDB_PATH)
+        # Check if table exists
+        exists = con.execute(f"""
+            SELECT COUNT(*) FROM information_schema.tables 
+            WHERE table_schema = 'bronze' AND table_name = '{table_name}'
+        """).fetchone()[0]
+        if not exists:
+            con.close()
+            return set()
+            
+        pk_cols_str = ", ".join(f'COALESCE("{p}", \'\')' for p in pks)
+        query = f'SELECT DISTINCT {pk_cols_str} FROM bronze.{table_name}'
+        
+        conditions = []
+        if company_id:
+            conditions.append(f"company_id = '{company_id}'")
+        if start_date and end_date and table_name in TABLE_DATE_COLS:
+            date_col = TABLE_DATE_COLS[table_name]
+            conditions.append(f'"{date_col}" BETWEEN \'{start_date}\' AND \'{end_date}\'')
+            
+        if conditions:
+            query += " WHERE " + " AND ".join(conditions)
+            
+        rows = con.execute(query).fetchall()
+        con.close()
+        
+        # Return set of strings (for single PK) or tuples (for multi-column PKs)
+        if len(pks) == 1:
+            return {str(r[0]).strip() for r in rows if r[0] is not None}
+        else:
+            return {tuple(str(val).strip() for val in r) for r in rows}
+    except Exception as e:
+        logger.warning(f"Could not fetch existing PKs for bronze.{table_name}: {e}")
+        if con:
+            try: con.close()
+            except Exception: pass
+        return set()
+
 # List of all verified active/accessible tenants for branch invoices
 ACCESSIBLE_TENANTS = [
     "01,010101", # Ibirapuera
@@ -229,6 +296,10 @@ def fetch_invoice_range(tenant_id, company_id, start_date_str, end_date_str, exi
     page_size = 500
     api_total = 0
     
+    # Retrieve existing PKs for auditing deletions
+    existing_pks = get_existing_pks("notas", company_id, start_date_str, end_date_str)
+    fetched_pks = set()
+    
     while True:
         params = {
             "dataIni": start_date_str,
@@ -255,6 +326,15 @@ def fetch_invoice_range(tenant_id, company_id, start_date_str, end_date_str, exi
                 flat_row["company_id"] = company_id
                 flat_row["extraction_timestamp"] = extraction_ts
                 flat_row["hash"] = compute_row_hash(flat_row)
+                
+                pk_val = (
+                    str(flat_row.get("F2_FILIAL", '')).strip(),
+                    str(flat_row.get("F2_DOC", '')).strip(),
+                    str(flat_row.get("F2_SERIE", '')).strip(),
+                    str(flat_row.get("D2_ITEM", '')).strip()
+                )
+                fetched_pks.add(pk_val)
+                
                 if flat_row["hash"] not in existing_hashes and flat_row["hash"] not in seen_hashes:
                     new_rows.append(flat_row)
                     seen_hashes.add(flat_row["hash"])
@@ -266,6 +346,15 @@ def fetch_invoice_range(tenant_id, company_id, start_date_str, end_date_str, exi
                     flat_row["company_id"] = company_id
                     flat_row["extraction_timestamp"] = extraction_ts
                     flat_row["hash"] = compute_row_hash(flat_row)
+                    
+                    pk_val = (
+                        str(flat_row.get("F2_FILIAL", '')).strip(),
+                        str(flat_row.get("F2_DOC", '')).strip(),
+                        str(flat_row.get("F2_SERIE", '')).strip(),
+                        str(flat_row.get("D2_ITEM", '')).strip()
+                    )
+                    fetched_pks.add(pk_val)
+                    
                     if flat_row["hash"] not in existing_hashes and flat_row["hash"] not in seen_hashes:
                         new_rows.append(flat_row)
                         seen_hashes.add(flat_row["hash"])
@@ -278,6 +367,15 @@ def fetch_invoice_range(tenant_id, company_id, start_date_str, end_date_str, exi
     if api_total != invoices_read:
         logger.warning(f"Notas count mismatch for {start_date_str}-{end_date_str} (Tenant: {tenant_id}): API total={api_total}, fetched={invoices_read}")
         
+    if existing_pks:
+        deleted_pks = existing_pks - fetched_pks
+        if deleted_pks:
+            logger.warning(f"Auditing 'notas' (Tenant: {tenant_id}, range: {start_date_str}-{end_date_str}): "
+                           f"{len(deleted_pks)} entries might have been deleted from the source. "
+                           f"Examples: {list(deleted_pks)[:5]}")
+        else:
+            logger.info(f"Auditing 'notas' (Tenant: {tenant_id}, range: {start_date_str}-{end_date_str}): 0 entries deleted.")
+            
     return new_rows, invoices_read, flat_rows_read
 
 def fetch_sales_orders_range(tenant_id, company_id, start_date_str, end_date_str, existing_hashes):
@@ -288,6 +386,10 @@ def fetch_sales_orders_range(tenant_id, company_id, start_date_str, end_date_str
     page = 1
     page_size = 500
     api_total = 0
+    
+    # Retrieve existing PKs for auditing deletions
+    existing_pks = get_existing_pks("pedidos", company_id, start_date_str, end_date_str)
+    fetched_pks = set()
     
     while True:
         params = {
@@ -315,6 +417,14 @@ def fetch_sales_orders_range(tenant_id, company_id, start_date_str, end_date_str
                 flat_row["company_id"] = company_id
                 flat_row["extraction_timestamp"] = extraction_ts
                 flat_row["hash"] = compute_row_hash(flat_row)
+                
+                pk_val = (
+                    str(flat_row.get("C5_FILIAL", '')).strip(),
+                    str(flat_row.get("C5_NUM", '')).strip(),
+                    str(flat_row.get("C6_ITEM", '')).strip()
+                )
+                fetched_pks.add(pk_val)
+                
                 if flat_row["hash"] not in existing_hashes and flat_row["hash"] not in seen_hashes:
                     new_rows.append(flat_row)
                     seen_hashes.add(flat_row["hash"])
@@ -326,6 +436,14 @@ def fetch_sales_orders_range(tenant_id, company_id, start_date_str, end_date_str
                     flat_row["company_id"] = company_id
                     flat_row["extraction_timestamp"] = extraction_ts
                     flat_row["hash"] = compute_row_hash(flat_row)
+                    
+                    pk_val = (
+                        str(flat_row.get("C5_FILIAL", '')).strip(),
+                        str(flat_row.get("C5_NUM", '')).strip(),
+                        str(flat_row.get("C6_ITEM", '')).strip()
+                    )
+                    fetched_pks.add(pk_val)
+                    
                     if flat_row["hash"] not in existing_hashes and flat_row["hash"] not in seen_hashes:
                         new_rows.append(flat_row)
                         seen_hashes.add(flat_row["hash"])
@@ -338,6 +456,15 @@ def fetch_sales_orders_range(tenant_id, company_id, start_date_str, end_date_str
     if api_total != orders_read:
         logger.warning(f"Pedidos count mismatch for {start_date_str}-{end_date_str} (Tenant: {tenant_id}): API total={api_total}, fetched={orders_read}")
         
+    if existing_pks:
+        deleted_pks = existing_pks - fetched_pks
+        if deleted_pks:
+            logger.warning(f"Auditing 'pedidos' (Tenant: {tenant_id}, range: {start_date_str}-{end_date_str}): "
+                           f"{len(deleted_pks)} entries might have been deleted from the source. "
+                           f"Examples: {list(deleted_pks)[:5]}")
+        else:
+            logger.info(f"Auditing 'pedidos' (Tenant: {tenant_id}, range: {start_date_str}-{end_date_str}): 0 entries deleted.")
+            
     return new_rows, orders_read, flat_rows_read
 
 def fetch_direct_sales_range(tenant_id, company_id, start_date_str, end_date_str, existing_hashes):
@@ -348,6 +475,10 @@ def fetch_direct_sales_range(tenant_id, company_id, start_date_str, end_date_str
     page = 1
     page_size = 500
     api_total = 0
+    
+    # Retrieve existing PKs for auditing deletions
+    existing_pks = get_existing_pks("pedidos_venda", company_id, start_date_str, end_date_str)
+    fetched_pks = set()
     
     while True:
         params = {
@@ -375,6 +506,14 @@ def fetch_direct_sales_range(tenant_id, company_id, start_date_str, end_date_str
                 flat_row["company_id"] = company_id
                 flat_row["extraction_timestamp"] = extraction_ts
                 flat_row["hash"] = compute_row_hash(flat_row)
+                
+                pk_val = (
+                    str(flat_row.get("L1_FILIAL", '')).strip(),
+                    str(flat_row.get("L1_NUM", '')).strip(),
+                    str(flat_row.get("L2_ITEM", '')).strip()
+                )
+                fetched_pks.add(pk_val)
+                
                 if flat_row["hash"] not in existing_hashes and flat_row["hash"] not in seen_hashes:
                     new_rows.append(flat_row)
                     seen_hashes.add(flat_row["hash"])
@@ -386,6 +525,14 @@ def fetch_direct_sales_range(tenant_id, company_id, start_date_str, end_date_str
                     flat_row["company_id"] = company_id
                     flat_row["extraction_timestamp"] = extraction_ts
                     flat_row["hash"] = compute_row_hash(flat_row)
+                    
+                    pk_val = (
+                        str(flat_row.get("L1_FILIAL", '')).strip(),
+                        str(flat_row.get("L1_NUM", '')).strip(),
+                        str(flat_row.get("L2_ITEM", '')).strip()
+                    )
+                    fetched_pks.add(pk_val)
+                    
                     if flat_row["hash"] not in existing_hashes and flat_row["hash"] not in seen_hashes:
                         new_rows.append(flat_row)
                         seen_hashes.add(flat_row["hash"])
@@ -398,6 +545,15 @@ def fetch_direct_sales_range(tenant_id, company_id, start_date_str, end_date_str
     if api_total != sales_read:
         logger.warning(f"Pedidos Venda count mismatch for {start_date_str}-{end_date_str} (Tenant: {tenant_id}): API total={api_total}, fetched={sales_read}")
         
+    if existing_pks:
+        deleted_pks = existing_pks - fetched_pks
+        if deleted_pks:
+            logger.warning(f"Auditing 'pedidos_venda' (Tenant: {tenant_id}, range: {start_date_str}-{end_date_str}): "
+                           f"{len(deleted_pks)} entries might have been deleted from the source. "
+                           f"Examples: {list(deleted_pks)[:5]}")
+        else:
+            logger.info(f"Auditing 'pedidos_venda' (Tenant: {tenant_id}, range: {start_date_str}-{end_date_str}): 0 entries deleted.")
+            
     return new_rows, sales_read, flat_rows_read
 
 def ingest_notas(force_backfill=False):
@@ -564,6 +720,11 @@ def ingest_full_table(name, path, max_sweeps=10):
     existing_hashes = get_existing_hashes(name)
     page_size = 500
 
+    # Retrieve existing PKs for auditing deletions
+    existing_pks = get_existing_pks(name)
+    fetched_pks = set()
+    pks = TABLE_PKS.get(name, [])
+
     for sweep in range(1, max_sweeps + 1):
         logger.info(f"--- Sweep {sweep} for {name} ---")
         sweep_new_rows = []
@@ -582,6 +743,14 @@ def ingest_full_table(name, path, max_sweeps=10):
                 row_dict = item.copy()
                 row_dict["extraction_timestamp"] = extraction_ts
                 row_dict["hash"] = compute_row_hash(row_dict)
+                
+                # Track fetched PKs
+                if pks:
+                    if len(pks) == 1:
+                        fetched_pks.add(str(row_dict.get(pks[0], '')).strip())
+                    else:
+                        fetched_pks.add(tuple(str(row_dict.get(p, '')).strip() for p in pks))
+
                 if row_dict["hash"] not in existing_hashes:
                     sweep_new_rows.append(row_dict)
                     existing_hashes.add(row_dict["hash"])
@@ -598,6 +767,14 @@ def ingest_full_table(name, path, max_sweeps=10):
         else:
             logger.info(f"Sweep {sweep} complete. Total records read: {total_read:,}. 0 new rows found. Converged — stopping sweeps for {name}.")
             break
+
+    if pks and existing_pks:
+        deleted_pks = existing_pks - fetched_pks
+        if deleted_pks:
+            logger.warning(f"Auditing '{name}' full load: {len(deleted_pks)} entries might have been deleted from the source. "
+                           f"Examples: {list(deleted_pks)[:5]}")
+        else:
+            logger.info(f"Auditing '{name}' full load: 0 entries deleted.")
 
 def main():
     import argparse

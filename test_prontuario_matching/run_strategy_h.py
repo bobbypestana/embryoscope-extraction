@@ -37,7 +37,7 @@ logging.info("Clinisys DB : %s", CLINISYS_DB)
 logging.info("Log file    : %s", log_file)
 
 # Import matching engine
-from prontuario_matching_v1 import run_strategy_h
+from prontuario_matching_v1 import run_strategy_l as run_strategy_h
 
 def main():
     if not os.path.exists(CLINISYS_DB):
