@@ -6,6 +6,7 @@ to build gold.protheus_mesclada_vendas. Maps customer and patient identifiers di
 from Protheus ERP tables, while resolving the couple chart ID (prontuario) via tiered Clinisys matching.
 """
 
+import sys
 import os
 import yaml
 import logging
@@ -38,6 +39,13 @@ with open(PARAMS_PATH, 'r') as f:
 DUCKDB_PATH = config['duckdb_path']
 CLINISYS_DB_PATH = config['clinisys_db_path']
 API_CONF = config['api']
+
+# Add Huntington root directory to sys.path to resolve commons
+_root_dir = os.path.dirname(os.path.dirname(SCRIPT_DIR))
+if _root_dir not in sys.path:
+    sys.path.insert(0, _root_dir)
+
+from commons.prontuario_matching_v1 import find_prontuarios
 
 
 def create_gold_table(con):
@@ -131,167 +139,48 @@ def create_gold_table(con):
 
 
 def update_prontuario_column(con):
-    logger.info("Updating prontuario column using tiered matching logic...")
+    logger.info("Updating prontuario column using Strategy L matching (Paciente & Cliente)...")
 
-    logger.info(f"Attaching clinisys database from: {CLINISYS_DB_PATH}")
-    con.execute(f"ATTACH '{CLINISYS_DB_PATH}' AS clinisys_all (READ_ONLY)")
-    logger.info("clinisys_all database attached successfully")
-
-    # Create temporary table with pre-cast/string-converted Clinisys identifiers to avoid cast failures
-    con.execute("""
-    CREATE TEMP TABLE temp_clinisys_processed AS
-    SELECT
-        codigo,
-        codigo::VARCHAR AS codigo_str,
-        TRY_CAST(prontuario_esposa AS INTEGER) AS prontuario_esposa,
-        TRY_CAST(prontuario_marido AS INTEGER) AS prontuario_marido,
-        TRY_CAST(prontuario_responsavel1 AS INTEGER) AS prontuario_responsavel1,
-        TRY_CAST(prontuario_responsavel2 AS INTEGER) AS prontuario_responsavel2,
-        
-        regexp_replace(esposa_cpf, '[^0-9]', '', 'g') AS clean_cpf_esposa,
-        regexp_replace(marido_cpf, '[^0-9]', '', 'g') AS clean_cpf_marido,
-        
-        strip_accents(LOWER(SPLIT_PART(TRIM(esposa_nome), ' ', 1))) as esposa_first,
-        strip_accents(LOWER(SPLIT_PART(TRIM(marido_nome), ' ', 1))) as marido_first,
-        esposa_nome,
-        marido_nome,
-        inativo
-    FROM clinisys_all.silver.view_pacientes
-    """)
-
-    # 1. Tier 1: Direct Medsof ID matching (A1_CODMS from silver.clientes)
-    logger.info("Tier 1: Matching prontuario via Medsof IDs (A1_CODMS)...")
-    match_medsof_sql = """
-    WITH raw_medsof AS (
-        SELECT 
-            g.line_number,
-            TRY_CAST(c_cli.A1_CODMS AS INTEGER) AS cli_codms,
-            TRY_CAST(c_pac.A1_CODMS AS INTEGER) AS pac_codms
-        FROM gold.protheus_mesclada_vendas g
-        LEFT JOIN silver.clientes c_cli ON g.Cliente_totvs = c_cli.A1_COD AND g.Loja = c_cli.A1_LOJA
-        LEFT JOIN silver.clientes c_pac ON g.Paciente = c_pac.A1_COD AND c_pac.A1_LOJA = '01'
-    ),
-    medsof_matches AS (
-        SELECT DISTINCT
-            rm.line_number,
-            COALESCE(vp1.codigo, vp2.codigo, vp3.codigo, vp4.codigo) as resolved_prontuario
-        FROM raw_medsof rm
-        LEFT JOIN temp_clinisys_processed vp1 ON rm.pac_codms = vp1.prontuario_esposa
-        LEFT JOIN temp_clinisys_processed vp2 ON rm.pac_codms = vp2.prontuario_marido
-        LEFT JOIN temp_clinisys_processed vp3 ON rm.cli_codms = vp3.prontuario_esposa
-        LEFT JOIN temp_clinisys_processed vp4 ON rm.cli_codms = vp4.prontuario_marido
-        WHERE COALESCE(vp1.codigo, vp2.codigo, vp3.codigo, vp4.codigo) IS NOT NULL
+    # 1. First run: Paciente
+    logger.info("Run 1: Matching via Paciente columns...")
+    find_prontuarios(
+        source_con=con,
+        clinisys_db_path=CLINISYS_DB_PATH,
+        source_schema='gold',
+        source_table='protheus_mesclada_vendas',
+        id_col='Paciente',
+        name_col='Nom Paciente',
+        birthdate_col=None,
+        cpf_col=None,
+        label='protheus_paciente',
+        suffix='',
     )
-    UPDATE gold.protheus_mesclada_vendas
-    SET prontuario = m.resolved_prontuario
-    FROM medsof_matches m
-    WHERE gold.protheus_mesclada_vendas.line_number = m.line_number
-    """
-    con.execute(match_medsof_sql)
-    
-    stats_medsof = con.execute("SELECT COUNT(*), COUNT(CASE WHEN prontuario != -1 THEN 1 END) FROM gold.protheus_mesclada_vendas").fetchone()
-    logger.info(f"Stats after Tier 1 (Medsof ID): Total={stats_medsof[0]:,}, Matched={stats_medsof[1]:,}, Rate={stats_medsof[1]/stats_medsof[0]*100:.2f}%")
 
-    # 2. Tier 2: Match using CPF
-    logger.info("Tier 2: Matching prontuario via CPF...")
-    match_cpf_sql = """
-    WITH raw_cpf AS (
-        SELECT 
-            g.line_number,
-            regexp_replace(c_cli.A1_CGC, '[^0-9]', '', 'g') AS cli_cpf,
-            regexp_replace(c_pac.A1_CGC, '[^0-9]', '', 'g') AS pac_cpf
-        FROM gold.protheus_mesclada_vendas g
-        LEFT JOIN silver.clientes c_cli ON g.Cliente_totvs = c_cli.A1_COD AND g.Loja = c_cli.A1_LOJA
-        LEFT JOIN silver.clientes c_pac ON g.Paciente = c_pac.A1_COD AND c_pac.A1_LOJA = '01'
-        WHERE g.prontuario = -1
-    ),
-    cpf_matches AS (
-        SELECT DISTINCT
-            rc.line_number,
-            COALESCE(vp1.codigo, vp2.codigo, vp3.codigo, vp4.codigo) as resolved_prontuario
-        FROM raw_cpf rc
-        LEFT JOIN temp_clinisys_processed vp1 ON rc.pac_cpf = vp1.clean_cpf_esposa AND rc.pac_cpf != ''
-        LEFT JOIN temp_clinisys_processed vp2 ON rc.pac_cpf = vp2.clean_cpf_marido AND rc.pac_cpf != ''
-        LEFT JOIN temp_clinisys_processed vp3 ON rc.cli_cpf = vp3.clean_cpf_esposa AND rc.cli_cpf != ''
-        LEFT JOIN temp_clinisys_processed vp4 ON rc.cli_cpf = vp4.clean_cpf_marido AND rc.cli_cpf != ''
-        WHERE COALESCE(vp1.codigo, vp2.codigo, vp3.codigo, vp4.codigo) IS NOT NULL
+    # 2. Second run: Cliente (matching remaining unmatched)
+    logger.info("Run 2: Matching via Cliente columns...")
+    find_prontuarios(
+        source_con=con,
+        clinisys_db_path=CLINISYS_DB_PATH,
+        source_schema='gold',
+        source_table='protheus_mesclada_vendas',
+        id_col='Cliente',
+        name_col='Nome',
+        birthdate_col=None,
+        cpf_col='CPF',
+        label='protheus_cliente',
+        suffix='',
     )
-    UPDATE gold.protheus_mesclada_vendas
-    SET prontuario = m.resolved_prontuario
-    FROM cpf_matches m
-    WHERE gold.protheus_mesclada_vendas.line_number = m.line_number
-    """
-    con.execute(match_cpf_sql)
-    
-    stats_cpf = con.execute("SELECT COUNT(*), COUNT(CASE WHEN prontuario != -1 THEN 1 END) FROM gold.protheus_mesclada_vendas").fetchone()
-    logger.info(f"Stats after Tier 2 (CPF): Total={stats_cpf[0]:,}, Matched={stats_cpf[1]:,}, Rate={stats_cpf[1]/stats_cpf[0]*100:.2f}%")
 
-    # 3. Tier 3: Match using Name matching (First names)
-    logger.info("Tier 3: Matching prontuario via first names...")
-    def match_names(name_column, is_inactive):
-        inactive_val = '1' if is_inactive else '0'
-        update_sql = f"""
-        WITH mesclada_extract AS (
-            SELECT DISTINCT
-                "{name_column}" as name_val,
-                strip_accents(LOWER(SPLIT_PART(TRIM("{name_column}"), ' ', 1))) as name_first
-            FROM gold.protheus_mesclada_vendas
-            WHERE prontuario = -1 AND "{name_column}" IS NOT NULL AND "{name_column}" != ''
-        ),
-        matches_esposa AS (
-            SELECT d.*, p.codigo as resolved_prontuario, p.esposa_nome, p.marido_nome, 'esposa' as match_type
-            FROM mesclada_extract d 
-            INNER JOIN temp_clinisys_processed p ON d.name_first = p.esposa_first
-            WHERE p.inativo = '{inactive_val}'
-        ),
-        matches_marido AS (
-            SELECT d.*, p.codigo as resolved_prontuario, p.esposa_nome, p.marido_nome, 'marido' as match_type
-            FROM mesclada_extract d 
-            INNER JOIN temp_clinisys_processed p ON d.name_first = p.marido_first
-            WHERE p.inativo = '{inactive_val}'
-        ),
-        all_matches AS (
-            SELECT * FROM matches_esposa UNION SELECT * FROM matches_marido
-        ),
-        scored_matches AS (
-            SELECT *,
-                   CASE
-                       WHEN match_type = 'esposa' AND strip_accents(LOWER(TRIM(name_val))) = strip_accents(LOWER(TRIM(esposa_nome))) THEN 0
-                       WHEN match_type = 'marido' AND strip_accents(LOWER(TRIM(name_val))) = strip_accents(LOWER(TRIM(marido_nome))) THEN 0
-                       WHEN match_type = 'esposa' THEN 2
-                       ELSE 4
-                   END as score
-            FROM all_matches
-        ),
-        best_matches AS (
-            SELECT name_val, resolved_prontuario FROM (
-                SELECT name_val, resolved_prontuario, ROW_NUMBER() OVER (PARTITION BY name_val ORDER BY score ASC) as rn
-                FROM scored_matches
-            ) WHERE rn = 1
-        )
-        UPDATE gold.protheus_mesclada_vendas
-        SET prontuario = bm.resolved_prontuario
-        FROM best_matches bm
-        WHERE gold.protheus_mesclada_vendas."{name_column}" = bm.name_val
-          AND gold.protheus_mesclada_vendas.prontuario = -1;
-        """
-        con.execute(update_sql)
-
-    logger.info("Matching Nom Paciente (active)...")
-    match_names("Nom Paciente", is_inactive=False)
-    logger.info("Matching Nome (active)...")
-    match_names("Nome", is_inactive=False)
-    logger.info("Matching Nom Paciente (inactive)...")
-    match_names("Nom Paciente", is_inactive=True)
-    logger.info("Matching Nome (inactive)...")
-    match_names("Nome", is_inactive=True)
-
-    stats_final = con.execute("SELECT COUNT(*), COUNT(CASE WHEN prontuario != -1 THEN 1 END) FROM gold.protheus_mesclada_vendas").fetchone()
-    logger.info(f"Final prontuario matching stats: Total={stats_final[0]:,}, Matched={stats_final[1]:,}, Rate={stats_final[1]/stats_final[0]*100:.2f}%")
-
-    con.execute("DROP TABLE temp_clinisys_processed")
-    con.execute("DETACH clinisys_all")
-    logger.info("Detached clinisys_all")
+    # Log final statistics
+    stats = con.execute("""
+        SELECT 
+            COUNT(*) as total,
+            COUNT(CASE WHEN prontuario IS NOT NULL AND prontuario != -1 THEN 1 END) as matched,
+            COUNT(CASE WHEN prontuario IS NULL OR prontuario = -1 THEN 1 END) as unmatched
+        FROM gold.protheus_mesclada_vendas
+    """).fetchone()
+    rate = stats[1] / stats[0] * 100 if stats[0] else 0.0
+    logger.info(f"Final prontuario matching stats: Total={stats[0]:,}, Matched={stats[1]:,}, Unmatched={stats[2]:,}, Rate={rate:.2f}%")
 
 
 def main():
@@ -303,7 +192,7 @@ def main():
 
     try:
         create_gold_table(con)
-        # update_prontuario_column(con)
+        update_prontuario_column(con)
         logger.info("=== PROTHEUS SILVER TO GOLD CONSOLIDATION FINISHED SUCCESSFUL ===")
     except Exception as e:
         logger.error(f"Gold Consolidation Failed: {e}", exc_info=True)
