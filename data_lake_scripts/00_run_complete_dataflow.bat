@@ -9,6 +9,9 @@ cd /d "%~dp0"
 cd ..
 set PROJECT_ROOT=%CD%
 
+REM Initialize tracking variable for failed steps
+set "FAILED_STEPS="
+
 REM Activate conda environment (based on user memory)
 echo Activating conda environment...
 call conda activate try_request
@@ -65,8 +68,7 @@ if not exist "clinisys\00_run_dataflow_clinisys.bat" (
 call "clinisys\00_run_dataflow_clinisys.bat" 1
 if %errorlevel% neq 0 (
     echo ERROR: Step 1 failed
-    pause
-    exit /b 1
+    set "FAILED_STEPS=%FAILED_STEPS% 1"
 )
 cd /d "%PROJECT_ROOT%"
 
@@ -83,8 +85,7 @@ if not exist "embryoscope\01_get_embryo_data\00_run_dataflow_embryoscope.bat" (
 call "embryoscope\01_get_embryo_data\00_run_dataflow_embryoscope.bat" 2
 if %errorlevel% neq 0 (
     echo ERROR: Step 2 failed
-    pause
-    exit /b 1
+    set "FAILED_STEPS=%FAILED_STEPS% 2"
 )
 cd /d "%PROJECT_ROOT%"
 
@@ -101,8 +102,7 @@ if not exist "embryoscope\02_images_availability_report\00_run_image_availabilit
 call "embryoscope\02_images_availability_report\00_run_image_availability_pipeline.bat" new
 if %errorlevel% neq 0 (
     echo ERROR: Step 3 failed
-    pause
-    exit /b 1
+    set "FAILED_STEPS=%FAILED_STEPS% 3"
 )
 cd /d "%PROJECT_ROOT%"
 
@@ -173,8 +173,7 @@ if not exist "data_lake_scripts\00_run_dataflow_lake_only.bat" (
 call "data_lake_scripts\00_run_dataflow_lake_only.bat" 7
 if %errorlevel% neq 0 (
     echo ERROR: Step 7 failed
-    pause
-    exit /b 1
+    set "FAILED_STEPS=%FAILED_STEPS% 7"
 )
 cd /d "%PROJECT_ROOT%"
 
@@ -191,8 +190,7 @@ if not exist "planilha_ploidia\00_run_ploidia_pipeline.bat" (
 call "planilha_ploidia\00_run_ploidia_pipeline.bat" 8
 if %errorlevel% neq 0 (
     echo ERROR: Step 8 failed
-    pause
-    exit /b 1
+    set "FAILED_STEPS=%FAILED_STEPS% 8"
 )
 cd /d "%PROJECT_ROOT%"
 
@@ -211,8 +209,7 @@ if not exist "embryos_with_prescription\00_run_prescription_pipeline.bat" (
 call "embryos_with_prescription\00_run_prescription_pipeline.bat" 9
 if %errorlevel% neq 0 (
     echo ERROR: Step 9 failed
-    pause
-    exit /b 1
+    set "FAILED_STEPS=%FAILED_STEPS% 9"
 )
 cd /d "%PROJECT_ROOT%"
 
@@ -229,8 +226,7 @@ if not exist "protheus\01_ingestion\00_run_dataflow_protheus.bat" (
 call "protheus\01_ingestion\00_run_dataflow_protheus.bat" 10
 if %errorlevel% neq 0 (
     echo ERROR: Step 10 failed
-    pause
-    exit /b 1
+    set "FAILED_STEPS=%FAILED_STEPS% 10"
 )
 cd /d "%PROJECT_ROOT%"
 
@@ -301,10 +297,21 @@ echo ========================================
 
 echo.
 echo ========================================
-echo COMPLETE DATAFLOW FINISHED SUCCESSFULLY!
+echo DATAFLOW RUN COMPLETE
 echo ========================================
 echo.
-echo All 14 pipeline steps completed without errors.
-echo Log cleanup completed.
-echo.
-pause
+
+if defined FAILED_STEPS (
+    echo WARNING: The complete dataflow finished with errors.
+    echo The following steps failed:%FAILED_STEPS%
+    echo.
+    pause
+    exit /b 1
+) else (
+    echo COMPLETE DATAFLOW FINISHED SUCCESSFULLY!
+    echo All active pipeline steps completed without errors.
+    echo Log cleanup completed.
+    echo.
+    pause
+    exit /b 0
+)

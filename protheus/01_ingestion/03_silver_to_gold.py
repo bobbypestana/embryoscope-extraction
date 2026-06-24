@@ -187,18 +187,15 @@ def main():
     logger.info("=== PROTHEUS SILVER TO GOLD CONSOLIDATION STARTED ===")
     logger.info(f"Target Database: {DUCKDB_PATH}")
 
-    con = duckdb.connect(DUCKDB_PATH)
-    con.execute("CREATE SCHEMA IF NOT EXISTS gold")
-
     try:
-        create_gold_table(con)
-        update_prontuario_column(con)
-        logger.info("=== PROTHEUS SILVER TO GOLD CONSOLIDATION FINISHED SUCCESSFUL ===")
+        with duckdb.connect(DUCKDB_PATH) as con:
+            con.execute("CREATE SCHEMA IF NOT EXISTS gold")
+            create_gold_table(con)
+            update_prontuario_column(con)
+            logger.info("=== PROTHEUS SILVER TO GOLD CONSOLIDATION FINISHED SUCCESSFUL ===")
     except Exception as e:
         logger.error(f"Gold Consolidation Failed: {e}", exc_info=True)
         raise
-    finally:
-        con.close()
 
 
 if __name__ == "__main__":

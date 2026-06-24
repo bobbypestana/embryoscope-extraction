@@ -63,9 +63,15 @@ def create_combined_table(conn):
                CAST(descong_em_DataTransferencia AS DATE) as transfer_date_descong,
                CAST(trat1_data_transferencia AS DATE) as transfer_date_trat1,
                CAST(trat2_data_transferencia AS DATE) as transfer_date_trat2,
-               CAST(cong_em_Data AS DATE) as cong_date
+               CAST(cong_em_Data AS DATE) as cong_date,
+               (
+                   trat1_data_transferencia IS NOT NULL OR 
+                   trat2_data_transferencia IS NOT NULL OR 
+                   descong_em_DataTransferencia IS NOT NULL OR
+                   emb_cong_transferidos = 'Transferido' OR
+                   embryo_EmbryoFate IN ('Transfer', 'FrozenEmbryoTransfer')
+               ) as is_transferred_combined
         FROM gold.embryoscope_clinisys_combined
-        WHERE oocito_TCD = 'Transferido' OR descong_em_DataDescongelamento IS NOT NULL
     ),
     src AS (
         SELECT *, ROW_NUMBER() OVER() as src_row_id
@@ -151,14 +157,98 @@ def create_combined_table(conn):
         UNION ALL SELECT * FROM step8
         UNION ALL SELECT * FROM step9
     ),
+    all_matches_with_counts AS (
+        SELECT 
+            m.*,
+            e.is_transferred_combined,
+            SUM(CASE WHEN e.is_transferred_combined THEN 1 ELSE 0 END) OVER (PARTITION BY m.src_row_id) as cycle_transferred_count
+        FROM all_combined_matches m
+        JOIN emb e ON m.oocito_id = e.oocito_id
+    ),
+    filtered_matches AS (
+        SELECT 
+            m.*,
+            m.is_transferred_combined,
+            m.cycle_transferred_count,
+            CASE 
+                WHEN m.cycle_transferred_count = 0 AND (
+                    s.outcome_type LIKE '%Delivery%' OR 
+                    s.outcome_type LIKE '%Miscarriage%' OR 
+                    s.outcome_type LIKE '%Clinical pregnancy%' OR 
+                    s.outcome_type LIKE '%Biochemical pregnancy%' OR 
+                    s.outcome_type LIKE '%Ectopic%' OR
+                    s.outcome_type LIKE '%Abortion%' OR
+                    CAST(s.fet_gravidez_bioquimica AS VARCHAR) = '1' OR
+                    CAST(s.fet_gravidez_clinica AS VARCHAR) = '1' OR
+                    s.fet_resultado IN ('POSITIVO', 'EMBRYO TRANSFER')
+                ) THEN True
+                ELSE False
+            END as has_transfer_logging_gap
+        FROM all_matches_with_counts m
+        JOIN src s ON m.src_row_id = s.src_row_id
+        WHERE 
+            m.is_transferred_combined = True 
+            OR m.cycle_transferred_count = 0
+    ),
     final_matches AS (
         SELECT * FROM (
             SELECT *, ROW_NUMBER() OVER(PARTITION BY oocito_id ORDER BY step_id) as rn
-            FROM all_combined_matches
+            FROM filtered_matches
         ) WHERE rn = 1
     )
     SELECT 
         e.*,
+        (
+            e.trat1_data_transferencia IS NOT NULL OR 
+            e.trat2_data_transferencia IS NOT NULL OR 
+            e.descong_em_DataTransferencia IS NOT NULL OR
+            e.emb_cong_transferidos = 'Transferido' OR
+            e.embryo_EmbryoFate IN ('Transfer', 'FrozenEmbryoTransfer')
+        ) as is_transferred_combined,
+        -- 1. Has biopsy (independent flag)
+        (
+            (e.oocito_ResultadoPGD IS NOT NULL AND e.oocito_ResultadoPGD != 'None') OR
+            (e.oocito_ResultadoPGDDetalhes IS NOT NULL AND e.oocito_ResultadoPGDDetalhes != 'None') OR
+            (e.embryo_Description IS NOT NULL AND e.embryo_Description != 'None')
+        ) as has_biopsy,
+        -- 2. Has valid clinical outcome (independent flag)
+        (
+            -- Valid outcome_type
+            (s.outcome_type IS NOT NULL AND s.outcome_type != 'None' AND (
+                LOWER(s.outcome_type) LIKE '%delivery%' OR 
+                LOWER(s.outcome_type) LIKE '%pregnancy%' OR 
+                LOWER(s.outcome_type) LIKE '%miscarriage%'
+            ) AND LOWER(s.outcome_type) NOT LIKE '%lost to follow%')
+            OR
+            -- Valid merged_numero_de_nascidos
+            (s.merged_numero_de_nascidos IS NOT NULL)
+            OR
+            -- Valid fet_gravidez_clinica (excluding 'X')
+            (s.fet_gravidez_clinica IS NOT NULL AND s.fet_gravidez_clinica != 'None' AND s.fet_gravidez_clinica != 'X')
+            OR
+            -- Valid trat1
+            (e.trat1_resultado_tratamento IS NOT NULL AND e.trat1_resultado_tratamento != 'None' AND (
+                LOWER(e.trat1_resultado_tratamento) LIKE '%gestação%' OR 
+                LOWER(e.trat1_resultado_tratamento) LIKE '%gestacao%' OR 
+                LOWER(e.trat1_resultado_tratamento) LIKE '%negativo%'
+            ))
+            OR
+            -- Valid trat2
+            (e.trat2_resultado_tratamento IS NOT NULL AND e.trat2_resultado_tratamento != 'None' AND (
+                LOWER(e.trat2_resultado_tratamento) LIKE '%gestação%' OR 
+                LOWER(e.trat2_resultado_tratamento) LIKE '%gestacao%' OR 
+                LOWER(e.trat2_resultado_tratamento) LIKE '%negativo%'
+            ))
+            OR
+            -- Valid fet_tipo_resultado
+            (s.fet_tipo_resultado IS NOT NULL AND s.fet_tipo_resultado != 'None' AND 
+             LOWER(s.fet_tipo_resultado) IN (
+                'positivo', 'não engravidou', 'nao engravidou', 'fiv completa', 
+                'bioquimica', 'bioquímica', 'aborto', 'nascimento', 'nascidos', 
+                'ectópica', 'ectopica'
+             ))
+        ) as has_valid_outcome,
+        COALESCE(m.has_transfer_logging_gap, False) as has_transfer_logging_gap,
         m.step_id as join_step,
         m.src_row_id as matched_src_row_id,
         s.prontuario as matched_planilha_prontuario,

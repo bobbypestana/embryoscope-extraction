@@ -57,8 +57,7 @@ def promote_notas(con):
 
     # Promote ALL columns from bronze, only replacing fields that need type casting.
     # DuckDB's SELECT * REPLACE (...) syntax re-selects all columns but overrides specific ones.
-    # is_deleted is always FALSE for notas — deleted lines are naturally absent from the API
-    # date-range queries and won't appear in new extracts, so we don't need a flag here.
+    # We filter out records that have been flagged as deleted in the source.
     query = """
     CREATE OR REPLACE TABLE silver.notas AS
     SELECT * REPLACE (
@@ -76,6 +75,7 @@ def promote_notas(con):
                    ORDER BY extraction_timestamp DESC
                ) AS rn
         FROM bronze.notas
+        WHERE COALESCE(is_deleted, 'FALSE') = 'FALSE'
     )
     WHERE rn = 1;
     """
@@ -152,6 +152,7 @@ def promote_pedidos(con):
 
     # Promote ALL columns from bronze, only replacing fields that need type casting.
     # Deduplicate by business primary keys: company_id, C5_FILIAL, C5_NUM, C6_ITEM
+    # We filter out records that have been flagged as deleted in the source.
     query = """
     CREATE OR REPLACE TABLE silver.pedidos AS
     SELECT * REPLACE (
@@ -169,6 +170,7 @@ def promote_pedidos(con):
                    ORDER BY extraction_timestamp DESC
                ) AS rn
         FROM bronze.pedidos
+        WHERE COALESCE(is_deleted, 'FALSE') = 'FALSE'
     )
     WHERE rn = 1;
     """
@@ -192,6 +194,7 @@ def promote_pedidos_venda(con):
 
     # Promote ALL columns from bronze, only replacing fields that need type casting.
     # Deduplicate by business primary keys: company_id, L1_FILIAL, L1_NUM, L2_ITEM
+    # We filter out records that have been flagged as deleted in the source.
     query = """
     CREATE OR REPLACE TABLE silver.pedidos_venda AS
     SELECT * REPLACE (
@@ -209,6 +212,7 @@ def promote_pedidos_venda(con):
                    ORDER BY extraction_timestamp DESC
                ) AS rn
         FROM bronze.pedidos_venda
+        WHERE COALESCE(is_deleted, 'FALSE') = 'FALSE'
     )
     WHERE rn = 1;
     """
@@ -222,23 +226,34 @@ def main():
     logger.info("=== PROTHEUS BRONZE TO SILVER PROMOTION STARTED ===")
     logger.info(f"Target Database: {DUCKDB_PATH}")
 
-    con = duckdb.connect(DUCKDB_PATH)
-    con.execute("CREATE SCHEMA IF NOT EXISTS silver")
-
     try:
-        promote_notas(con)
-        promote_pedidos(con)
-        promote_pedidos_venda(con)
-        promote_full_load(con, "tes",        ["F4_CODIGO"])
-        promote_full_load(con, "produtos",   ["B1_COD"])
-        promote_full_load(con, "clientes",   ["A1_COD", "A1_LOJA"], keep_all=True)
-        promote_full_load(con, "vendedores", ["A3_COD"])
-        logger.info("=== PROTHEUS BRONZE TO SILVER PROMOTION FINISHED SUCCESSFUL ===")
+        with duckdb.connect(DUCKDB_PATH) as con:
+            con.execute("CREATE SCHEMA IF NOT EXISTS silver")
+
+            # Ensure is_deleted column exists in bronze tables to prevent promotion BinderExceptions
+            for table_name in ["notas", "pedidos", "pedidos_venda"]:
+                exists = con.execute(f"""
+                    SELECT COUNT(*) FROM information_schema.tables 
+                    WHERE table_schema = 'bronze' AND table_name = '{table_name}'
+                """).fetchone()[0]
+                if exists:
+                    cols = {r[0] for r in con.execute(f"DESCRIBE bronze.{table_name}").fetchall()}
+                    if "is_deleted" not in cols:
+                        logger.info(f"Ensuring is_deleted column exists in bronze.{table_name}...")
+                        con.execute(f"ALTER TABLE bronze.{table_name} ADD COLUMN is_deleted VARCHAR")
+                        con.execute(f"UPDATE bronze.{table_name} SET is_deleted = 'FALSE'")
+
+            promote_notas(con)
+            promote_pedidos(con)
+            promote_pedidos_venda(con)
+            promote_full_load(con, "tes",        ["F4_CODIGO"])
+            promote_full_load(con, "produtos",   ["B1_COD"])
+            promote_full_load(con, "clientes",   ["A1_COD", "A1_LOJA"], keep_all=True)
+            promote_full_load(con, "vendedores", ["A3_COD"])
+            logger.info("=== PROTHEUS BRONZE TO SILVER PROMOTION FINISHED SUCCESSFUL ===")
     except Exception as e:
         logger.error(f"Silver Promotion Failed: {e}", exc_info=True)
         raise
-    finally:
-        con.close()
 
 
 if __name__ == "__main__":

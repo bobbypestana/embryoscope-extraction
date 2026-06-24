@@ -49,42 +49,7 @@ def create_combined_table(conn):
     # Drop table if it exists
     conn.execute("DROP TABLE IF EXISTS gold.redlara_planilha_combined")
     
-    # FULL JOIN is used to preserve all records from both sides for reporting
-    
-    # Calculating Statistics FIRST
-    logger.info("Calculating Join Statistics...")
-    
-    # 1. Left Join: Planilha -> Redlara
-    stats_left = conn.execute("""
-        SELECT 
-            COUNT(*) as total_embriologia,
-            SUM(CASE WHEN r.prontuario IS NOT NULL THEN 1 ELSE 0 END) as matched
-        FROM silver.planilha_embriologia_combined e
-        LEFT JOIN silver.redlara_unified r
-          ON e.prontuario = r.prontuario
-          AND (
-               (r.date_of_embryo_transfer = e.fet_data_da_fet AND r.date_of_embryo_transfer IS NOT NULL)
-               OR (r.date_when_embryos_were_cryopreserved = e.fet_data_crio AND r.date_when_embryos_were_cryopreserved IS NOT NULL)
-               OR (r.date_when_embryos_were_cryopreserved = e.fresh_data_crio AND r.date_when_embryos_were_cryopreserved IS NOT NULL)
-          )
-    """).df().iloc[0]
-    
-    # 2. Right Join: Redlara -> Planilha
-    stats_right = conn.execute("""
-        SELECT 
-            COUNT(*) as total_redlara,
-            SUM(CASE WHEN e.prontuario IS NOT NULL THEN 1 ELSE 0 END) as matched
-        FROM silver.redlara_unified r
-        LEFT JOIN silver.planilha_embriologia_combined e
-          ON r.prontuario = e.prontuario
-          AND (
-               (r.date_of_embryo_transfer = e.fet_data_da_fet AND r.date_of_embryo_transfer IS NOT NULL)
-               OR (r.date_when_embryos_were_cryopreserved = e.fet_data_crio AND r.date_when_embryos_were_cryopreserved IS NOT NULL)
-               OR (r.date_when_embryos_were_cryopreserved = e.fresh_data_crio AND r.date_when_embryos_were_cryopreserved IS NOT NULL)
-          )
-    """).df().iloc[0]
-    
-    # Create the result table using a priority-based multi-step join
+    # Create the result table using a waterfall join strategy with tolerance
     join_query = """
     CREATE TABLE gold.redlara_planilha_combined AS
     WITH redlara_with_id AS (
@@ -93,29 +58,82 @@ def create_combined_table(conn):
     planilha_with_id AS (
         SELECT *, row_number() OVER() as e_unique_id FROM silver.planilha_embriologia_combined
     ),
-    potential_matches AS (
-        SELECT 
-            r.r_unique_id,
-            e.e_unique_id,
-            CASE 
-                WHEN r.date_of_embryo_transfer = e.fet_data_da_fet AND r.date_of_embryo_transfer IS NOT NULL THEN 1
-                WHEN r.date_when_embryos_were_cryopreserved = e.fet_data_crio AND r.date_when_embryos_were_cryopreserved IS NOT NULL THEN 2
-                WHEN r.date_when_embryos_were_cryopreserved = e.fresh_data_crio AND r.date_when_embryos_were_cryopreserved IS NOT NULL THEN 3
-                ELSE 99
-            END as match_priority
+    step1 AS (
+        -- Step 1: Exact Transfer Date match (valid prontuarios only)
+        SELECT r.r_unique_id, e.e_unique_id, 1 as step_id
         FROM redlara_with_id r
         JOIN planilha_with_id e ON r.prontuario = e.prontuario
-        WHERE match_priority < 99
+        WHERE r.prontuario > 0 AND e.prontuario > 0
+          AND r.date_of_embryo_transfer = e.fet_data_da_fet AND r.date_of_embryo_transfer IS NOT NULL
+    ),
+    step2 AS (
+        -- Step 2: Transfer Date match (with 3-day tolerance)
+        SELECT r.r_unique_id, e.e_unique_id, 2 as step_id
+        FROM redlara_with_id r
+        JOIN planilha_with_id e ON r.prontuario = e.prontuario
+        WHERE r.prontuario > 0 AND e.prontuario > 0
+          AND date_diff('day', r.date_of_embryo_transfer, e.fet_data_da_fet) BETWEEN -3 AND 3
+          AND r.date_of_embryo_transfer IS NOT NULL AND e.fet_data_da_fet IS NOT NULL
+          AND r.r_unique_id NOT IN (SELECT r_unique_id FROM step1)
+          AND e.e_unique_id NOT IN (SELECT e_unique_id FROM step1)
+    ),
+    step3 AS (
+        -- Step 3: Cryo Date FET match (Exact)
+        SELECT r.r_unique_id, e.e_unique_id, 3 as step_id
+        FROM redlara_with_id r
+        JOIN planilha_with_id e ON r.prontuario = e.prontuario
+        WHERE r.prontuario > 0 AND e.prontuario > 0
+          AND r.date_when_embryos_were_cryopreserved = e.fet_data_crio AND r.date_when_embryos_were_cryopreserved IS NOT NULL
+          AND r.r_unique_id NOT IN (SELECT r_unique_id FROM step1 UNION SELECT r_unique_id FROM step2)
+          AND e.e_unique_id NOT IN (SELECT e_unique_id FROM step1 UNION SELECT e_unique_id FROM step2)
+    ),
+    step4 AS (
+        -- Step 4: Cryo Date FET match (with 3-day tolerance)
+        SELECT r.r_unique_id, e.e_unique_id, 4 as step_id
+        FROM redlara_with_id r
+        JOIN planilha_with_id e ON r.prontuario = e.prontuario
+        WHERE r.prontuario > 0 AND e.prontuario > 0
+          AND date_diff('day', r.date_when_embryos_were_cryopreserved, e.fet_data_crio) BETWEEN -3 AND 3
+          AND r.date_when_embryos_were_cryopreserved IS NOT NULL AND e.fet_data_crio IS NOT NULL
+          AND r.r_unique_id NOT IN (SELECT r_unique_id FROM step1 UNION SELECT r_unique_id FROM step2 UNION SELECT r_unique_id FROM step3)
+          AND e.e_unique_id NOT IN (SELECT e_unique_id FROM step1 UNION SELECT e_unique_id FROM step2 UNION SELECT e_unique_id FROM step3)
+    ),
+    step5 AS (
+        -- Step 5: Cryo Date Fresh match (Exact)
+        SELECT r.r_unique_id, e.e_unique_id, 5 as step_id
+        FROM redlara_with_id r
+        JOIN planilha_with_id e ON r.prontuario = e.prontuario
+        WHERE r.prontuario > 0 AND e.prontuario > 0
+          AND r.date_when_embryos_were_cryopreserved = e.fresh_data_crio AND r.date_when_embryos_were_cryopreserved IS NOT NULL
+          AND r.r_unique_id NOT IN (SELECT r_unique_id FROM step1 UNION SELECT r_unique_id FROM step2 UNION SELECT r_unique_id FROM step3 UNION SELECT r_unique_id FROM step4)
+          AND e.e_unique_id NOT IN (SELECT e_unique_id FROM step1 UNION SELECT e_unique_id FROM step2 UNION SELECT e_unique_id FROM step3 UNION SELECT e_unique_id FROM step4)
+    ),
+    step6 AS (
+        -- Step 6: Cryo Date Fresh match (with 3-day tolerance)
+        SELECT r.r_unique_id, e.e_unique_id, 6 as step_id
+        FROM redlara_with_id r
+        JOIN planilha_with_id e ON r.prontuario = e.prontuario
+        WHERE r.prontuario > 0 AND e.prontuario > 0
+          AND date_diff('day', r.date_when_embryos_were_cryopreserved, e.fresh_data_crio) BETWEEN -3 AND 3
+          AND r.date_when_embryos_were_cryopreserved IS NOT NULL AND e.fresh_data_crio IS NOT NULL
+          AND r.r_unique_id NOT IN (SELECT r_unique_id FROM step1 UNION SELECT r_unique_id FROM step2 UNION SELECT r_unique_id FROM step3 UNION SELECT r_unique_id FROM step4 UNION SELECT r_unique_id FROM step5)
+          AND e.e_unique_id NOT IN (SELECT e_unique_id FROM step1 UNION SELECT e_unique_id FROM step2 UNION SELECT e_unique_id FROM step3 UNION SELECT e_unique_id FROM step4 UNION SELECT e_unique_id FROM step5)
+    ),
+    all_matches AS (
+        SELECT * FROM step1
+        UNION ALL SELECT * FROM step2
+        UNION ALL SELECT * FROM step3
+        UNION ALL SELECT * FROM step4
+        UNION ALL SELECT * FROM step5
+        UNION ALL SELECT * FROM step6
     ),
     best_matches AS (
         SELECT * FROM (
             SELECT 
                 *,
-                -- Select best match for each Redlara record
-                ROW_NUMBER() OVER(PARTITION BY r_unique_id ORDER BY match_priority) as r_rank,
-                -- Select best match for each Planilha record
-                ROW_NUMBER() OVER(PARTITION BY e_unique_id ORDER BY match_priority) as e_rank
-            FROM potential_matches
+                ROW_NUMBER() OVER(PARTITION BY r_unique_id ORDER BY step_id) as r_rank,
+                ROW_NUMBER() OVER(PARTITION BY e_unique_id ORDER BY step_id) as e_rank
+            FROM all_matches
         ) WHERE r_rank = 1 AND e_rank = 1
     ),
     combined AS (
@@ -129,6 +147,7 @@ def create_combined_table(conn):
                 WHEN e.fresh_incubadora IS NOT NULL THEN 'K-SYSTEM'
                 ELSE NULL 
             END as incubadora_padronizada,
+            m.step_id as redlara_planilha_join_step,
             r.* EXCLUDE (prontuario, date_of_embryo_transfer, number_of_newborns, r_unique_id),
             e.* EXCLUDE (prontuario, fet_data_da_fet, fet_no_nascidos, e_unique_id)
         FROM redlara_with_id r
@@ -138,26 +157,57 @@ def create_combined_table(conn):
     SELECT * FROM combined WHERE prontuario IS NOT NULL
     """
     
-    logger.info("Executing Full Outer Join to create gold table...")
+    logger.info("Executing Waterfall Join to create gold table...")
     conn.execute(join_query)
     
+    # Calculate statistics directly from output and inputs
+    total_planilha = conn.execute("SELECT COUNT(*) FROM silver.planilha_embriologia_combined").fetchone()[0]
+    total_redlara = conn.execute("SELECT COUNT(*) FROM silver.redlara_unified").fetchone()[0]
+    
+    matched_count = conn.execute("""
+        SELECT COUNT(*) 
+        FROM gold.redlara_planilha_combined 
+        WHERE redlara_planilha_join_step IS NOT NULL
+    """).fetchone()[0]
+    
     total_gold = conn.execute("SELECT COUNT(*) FROM gold.redlara_planilha_combined").fetchone()[0]
+    
+    stats_by_step = conn.execute("""
+        SELECT redlara_planilha_join_step, COUNT(*) as count
+        FROM gold.redlara_planilha_combined
+        WHERE redlara_planilha_join_step IS NOT NULL
+        GROUP BY redlara_planilha_join_step
+        ORDER BY redlara_planilha_join_step
+    """).df()
     
     # Log Final Stats
     logger.info("=" * 60)
     logger.info("JOIN STATISTICS SUMMARY")
     logger.info("=" * 60)
-    logger.info("LEFT JOIN (Planilha -> Redlara):")
-    logger.info(f"  Total Planilha Rows: {int(stats_left['total_embriologia']):,}")
-    logger.info(f"  Matched with Redlara: {int(stats_left['matched']):,}")
-    logger.info(f"  Match Rate: {(stats_left['matched'] / stats_left['total_embriologia'] * 100):.2f}%")
+    logger.info(f"PLANILHA PERSPECTIVE (Total Rows: {total_planilha:,}):")
+    logger.info(f"  Matched with Redlara: {matched_count:,}")
+    logger.info(f"  Match Rate: {(matched_count / total_planilha * 100):.2f}%")
     
     logger.info("-" * 60)
-    logger.info("RIGHT JOIN (Redlara -> Planilha):")
-    logger.info(f"  Total Redlara Rows: {int(stats_right['total_redlara']):,}")
-    logger.info(f"  Matched with Planilha: {int(stats_right['matched']):,}")
-    logger.info(f"  Match Rate: {(stats_right['matched'] / stats_right['total_redlara'] * 100):.2f}%")
+    logger.info(f"REDLARA PERSPECTIVE (Total Rows: {total_redlara:,}):")
+    logger.info(f"  Matched with Planilha: {matched_count:,}")
+    logger.info(f"  Match Rate: {(matched_count / total_redlara * 100):.2f}%")
     
+    logger.info("-" * 60)
+    logger.info("Matches by Waterfall Step:")
+    step_labels = {
+        1: "Exact Transfer Date",
+        2: "Transfer Date (+/- 3 days)",
+        3: "Exact Cryo Date (FET)",
+        4: "Cryo Date (FET) (+/- 3 days)",
+        5: "Exact Cryo Date (Fresh)",
+        6: "Cryo Date (Fresh) (+/- 3 days)"
+    }
+    for _, row in stats_by_step.iterrows():
+        step = int(row['redlara_planilha_join_step'])
+        label = step_labels.get(step, f"Step {step}")
+        logger.info(f"  Step {step}: {label:<35} | {int(row['count']):>6,}")
+        
     logger.info("=" * 60)
     logger.info(f"Gold table gold.redlara_planilha_combined created with {total_gold:,} rows.")
     logger.info("=" * 60)

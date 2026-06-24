@@ -57,19 +57,13 @@ def get_embryos_to_extract(conn: duckdb.DuckDBPyConnection, limit: int = 3, plan
     # Query distinct Slide IDs that are missing at least one of the requested planes as 'success'.
 
     # Biopsy filters based on user request:
-    # with_biopsy: (Embryo Description NOT NULL or Embryo Description Clinisys NOT NULL)
-    # without_biopsy: (Embryo Description IS NULL AND Embryo Description Clinisys IS NULL)
+    # with_biopsy: has_biopsy is True
+    # without_biopsy: has_biopsy is False AND has_valid_outcome is True
     biopsy_filter = ""
     if mode == "with_biopsy":
-        biopsy_filter = 'AND (dp."Embryo Description" IS NOT NULL OR dp."Embryo Description Clinisys" IS NOT NULL OR dp."Embryo Description Clinisys Detalhes" IS NOT NULL)'
+        biopsy_filter = "AND dp.has_biopsy = True"
     elif mode == "without_biopsy":
-        biopsy_filter = '''AND (dp."Embryo Description" IS NULL AND dp."Embryo Description Clinisys" IS NULL AND dp."Embryo Description Clinisys Detalhes" IS NULL)
-              AND (dp.outcome_type IS NOT NULL OR 
-                   dp.merged_numero_de_nascidos IS NOT NULL OR 
-                   dp.fet_gravidez_clinica IS NOT NULL OR 
-                   dp.trat2_resultado_tratamento IS NOT NULL OR 
-                   dp.trat1_resultado_tratamento IS NOT NULL OR 
-                   dp.fet_tipo_resultado IS NOT NULL)'''
+        biopsy_filter = "AND dp.has_biopsy = False AND dp.has_valid_outcome = True"
 
     # If retry is True, we only exclude embryos that have a SUCCESS for ALL requested planes.
     # If retry is False, we exclude any embryo that has ANY record (even failed) in the metadata table for the requested planes.

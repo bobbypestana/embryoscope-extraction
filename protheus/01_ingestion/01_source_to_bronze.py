@@ -14,6 +14,7 @@ import hashlib
 import pandas as pd
 import duckdb
 import time
+import random
 from requests.auth import HTTPBasicAuth
 from datetime import datetime, timedelta
 
@@ -46,6 +47,10 @@ AUTH = HTTPBasicAuth(API_CONF['username'], API_CONF['password'])
 BASE_URL = API_CONF['base_url']
 BACKFILL_START = API_CONF.get('backfill_start_date', '20220101')
 
+# Initialize persistent HTTP session with connection pooling and auth pre-configured
+session = requests.Session()
+session.auth = AUTH
+
 # Primary keys for each table to help identify deleted records from the source
 TABLE_PKS = {
     "notas": ["F2_FILIAL", "F2_DOC", "F2_SERIE", "D2_ITEM"],
@@ -64,43 +69,47 @@ TABLE_DATE_COLS = {
     "pedidos_venda": "L1_EMISSAO"
 }
 
-def get_existing_pks(table_name, company_id=None, start_date=None, end_date=None):
+def get_existing_pks(table_name, company_id=None, filial=None, start_date=None, end_date=None):
     """
     Retrieves the set of existing primary key tuples/strings from the DuckDB database.
-    If company_id and date range are provided, filters the query for incremental tables.
+    If company_id, filial and date range are provided, filters the query.
     """
     pks = TABLE_PKS.get(table_name, [])
     if not pks:
         return set()
         
-    con = None
     try:
-        con = duckdb.connect(DUCKDB_PATH)
-        # Check if table exists
-        exists = con.execute(f"""
-            SELECT COUNT(*) FROM information_schema.tables 
-            WHERE table_schema = 'bronze' AND table_name = '{table_name}'
-        """).fetchone()[0]
-        if not exists:
-            con.close()
-            return set()
+        with duckdb.connect(DUCKDB_PATH, read_only=True) as con:
+            # Check if table exists
+            exists = con.execute(f"""
+                SELECT COUNT(*) FROM information_schema.tables 
+                WHERE table_schema = 'bronze' AND table_name = '{table_name}'
+            """).fetchone()[0]
+            if not exists:
+                return set()
+                
+            pk_cols_str = ", ".join(f'COALESCE("{p}", \'\')' for p in pks)
+            query = f'SELECT DISTINCT {pk_cols_str} FROM bronze.{table_name}'
             
-        pk_cols_str = ", ".join(f'COALESCE("{p}", \'\')' for p in pks)
-        query = f'SELECT DISTINCT {pk_cols_str} FROM bronze.{table_name}'
-        
-        conditions = []
-        if company_id:
-            conditions.append(f"company_id = '{company_id}'")
-        if start_date and end_date and table_name in TABLE_DATE_COLS:
-            date_col = TABLE_DATE_COLS[table_name]
-            conditions.append(f'"{date_col}" BETWEEN \'{start_date}\' AND \'{end_date}\'')
+            conditions = []
+            if company_id:
+                conditions.append(f"company_id = '{company_id}'")
+            if filial:
+                if table_name == "notas":
+                    conditions.append(f"F2_FILIAL = '{filial}'")
+                elif table_name == "pedidos":
+                    conditions.append(f"C5_FILIAL = '{filial}'")
+                elif table_name == "pedidos_venda":
+                    conditions.append(f"L1_FILIAL = '{filial}'")
+            if start_date and end_date and table_name in TABLE_DATE_COLS:
+                date_col = TABLE_DATE_COLS[table_name]
+                conditions.append(f'"{date_col}" BETWEEN \'{start_date}\' AND \'{end_date}\'')
+                
+            if conditions:
+                query += " WHERE " + " AND ".join(conditions)
+                
+            rows = con.execute(query).fetchall()
             
-        if conditions:
-            query += " WHERE " + " AND ".join(conditions)
-            
-        rows = con.execute(query).fetchall()
-        con.close()
-        
         # Return set of strings (for single PK) or tuples (for multi-column PKs)
         if len(pks) == 1:
             return {str(r[0]).strip() for r in rows if r[0] is not None}
@@ -108,10 +117,64 @@ def get_existing_pks(table_name, company_id=None, start_date=None, end_date=None
             return {tuple(str(val).strip() for val in r) for r in rows}
     except Exception as e:
         logger.warning(f"Could not fetch existing PKs for bronze.{table_name}: {e}")
-        if con:
-            try: con.close()
-            except Exception: pass
         return set()
+
+def flag_deleted_in_bronze(table_name, company_id, deleted_pks):
+    if not deleted_pks:
+        return
+    pks = TABLE_PKS.get(table_name, [])
+    if not pks:
+        return
+        
+    try:
+        with duckdb.connect(DUCKDB_PATH) as con:
+            # Check if table exists
+            exists = con.execute(f"""
+                SELECT COUNT(*) FROM information_schema.tables 
+                WHERE table_schema = 'bronze' AND table_name = '{table_name}'
+            """).fetchone()[0]
+            if not exists:
+                return
+                
+            # Ensure is_deleted column exists in bronze table
+            existing_cols = {row[0] for row in con.execute(f"DESCRIBE bronze.{table_name}").fetchall()}
+            if "is_deleted" not in existing_cols:
+                logger.info(f"Adding is_deleted column to bronze.{table_name}")
+                con.execute(f"ALTER TABLE bronze.{table_name} ADD COLUMN is_deleted VARCHAR")
+                con.execute(f"UPDATE bronze.{table_name} SET is_deleted = 'FALSE'")
+
+            logger.info(f"Flagging {len(deleted_pks)} deleted records in bronze.{table_name}...")
+            
+            # Build conditions for each PK tuple
+            pk_cols_str = ", ".join(f'"{p}"' for p in pks)
+            
+            list_pks = list(deleted_pks)
+            chunk_size = 500
+            for i in range(0, len(list_pks), chunk_size):
+                chunk = list_pks[i:i+chunk_size]
+                tuple_list_str = []
+                for item in chunk:
+                    if len(pks) == 1:
+                        escaped_val = str(item).replace("'", "''")
+                        tuple_list_str.append(f"('{escaped_val}')")
+                    else:
+                        escaped_vals = []
+                        for val in item:
+                            escaped_val = str(val).replace("'", "''")
+                            escaped_vals.append(f"'{escaped_val}'")
+                        tuple_list_str.append(f"({', '.join(escaped_vals)})")
+                
+                tuples_in_str = ", ".join(tuple_list_str)
+                update_query = f"""
+                    UPDATE bronze.{table_name}
+                    SET is_deleted = 'TRUE'
+                    WHERE company_id = '{company_id}' AND ({pk_cols_str}) IN ({tuples_in_str})
+                """
+                con.execute(update_query)
+                
+            logger.info(f"Successfully flagged {len(deleted_pks)} deleted records in bronze.{table_name}")
+    except Exception as e:
+        logger.error(f"Failed to flag deleted records in bronze.{table_name}: {e}")
 
 # List of all verified active/accessible tenants for branch invoices
 ACCESSIBLE_TENANTS = [
@@ -140,7 +203,7 @@ def make_request(path, params=None, tenant_id=None):
     
     for attempt in range(1, max_attempts + 1):
         try:
-            r = requests.get(url, params=params, headers=headers, auth=AUTH, timeout=timeout)
+            r = session.get(url, params=params, headers=headers, timeout=timeout)
             if r.status_code == 200:
                 r.encoding = 'utf-8'
                 return r.json()
@@ -153,7 +216,9 @@ def make_request(path, params=None, tenant_id=None):
             logger.warning(f"Attempt {attempt}/{max_attempts} failed with exception for {path} (Tenant: {headers.get('TenantId', 'None')}): {e}")
             
         if attempt < max_attempts:
-            sleep_time = attempt * 5
+            # Exponential backoff: base_delay * (2 ** (attempt - 1)) + jitter
+            sleep_time = 4 * (2 ** (attempt - 1)) + random.uniform(0, 2)
+            logger.info(f"Sleeping for {sleep_time:.2f} seconds before retry...")
             time.sleep(sleep_time)
             
     raise RuntimeError(f"Failed to fetch {path} (Tenant: {headers.get('TenantId', 'None')}) after {max_attempts} attempts.")
@@ -166,27 +231,19 @@ def compute_row_hash(row_dict):
     return hashlib.md5(row_str.encode('utf-8')).hexdigest()
 
 def get_existing_hashes(table_name):
-    con = None
     try:
-        con = duckdb.connect(DUCKDB_PATH)
-        # Check if table exists
-        exists = con.execute(f"""
-            SELECT COUNT(*) FROM information_schema.tables 
-            WHERE table_schema = 'bronze' AND table_name = '{table_name}'
-        """).fetchone()[0]
-        if exists:
-            hashes = con.execute(f"SELECT hash FROM bronze.{table_name}").fetchall()
-            con.close()
-            return {h[0] for h in hashes if h[0]}
-        con.close()
-        return set()
+        with duckdb.connect(DUCKDB_PATH, read_only=True) as con:
+            # Check if table exists
+            exists = con.execute(f"""
+                SELECT COUNT(*) FROM information_schema.tables 
+                WHERE table_schema = 'bronze' AND table_name = '{table_name}'
+            """).fetchone()[0]
+            if exists:
+                hashes = con.execute(f"SELECT hash FROM bronze.{table_name}").fetchall()
+                return {h[0] for h in hashes if h[0]}
+            return set()
     except Exception as e:
         logger.warning(f"Could not fetch existing hashes for bronze.{table_name}: {e}")
-        if con:
-            try:
-                con.close()
-            except Exception:
-                pass
         return set()
 
 def write_to_bronze(table_name, rows):
@@ -229,48 +286,41 @@ def write_to_bronze(table_name, rows):
         unique_parents = len(rows)
         parent_label = "records"
         
-    con = duckdb.connect(DUCKDB_PATH)
-    # Check if table exists
-    exists = con.execute(f"""
-        SELECT COUNT(*) FROM information_schema.tables 
-        WHERE table_schema = 'bronze' AND table_name = '{table_name}'
-    """).fetchone()[0]
-    
-    con.register('df_temp', df)
-    
     try:
-        if not exists:
-            logger.info(f"Creating table bronze.{table_name} with VARCHAR columns and inserting {unique_parents} unique {parent_label} ({len(df)} flat rows)")
-            cols_def = ", ".join(f'"{c}" VARCHAR' for c in df.columns)
-            con.execute(f"CREATE TABLE bronze.{table_name} ({cols_def})")
-            cols_str = ", ".join(f'"{c}"' for c in df.columns)
-            con.execute(f"INSERT INTO bronze.{table_name} ({cols_str}) SELECT {cols_str} FROM df_temp")
-        else:
-            # Check and handle schema evolution
-            existing_cols = {row[0] for row in con.execute(f"DESCRIBE bronze.{table_name}").fetchall()}
-            new_cols = set(df.columns) - existing_cols
-            for col in new_cols:
-                logger.info(f"Schema evolution: Adding column '{col}' to bronze.{table_name}")
-                con.execute(f"ALTER TABLE bronze.{table_name} ADD COLUMN \"{col}\" VARCHAR")
-                
-            # Select and insert aligned columns
-            cols_str = ", ".join(f'"{c}"' for c in df.columns)
-            logger.info(f"Inserting {unique_parents} unique {parent_label} ({len(df)} flat rows) to bronze.{table_name}")
-            con.execute(f"INSERT INTO bronze.{table_name} ({cols_str}) SELECT {cols_str} FROM df_temp")
+        with duckdb.connect(DUCKDB_PATH) as con:
+            # Check if table exists
+            exists = con.execute(f"""
+                SELECT COUNT(*) FROM information_schema.tables 
+                WHERE table_schema = 'bronze' AND table_name = '{table_name}'
+            """).fetchone()[0]
             
-        con.unregister('df_temp')
-        con.close()
-        logger.info(f"Successfully wrote {unique_parents} unique {parent_label} to bronze.{table_name}")
-        
+            con.register('df_temp', df)
+            try:
+                if not exists:
+                    logger.info(f"Creating table bronze.{table_name} with VARCHAR columns and inserting {unique_parents} unique {parent_label} ({len(df)} flat rows)")
+                    cols_def = ", ".join(f'"{c}" VARCHAR' for c in df.columns)
+                    con.execute(f"CREATE TABLE bronze.{table_name} ({cols_def})")
+                    cols_str = ", ".join(f'"{c}"' for c in df.columns)
+                    con.execute(f"INSERT INTO bronze.{table_name} ({cols_str}) SELECT {cols_str} FROM df_temp")
+                else:
+                    # Check and handle schema evolution
+                    existing_cols = {row[0] for row in con.execute(f"DESCRIBE bronze.{table_name}").fetchall()}
+                    new_cols = set(df.columns) - existing_cols
+                    for col in new_cols:
+                        logger.info(f"Schema evolution: Adding column '{col}' to bronze.{table_name}")
+                        con.execute(f"ALTER TABLE bronze.{table_name} ADD COLUMN \"{col}\" VARCHAR")
+                        
+                    # Select and insert aligned columns
+                    cols_str = ", ".join(f'"{c}"' for c in df.columns)
+                    logger.info(f"Inserting {unique_parents} unique {parent_label} ({len(df)} flat rows) to bronze.{table_name}")
+                    con.execute(f"INSERT INTO bronze.{table_name} ({cols_str}) SELECT {cols_str} FROM df_temp")
+            finally:
+                try:
+                    con.unregister('df_temp')
+                except Exception:
+                    pass
+            logger.info(f"Successfully wrote {unique_parents} unique {parent_label} to bronze.{table_name}")
     except Exception as bulk_err:
-        try:
-            con.unregister('df_temp')
-        except Exception:
-            pass
-        try:
-            con.close()
-        except Exception:
-            pass
         logger.error(f"Bulk insert failed for bronze.{table_name}: {bulk_err}")
         raise bulk_err
 
@@ -297,7 +347,8 @@ def fetch_invoice_range(tenant_id, company_id, start_date_str, end_date_str, exi
     api_total = 0
     
     # Retrieve existing PKs for auditing deletions
-    existing_pks = get_existing_pks("notas", company_id, start_date_str, end_date_str)
+    filial = tenant_id.split(',')[1] if tenant_id and ',' in tenant_id else None
+    existing_pks = get_existing_pks("notas", company_id, filial, start_date_str, end_date_str)
     fetched_pks = set()
     
     while True:
@@ -325,6 +376,7 @@ def fetch_invoice_range(tenant_id, company_id, start_date_str, end_date_str, exi
                 flat_row = header.copy()
                 flat_row["company_id"] = company_id
                 flat_row["extraction_timestamp"] = extraction_ts
+                flat_row["is_deleted"] = "FALSE"
                 flat_row["hash"] = compute_row_hash(flat_row)
                 
                 pk_val = (
@@ -345,6 +397,7 @@ def fetch_invoice_range(tenant_id, company_id, start_date_str, end_date_str, exi
                     flat_row.update(item)
                     flat_row["company_id"] = company_id
                     flat_row["extraction_timestamp"] = extraction_ts
+                    flat_row["is_deleted"] = "FALSE"
                     flat_row["hash"] = compute_row_hash(flat_row)
                     
                     pk_val = (
@@ -373,6 +426,7 @@ def fetch_invoice_range(tenant_id, company_id, start_date_str, end_date_str, exi
             logger.warning(f"Auditing 'notas' (Tenant: {tenant_id}, range: {start_date_str}-{end_date_str}): "
                            f"{len(deleted_pks)} entries might have been deleted from the source. "
                            f"Examples: {list(deleted_pks)[:5]}")
+            flag_deleted_in_bronze("notas", company_id, deleted_pks)
         else:
             logger.info(f"Auditing 'notas' (Tenant: {tenant_id}, range: {start_date_str}-{end_date_str}): 0 entries deleted.")
             
@@ -388,7 +442,8 @@ def fetch_sales_orders_range(tenant_id, company_id, start_date_str, end_date_str
     api_total = 0
     
     # Retrieve existing PKs for auditing deletions
-    existing_pks = get_existing_pks("pedidos", company_id, start_date_str, end_date_str)
+    filial = tenant_id.split(',')[1] if tenant_id and ',' in tenant_id else None
+    existing_pks = get_existing_pks("pedidos", company_id, filial, start_date_str, end_date_str)
     fetched_pks = set()
     
     while True:
@@ -416,6 +471,7 @@ def fetch_sales_orders_range(tenant_id, company_id, start_date_str, end_date_str
                 flat_row = header.copy()
                 flat_row["company_id"] = company_id
                 flat_row["extraction_timestamp"] = extraction_ts
+                flat_row["is_deleted"] = "FALSE"
                 flat_row["hash"] = compute_row_hash(flat_row)
                 
                 pk_val = (
@@ -435,6 +491,7 @@ def fetch_sales_orders_range(tenant_id, company_id, start_date_str, end_date_str
                     flat_row.update(item)
                     flat_row["company_id"] = company_id
                     flat_row["extraction_timestamp"] = extraction_ts
+                    flat_row["is_deleted"] = "FALSE"
                     flat_row["hash"] = compute_row_hash(flat_row)
                     
                     pk_val = (
@@ -462,6 +519,7 @@ def fetch_sales_orders_range(tenant_id, company_id, start_date_str, end_date_str
             logger.warning(f"Auditing 'pedidos' (Tenant: {tenant_id}, range: {start_date_str}-{end_date_str}): "
                            f"{len(deleted_pks)} entries might have been deleted from the source. "
                            f"Examples: {list(deleted_pks)[:5]}")
+            flag_deleted_in_bronze("pedidos", company_id, deleted_pks)
         else:
             logger.info(f"Auditing 'pedidos' (Tenant: {tenant_id}, range: {start_date_str}-{end_date_str}): 0 entries deleted.")
             
@@ -477,7 +535,8 @@ def fetch_direct_sales_range(tenant_id, company_id, start_date_str, end_date_str
     api_total = 0
     
     # Retrieve existing PKs for auditing deletions
-    existing_pks = get_existing_pks("pedidos_venda", company_id, start_date_str, end_date_str)
+    filial = tenant_id.split(',')[1] if tenant_id and ',' in tenant_id else None
+    existing_pks = get_existing_pks("pedidos_venda", company_id, filial, start_date_str, end_date_str)
     fetched_pks = set()
     
     while True:
@@ -505,6 +564,7 @@ def fetch_direct_sales_range(tenant_id, company_id, start_date_str, end_date_str
                 flat_row = header.copy()
                 flat_row["company_id"] = company_id
                 flat_row["extraction_timestamp"] = extraction_ts
+                flat_row["is_deleted"] = "FALSE"
                 flat_row["hash"] = compute_row_hash(flat_row)
                 
                 pk_val = (
@@ -524,6 +584,7 @@ def fetch_direct_sales_range(tenant_id, company_id, start_date_str, end_date_str
                     flat_row.update(item)
                     flat_row["company_id"] = company_id
                     flat_row["extraction_timestamp"] = extraction_ts
+                    flat_row["is_deleted"] = "FALSE"
                     flat_row["hash"] = compute_row_hash(flat_row)
                     
                     pk_val = (
@@ -551,6 +612,7 @@ def fetch_direct_sales_range(tenant_id, company_id, start_date_str, end_date_str
             logger.warning(f"Auditing 'pedidos_venda' (Tenant: {tenant_id}, range: {start_date_str}-{end_date_str}): "
                            f"{len(deleted_pks)} entries might have been deleted from the source. "
                            f"Examples: {list(deleted_pks)[:5]}")
+            flag_deleted_in_bronze("pedidos_venda", company_id, deleted_pks)
         else:
             logger.info(f"Auditing 'pedidos_venda' (Tenant: {tenant_id}, range: {start_date_str}-{end_date_str}): 0 entries deleted.")
             
@@ -573,41 +635,44 @@ def ingest_notas(force_backfill=False):
     
     # Loop through each tenant sequentially
     for tenant_id in ACCESSIBLE_TENANTS:
-        logger.info(f"=== Ingesting Notas for Tenant: {tenant_id} ===")
-        company_id = tenant_id.split(',')[0]
-        
-        # 1. Quick check if tenant has any invoices at all
-        check_params = {
-            "dataIni": BACKFILL_START,
-            "dataFim": today.strftime("%Y%m%d"),
-            "nPage": 1,
-            "nPageSize": 1
-        }
-        check_res = make_request("/rest/CONSNOTA/notas", params=check_params, tenant_id=tenant_id)
-        if not check_res or "data" not in check_res or not check_res["data"]:
-            logger.info(f"Tenant {tenant_id} has no invoices in the backfill range. Skipping.")
-            continue
+        try:
+            logger.info(f"=== Ingesting Notas for Tenant: {tenant_id} ===")
+            company_id = tenant_id.split(',')[0]
             
-        logger.info(f"Ingestion range for Tenant {tenant_id}: {start_dt.strftime('%Y%m%d')} to {end_dt.strftime('%Y%m%d')}")
-        
-        # Generate chunks
-        chunks = generate_date_chunks(start_dt, end_dt, force_backfill)
-        
-        for current_start, current_end in chunks:
-            data_ini_str = current_start.strftime("%Y%m%d")
-            data_fim_str = current_end.strftime("%Y%m%d")
+            # 1. Quick check if tenant has any invoices at all
+            check_params = {
+                "dataIni": BACKFILL_START,
+                "dataFim": today.strftime("%Y%m%d"),
+                "nPage": 1,
+                "nPageSize": 1
+            }
+            check_res = make_request("/rest/CONSNOTA/notas", params=check_params, tenant_id=tenant_id)
+            if not check_res or "data" not in check_res or not check_res["data"]:
+                logger.info(f"Tenant {tenant_id} has no invoices in the backfill range. Skipping.")
+                continue
+                
+            logger.info(f"Ingestion range for Tenant {tenant_id}: {start_dt.strftime('%Y%m%d')} to {end_dt.strftime('%Y%m%d')}")
             
-            logger.info(f"Processing chunk {data_ini_str}-{data_fim_str} for Tenant {tenant_id}...")
-            new_rows, invoices_read, flat_rows_read = fetch_invoice_range(
-                tenant_id, company_id, data_ini_str, data_fim_str, existing_hashes
-            )
+            # Generate chunks
+            chunks = generate_date_chunks(start_dt, end_dt, force_backfill)
             
-            logger.info(f"Chunk {data_ini_str}-{data_fim_str} complete. Invoices read: {invoices_read}, Flat rows read: {flat_rows_read}. Unique new written: {len(new_rows)}")
-            
-            if new_rows:
-                for r in new_rows:
-                    existing_hashes.add(r["hash"])
-                write_to_bronze(table_name, new_rows)
+            for current_start, current_end in chunks:
+                data_ini_str = current_start.strftime("%Y%m%d")
+                data_fim_str = current_end.strftime("%Y%m%d")
+                
+                logger.info(f"Processing chunk {data_ini_str}-{data_fim_str} for Tenant {tenant_id}...")
+                new_rows, invoices_read, flat_rows_read = fetch_invoice_range(
+                    tenant_id, company_id, data_ini_str, data_fim_str, existing_hashes
+                )
+                
+                logger.info(f"Chunk {data_ini_str}-{data_fim_str} complete. Invoices read: {invoices_read}, Flat rows read: {flat_rows_read}. Unique new written: {len(new_rows)}")
+                
+                if new_rows:
+                    for r in new_rows:
+                        existing_hashes.add(r["hash"])
+                    write_to_bronze(table_name, new_rows)
+        except Exception as e:
+            logger.error(f"Error ingesting Notas for Tenant {tenant_id}: {e}")
 
 def ingest_pedidos(force_backfill=False):
     table_name = "pedidos"
@@ -624,40 +689,43 @@ def ingest_pedidos(force_backfill=False):
     existing_hashes = get_existing_hashes(table_name)
     
     for tenant_id in ACCESSIBLE_TENANTS:
-        logger.info(f"=== Ingesting Pedidos for Tenant: {tenant_id} ===")
-        company_id = tenant_id.split(',')[0]
-        
-        # Quick check if tenant has any orders
-        check_params = {
-            "dataIni": BACKFILL_START,
-            "dataFim": today.strftime("%Y%m%d"),
-            "nPage": 1,
-            "nPageSize": 1
-        }
-        check_res = make_request("/rest/CONSPED/pedidos", params=check_params, tenant_id=tenant_id)
-        if not check_res or "data" not in check_res or not check_res["data"]:
-            logger.info(f"Tenant {tenant_id} has no orders in the backfill range. Skipping.")
-            continue
+        try:
+            logger.info(f"=== Ingesting Pedidos for Tenant: {tenant_id} ===")
+            company_id = tenant_id.split(',')[0]
             
-        logger.info(f"Ingestion range for Tenant {tenant_id}: {start_dt.strftime('%Y%m%d')} to {end_dt.strftime('%Y%m%d')}")
-        
-        chunks = generate_date_chunks(start_dt, end_dt, force_backfill)
-        
-        for current_start, current_end in chunks:
-            data_ini_str = current_start.strftime("%Y%m%d")
-            data_fim_str = current_end.strftime("%Y%m%d")
+            # Quick check if tenant has any orders
+            check_params = {
+                "dataIni": BACKFILL_START,
+                "dataFim": today.strftime("%Y%m%d"),
+                "nPage": 1,
+                "nPageSize": 1
+            }
+            check_res = make_request("/rest/CONSPED/pedidos", params=check_params, tenant_id=tenant_id)
+            if not check_res or "data" not in check_res or not check_res["data"]:
+                logger.info(f"Tenant {tenant_id} has no orders in the backfill range. Skipping.")
+                continue
+                
+            logger.info(f"Ingestion range for Tenant {tenant_id}: {start_dt.strftime('%Y%m%d')} to {end_dt.strftime('%Y%m%d')}")
             
-            logger.info(f"Processing chunk {data_ini_str}-{data_fim_str} for Tenant {tenant_id}...")
-            new_rows, orders_read, flat_rows_read = fetch_sales_orders_range(
-                tenant_id, company_id, data_ini_str, data_fim_str, existing_hashes
-            )
+            chunks = generate_date_chunks(start_dt, end_dt, force_backfill)
             
-            logger.info(f"Chunk {data_ini_str}-{data_fim_str} complete. Orders read: {orders_read}, Flat rows read: {flat_rows_read}. Unique new written: {len(new_rows)}")
-            
-            if new_rows:
-                for r in new_rows:
-                    existing_hashes.add(r["hash"])
-                write_to_bronze(table_name, new_rows)
+            for current_start, current_end in chunks:
+                data_ini_str = current_start.strftime("%Y%m%d")
+                data_fim_str = current_end.strftime("%Y%m%d")
+                
+                logger.info(f"Processing chunk {data_ini_str}-{data_fim_str} for Tenant {tenant_id}...")
+                new_rows, orders_read, flat_rows_read = fetch_sales_orders_range(
+                    tenant_id, company_id, data_ini_str, data_fim_str, existing_hashes
+                )
+                
+                logger.info(f"Chunk {data_ini_str}-{data_fim_str} complete. Orders read: {orders_read}, Flat rows read: {flat_rows_read}. Unique new written: {len(new_rows)}")
+                
+                if new_rows:
+                    for r in new_rows:
+                        existing_hashes.add(r["hash"])
+                    write_to_bronze(table_name, new_rows)
+        except Exception as e:
+            logger.error(f"Error ingesting Pedidos for Tenant {tenant_id}: {e}")
 
 def ingest_pedidos_venda(force_backfill=False):
     table_name = "pedidos_venda"
@@ -674,40 +742,43 @@ def ingest_pedidos_venda(force_backfill=False):
     existing_hashes = get_existing_hashes(table_name)
     
     for tenant_id in ACCESSIBLE_TENANTS:
-        logger.info(f"=== Ingesting Pedidos Venda for Tenant: {tenant_id} ===")
-        company_id = tenant_id.split(',')[0]
-        
-        # Quick check if tenant has any direct sales
-        check_params = {
-            "dataIni": BACKFILL_START,
-            "dataFim": today.strftime("%Y%m%d"),
-            "nPage": 1,
-            "nPageSize": 1
-        }
-        check_res = make_request("/rest/CONSPEVD/pedidos", params=check_params, tenant_id=tenant_id)
-        if not check_res or "data" not in check_res or not check_res["data"]:
-            logger.info(f"Tenant {tenant_id} has no direct sales in the backfill range. Skipping.")
-            continue
+        try:
+            logger.info(f"=== Ingesting Pedidos Venda for Tenant: {tenant_id} ===")
+            company_id = tenant_id.split(',')[0]
             
-        logger.info(f"Ingestion range for Tenant {tenant_id}: {start_dt.strftime('%Y%m%d')} to {end_dt.strftime('%Y%m%d')}")
-        
-        chunks = generate_date_chunks(start_dt, end_dt, force_backfill)
-        
-        for current_start, current_end in chunks:
-            data_ini_str = current_start.strftime("%Y%m%d")
-            data_fim_str = current_end.strftime("%Y%m%d")
+            # Quick check if tenant has any direct sales
+            check_params = {
+                "dataIni": BACKFILL_START,
+                "dataFim": today.strftime("%Y%m%d"),
+                "nPage": 1,
+                "nPageSize": 1
+            }
+            check_res = make_request("/rest/CONSPEVD/pedidos", params=check_params, tenant_id=tenant_id)
+            if not check_res or "data" not in check_res or not check_res["data"]:
+                logger.info(f"Tenant {tenant_id} has no direct sales in the backfill range. Skipping.")
+                continue
+                
+            logger.info(f"Ingestion range for Tenant {tenant_id}: {start_dt.strftime('%Y%m%d')} to {end_dt.strftime('%Y%m%d')}")
             
-            logger.info(f"Processing chunk {data_ini_str}-{data_fim_str} for Tenant {tenant_id}...")
-            new_rows, sales_read, flat_rows_read = fetch_direct_sales_range(
-                tenant_id, company_id, data_ini_str, data_fim_str, existing_hashes
-            )
+            chunks = generate_date_chunks(start_dt, end_dt, force_backfill)
             
-            logger.info(f"Chunk {data_ini_str}-{data_fim_str} complete. Sales read: {sales_read}, Flat rows read: {flat_rows_read}. Unique new written: {len(new_rows)}")
-            
-            if new_rows:
-                for r in new_rows:
-                    existing_hashes.add(r["hash"])
-                write_to_bronze(table_name, new_rows)
+            for current_start, current_end in chunks:
+                data_ini_str = current_start.strftime("%Y%m%d")
+                data_fim_str = current_end.strftime("%Y%m%d")
+                
+                logger.info(f"Processing chunk {data_ini_str}-{data_fim_str} for Tenant {tenant_id}...")
+                new_rows, sales_read, flat_rows_read = fetch_direct_sales_range(
+                    tenant_id, company_id, data_ini_str, data_fim_str, existing_hashes
+                )
+                
+                logger.info(f"Chunk {data_ini_str}-{data_fim_str} complete. Sales read: {sales_read}, Flat rows read: {flat_rows_read}. Unique new written: {len(new_rows)}")
+                
+                if new_rows:
+                    for r in new_rows:
+                        existing_hashes.add(r["hash"])
+                    write_to_bronze(table_name, new_rows)
+        except Exception as e:
+            logger.error(f"Error ingesting Pedidos Venda for Tenant {tenant_id}: {e}")
 
 def ingest_full_table(name, path, max_sweeps=10):
     """
@@ -790,9 +861,8 @@ def main():
     
     # Initialize Schema if not exists
     try:
-        con = duckdb.connect(DUCKDB_PATH)
-        con.execute("CREATE SCHEMA IF NOT EXISTS bronze")
-        con.close()
+        with duckdb.connect(DUCKDB_PATH) as con:
+            con.execute("CREATE SCHEMA IF NOT EXISTS bronze")
     except Exception as e:
         logger.warning(f"Failed to create schema directly on target database: {e}")
 

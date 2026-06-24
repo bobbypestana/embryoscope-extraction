@@ -57,24 +57,15 @@ def main():
         SELECT COUNT(DISTINCT "Slide ID") 
         FROM gold.data_ploidia
         WHERE "Slide ID" IS NOT NULL 
-        AND ("Embryo Description" IS NOT NULL 
-             OR "Embryo Description Clinisys" IS NOT NULL 
-             OR "Embryo Description Clinisys Detalhes" IS NOT NULL)
+        AND has_biopsy = True
     """).fetchone()[0]
 
     without_biopsy_with_outcome = conn.execute("""
         SELECT COUNT(DISTINCT "Slide ID") 
         FROM gold.data_ploidia
         WHERE "Slide ID" IS NOT NULL 
-        AND ("Embryo Description" IS NULL 
-             AND "Embryo Description Clinisys" IS NULL 
-             AND "Embryo Description Clinisys Detalhes" IS NULL)
-        AND (outcome_type IS NOT NULL 
-             OR merged_numero_de_nascidos IS NOT NULL 
-             OR fet_gravidez_clinica IS NOT NULL 
-             OR fet_tipo_resultado IS NOT NULL 
-             OR trat1_resultado_tratamento IS NOT NULL 
-             OR trat2_resultado_tratamento IS NOT NULL)
+        AND has_biopsy = False
+        AND has_valid_outcome = True
     """).fetchone()[0]
 
     other = total - with_biopsy - without_biopsy_with_outcome

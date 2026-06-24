@@ -175,7 +175,7 @@ def main():
             matched_count = con.execute("SELECT COUNT(*) FROM gold.embryoscope_clinisys_combined WHERE embryo_EmbryoID IS NOT NULL AND oocito_id IS NOT NULL").fetchone()[0]
             clinisys_only_count = con.execute("SELECT COUNT(*) FROM gold.embryoscope_clinisys_combined WHERE embryo_EmbryoID IS NULL AND oocito_id IS NOT NULL").fetchone()[0]
             
-            logger.info(f'LEFT JOIN statistics:')
+            logger.info(f'LEFT JOIN statistics (All-Time):')
             logger.info(f'  - Total clinisys records: {clinisys_count:,}')
             logger.info(f'  - Total embryoscope records: {embryoscope_count:,}')
             logger.info(f'  - Combined records (all from Clinisys): {row_count:,}')
@@ -183,6 +183,55 @@ def main():
             logger.info(f'  - Clinisys only records (no Embryoscope): {clinisys_only_count:,}')
             logger.info(f'  - Match rate (vs total clinisys): {(matched_count/clinisys_count*100):.2f}%')
             logger.info(f'  - Match rate (vs embryoscope): {(matched_count/embryoscope_count*100):.2f}%')
+
+            # Check 2023+ join statistics
+            clinisys_count_2023 = con.execute("SELECT COUNT(*) FROM gold.clinisys_embrioes WHERE micro_Data_DL >= '2023-01-01'").fetchone()[0]
+            embryoscope_count_2023 = con.execute("SELECT COUNT(*) FROM gold.embryoscope_embrioes WHERE embryo_FertilizationTime >= '2023-01-01'").fetchone()[0]
+            matched_count_2023 = con.execute("SELECT COUNT(*) FROM gold.embryoscope_clinisys_combined WHERE embryo_EmbryoID IS NOT NULL AND oocito_id IS NOT NULL AND embryo_FertilizationTime >= '2023-01-01'").fetchone()[0]
+            clinisys_only_count_2023 = con.execute("SELECT COUNT(*) FROM gold.embryoscope_clinisys_combined WHERE embryo_EmbryoID IS NULL AND oocito_id IS NOT NULL AND micro_Data_DL >= '2023-01-01'").fetchone()[0]
+
+            logger.info(f'LEFT JOIN statistics (2023 Onwards):')
+            logger.info(f'  - Total clinisys records (2023+): {clinisys_count_2023:,}')
+            logger.info(f'  - Total embryoscope records (2023+): {embryoscope_count_2023:,}')
+            logger.info(f'  - Matched records (2023+): {matched_count_2023:,}')
+            logger.info(f'  - Clinisys only records (2023+, no Embryoscope): {clinisys_only_count_2023:,}')
+            logger.info(f'  - Match rate vs total clinisys (2023+): {(matched_count_2023/clinisys_count_2023*100):.2f}%')
+            logger.info(f'  - Match rate vs embryoscope (2023+): {(matched_count_2023/embryoscope_count_2023*100):.2f}%')
+
+            # Yearly match rate breakdown
+            logger.info(f'Yearly Match Rate Breakdown:')
+            yearly_df = con.execute("""
+                WITH emb_yearly AS (
+                    SELECT 
+                        EXTRACT(YEAR FROM CAST(embryo_FertilizationTime AS DATE)) as year_val,
+                        COUNT(*) as total_emb
+                    FROM gold.embryoscope_embrioes
+                    GROUP BY 1
+                ),
+                matched_yearly AS (
+                    SELECT 
+                        EXTRACT(YEAR FROM CAST(embryo_FertilizationTime AS DATE)) as year_val,
+                        COUNT(DISTINCT embryo_EmbryoID) as matched_emb
+                    FROM gold.embryoscope_clinisys_combined
+                    WHERE embryo_EmbryoID IS NOT NULL
+                    GROUP BY 1
+                )
+                SELECT 
+                    e.year_val,
+                    e.total_emb,
+                    COALESCE(m.matched_emb, 0) as matched_emb,
+                    ROUND((COALESCE(m.matched_emb, 0) * 100.0) / e.total_emb, 2) as match_rate
+                FROM emb_yearly e
+                LEFT JOIN matched_yearly m ON e.year_val = m.year_val
+                ORDER BY e.year_val
+            """).df()
+
+            import pandas as pd
+            for idx, r in yearly_df.iterrows():
+                y_val = r['year_val']
+                y_str = str(int(y_val)) if not pd.isna(y_val) else 'Unknown'
+                logger.info(f"  - Year {y_str}: Total={int(r['total_emb']):,}, Matched={int(r['matched_emb']):,}, Match Rate={r['match_rate']:.2f}%")
+
 
             
     except Exception as e:

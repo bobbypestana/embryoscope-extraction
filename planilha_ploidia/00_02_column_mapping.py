@@ -58,6 +58,8 @@ COLUMN_MAPPING = OrderedDict([
     ("trat2_resultado_tratamento", "trat2_resultado_tratamento"),
     ("trat1_resultado_tratamento", "trat1_resultado_tratamento"),
     ("fet_tipo_resultado", "fet_tipo_resultado"),
+    ("has_biopsy", "has_biopsy"),
+    ("has_valid_outcome", "has_valid_outcome"),
 ])
 
 # Derived: Target columns list (for backward compatibility)

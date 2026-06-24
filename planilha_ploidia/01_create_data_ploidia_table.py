@@ -160,6 +160,10 @@ def create_data_ploidia_table(conn):
     where_conditions.append('"embryo_EmbryoID" IS NOT NULL')
     logger.info("Filter: Embryo ID (embryo_EmbryoID) IS NOT NULL")
     
+    # Only include embryos with a biopsy OR a valid clinical outcome
+    where_conditions.append('("has_biopsy" = True OR "has_valid_outcome" = True)')
+    logger.info("Filter: has_biopsy = True OR has_valid_outcome = True")
+    
     where_clause = " WHERE " + " AND ".join(where_conditions) if where_conditions else ""
     
     # Create table with CTE for Previous ET calculation when NULL
@@ -253,7 +257,9 @@ def create_data_ploidia_table(conn):
         e."fet_gravidez_clinica",
         e."trat2_resultado_tratamento",
         e."trat1_resultado_tratamento",
-        e."fet_tipo_resultado"
+        e."fet_tipo_resultado",
+        e."has_biopsy",
+        e."has_valid_outcome"
     FROM embryo_ref_dates e
     LEFT JOIN treatment_counts tc 
         ON e."Patient ID" = tc."Patient ID" 
