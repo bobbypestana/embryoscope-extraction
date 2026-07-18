@@ -132,6 +132,10 @@ scratch/
 # Protheus test results
 protheus/00_test_api/resultados/
 
+# RDStation tokens and error outputs
+tokens.json
+stderr.txt
+
 # Agent-generated auxiliary folders and backups
 .agents/
 brain/

@@ -246,6 +246,7 @@ def main():
             promote_notas(con)
             promote_pedidos(con)
             promote_pedidos_venda(con)
+            promote_full_load(con, "empresas",   ["M0_CODIGO", "M0_CODFIL"])
             promote_full_load(con, "tes",        ["F4_CODIGO"])
             promote_full_load(con, "produtos",   ["B1_COD"])
             promote_full_load(con, "clientes",   ["A1_COD", "A1_LOJA"], keep_all=True)

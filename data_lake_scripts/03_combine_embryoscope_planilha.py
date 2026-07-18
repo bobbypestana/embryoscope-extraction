@@ -213,40 +213,55 @@ def create_combined_table(conn):
         ) as has_biopsy,
         -- 2. Has valid clinical outcome (independent flag)
         (
-            -- Valid outcome_type
-            (s.outcome_type IS NOT NULL AND s.outcome_type != 'None' AND (
-                LOWER(s.outcome_type) LIKE '%delivery%' OR 
-                LOWER(s.outcome_type) LIKE '%pregnancy%' OR 
-                LOWER(s.outcome_type) LIKE '%miscarriage%'
-            ) AND LOWER(s.outcome_type) NOT LIKE '%lost to follow%')
+            -- Valid outcome_type (not in blacklist)
+            (s.outcome_type IS NOT NULL AND s.outcome_type != 'None' AND NOT (
+                LOWER(TRIM(s.outcome_type)) IN (
+                    'none', '', 'other', 'others', 'sem contato', 'total cryopreservation', 
+                    'due to lack of normal embryos (pgt)', 'due to lack of normal embryos (pgd)', 
+                    'due to lack of normal embryos', 'clinical pregnancy lost to follow-up', 
+                    'clinical pregnancy lost to follow up'
+                )
+            ))
             OR
             -- Valid merged_numero_de_nascidos
-            (s.merged_numero_de_nascidos IS NOT NULL)
+            (s.merged_numero_de_nascidos IS NOT NULL AND CAST(s.merged_numero_de_nascidos AS VARCHAR) != 'None')
             OR
             -- Valid fet_gravidez_clinica (excluding 'X')
             (s.fet_gravidez_clinica IS NOT NULL AND s.fet_gravidez_clinica != 'None' AND s.fet_gravidez_clinica != 'X')
             OR
-            -- Valid trat1
-            (e.trat1_resultado_tratamento IS NOT NULL AND e.trat1_resultado_tratamento != 'None' AND (
-                LOWER(e.trat1_resultado_tratamento) LIKE '%gestação%' OR 
-                LOWER(e.trat1_resultado_tratamento) LIKE '%gestacao%' OR 
-                LOWER(e.trat1_resultado_tratamento) LIKE '%negativo%'
+            -- Valid trat1 (excluding non-transfers, oocyte freezing, and biopsy markers)
+            (e.trat1_resultado_tratamento IS NOT NULL AND e.trat1_resultado_tratamento != 'None' AND NOT (
+                LOWER(TRIM(e.trat1_resultado_tratamento)) IN (
+                    'no transfer', 'congelamento de óvulos', 'congelamento de ovulos',
+                    'biópsia embrionária', 'biopsia embrionária', 'biópsia embrionaria', 'biopsia embrionaria', 
+                    'biópsia realizada', 'biopsia realizada'
+                )
             ))
             OR
-            -- Valid trat2
-            (e.trat2_resultado_tratamento IS NOT NULL AND e.trat2_resultado_tratamento != 'None' AND (
-                LOWER(e.trat2_resultado_tratamento) LIKE '%gestação%' OR 
-                LOWER(e.trat2_resultado_tratamento) LIKE '%gestacao%' OR 
-                LOWER(e.trat2_resultado_tratamento) LIKE '%negativo%'
+            -- Valid trat2 (excluding non-transfers, oocyte freezing, and biopsy markers)
+            (e.trat2_resultado_tratamento IS NOT NULL AND e.trat2_resultado_tratamento != 'None' AND NOT (
+                LOWER(TRIM(e.trat2_resultado_tratamento)) IN (
+                    'no transfer', 'congelamento de óvulos', 'congelamento de ovulos',
+                    'biópsia embrionária', 'biopsia embrionária', 'biópsia embrionaria', 'biopsia embrionaria', 
+                    'biópsia realizada', 'biopsia realizada'
+                )
             ))
             OR
-            -- Valid fet_tipo_resultado
-            (s.fet_tipo_resultado IS NOT NULL AND s.fet_tipo_resultado != 'None' AND 
-             LOWER(s.fet_tipo_resultado) IN (
-                'positivo', 'não engravidou', 'nao engravidou', 'fiv completa', 
-                'bioquimica', 'bioquímica', 'aborto', 'nascimento', 'nascidos', 
-                'ectópica', 'ectopica'
-             ))
+            -- Valid fet_tipo_resultado (excluding incompleted, third path, thawing non-survival, PGT lack, and FIV completa)
+            (s.fet_tipo_resultado IS NOT NULL AND s.fet_tipo_resultado != 'None' AND NOT (
+                LOWER(TRIM(s.fet_tipo_resultado)) IN (
+                    'fiv incompleta', 'fv incompleta', 'fiv incompleto', 'terceira via', '\\', 
+                    'transferência congelados', 'transferencia congelados', 'transferência de congelados', 
+                    'transferencia de congelados', 'transferência de congelado', 'transferencia de congelado', 
+                    'outros', 'não teve embriões normais na biopsia', 'nao teve embriões normais na biopsia', 
+                    'não teve embrioes normais na biopsia', 'nao teve embrioes normais na biopsia',
+                    'não sobrevivencia dos embriões no descongelamento', 'nao sobrevivencia dos embriões no descongelamento', 
+                    'não sobrevivencia dos embrioes no descongelamento', 'nao sobrevivencia dos embrioes no descongelamento', 
+                    'não sobrevivência dos embriões no descongelamento',
+                    'desenvolvimento anormal ou não desenvolvimento do embrião', 'desenvolvimento anormal ou nao desenvolvimento do embrião',
+                    'endometrio anormal', 'endométrio anormal', 'fiv completa'
+                )
+            ))
         ) as has_valid_outcome,
         COALESCE(m.has_transfer_logging_gap, False) as has_transfer_logging_gap,
         m.step_id as join_step,

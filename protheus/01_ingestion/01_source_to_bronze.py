@@ -53,6 +53,7 @@ session.auth = AUTH
 
 # Primary keys for each table to help identify deleted records from the source
 TABLE_PKS = {
+    "empresas": ["M0_CODIGO", "M0_CODFIL"],
     "notas": ["F2_FILIAL", "F2_DOC", "F2_SERIE", "D2_ITEM"],
     "pedidos": ["C5_FILIAL", "C5_NUM", "C6_ITEM"],
     "pedidos_venda": ["L1_FILIAL", "L1_NUM", "L2_ITEM"],
@@ -847,6 +848,59 @@ def ingest_full_table(name, path, max_sweeps=10):
         else:
             logger.info(f"Auditing '{name}' full load: 0 entries deleted.")
 
+def get_dynamic_tenants(force_backfill=False):
+    """
+    Attempts to ingest companies from the new /rest/CONSEMP/empresas endpoint.
+    Then, queries the bronze.empresas table to retrieve M0_CODIGO and M0_CODFIL,
+    building a list of tenant IDs in the format "M0_CODIGO,M0_CODFIL".
+    If the API call fails or returns nothing, logs a warning and falls back
+    to already existing data in the bronze database. If that is also empty,
+    it raises an error.
+    """
+    logger.info("Retrieving dynamic tenants list from /rest/CONSEMP/empresas...")
+    
+    # 1. Attempt to ingest the empresas table
+    try:
+        # Ingest as a full-load table (limit max_sweeps=1 since it's a small list)
+        ingest_full_table("empresas", "/rest/CONSEMP/empresas", max_sweeps=1)
+    except Exception as e:
+        logger.warning(f"Failed to ingest 'empresas' from endpoint: {e}. Attempting to use local fallback from database.")
+
+    # 2. Query DuckDB for M0_CODIGO and M0_CODFIL
+    tenants = []
+    try:
+        with duckdb.connect(DUCKDB_PATH, read_only=True) as con:
+            # Check if table exists
+            exists = con.execute("""
+                SELECT COUNT(*) FROM information_schema.tables 
+                WHERE table_schema = 'bronze' AND table_name = 'empresas'
+            """).fetchone()[0]
+            
+            if exists:
+                # Retrieve unique active/present code/filial combinations
+                # Clean fields using strip to ensure no leading/trailing spaces
+                rows = con.execute("""
+                    SELECT DISTINCT 
+                        TRIM(M0_CODIGO) as cod, 
+                        TRIM(M0_CODFIL) as filial 
+                    FROM bronze.empresas 
+                    WHERE M0_CODIGO IS NOT NULL AND M0_CODFIL IS NOT NULL
+                    ORDER BY cod, filial
+                """).fetchall()
+                for r in rows:
+                    if r[0] and r[1]:
+                        tenants.append(f"{r[0]},{r[1]}")
+    except Exception as db_err:
+        logger.warning(f"Failed to read 'empresas' from database: {db_err}")
+
+    if not tenants:
+        msg = "Dynamic tenants list is empty. Both API ingestion and DuckDB fallback failed or returned no data."
+        logger.error(msg)
+        raise RuntimeError(msg)
+
+    logger.info(f"Successfully loaded {len(tenants)} dynamic tenants: {tenants}")
+    return tenants
+
 def main():
     import argparse
     parser = argparse.ArgumentParser(description="Protheus API Ingestion Script")
@@ -868,6 +922,10 @@ def main():
 
     for attempt in range(1, max_retries + 1):
         try:
+            # 1. Fetch dynamic tenants list
+            global ACCESSIBLE_TENANTS
+            ACCESSIBLE_TENANTS = get_dynamic_tenants(force_backfill=args.force_backfill)
+            
             # Ingest multi-tenant invoices (Notas)
             ingest_notas(force_backfill=args.force_backfill)
             
