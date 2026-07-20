@@ -427,10 +427,10 @@ class EmbryoscopeDatabaseManager:
             Set of tuples (PatientIDx, TreatmentName) representing existing pairs
         """
         with duckdb.connect(self.db_path) as conn:
-            # Query embryo_data table to get existing pairs (not treatments table)
+            # Query treatments table to get existing pairs
             query = """
                 SELECT DISTINCT PatientIDx, TreatmentName 
-                FROM data_embryo_data 
+                FROM data_treatments 
                 WHERE _location = ?
             """
             try:
@@ -438,7 +438,7 @@ class EmbryoscopeDatabaseManager:
                 return set((row[0], row[1]) for row in result)
             except Exception as e:
                 # Table might not exist yet on first run
-                self.logger.debug(f"Could not query data_embryo_data table: {e}")
+                self.logger.debug(f"Could not query data_treatments table: {e}")
                 return set()
     
     def get_data_summary(self, location: str = None) -> Dict[str, Any]:

@@ -110,7 +110,8 @@ def consolidate_table(table_key, table_info, db_paths):
     logger.debug(f"Concatenated DataFrame shape for {table_info['table']}: {df_all.shape}")
     
     # Filter out records where all data columns are NULL (excluding business keys, metadata, and key embryo columns)
-    if table_key == 'embryo_data':
+    # DISABLED: We want to preserve empty/degenerated wells to maintain sequential embryo numbering alignment with Clinisys.
+    if False and table_key == 'embryo_data':
         initial_count = len(df_all)
         
         # Define columns to exclude from null check (business keys, metadata, and key embryo identification columns)

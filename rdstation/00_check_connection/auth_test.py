@@ -113,19 +113,24 @@ def main():
     print(f"Access Token: {access_token[:15]}...")
     print(f"Refresh Token: {refresh_token[:15]}...")
     
-    # 5. Save tokens to file
-    tokens_filepath = os.path.join(os.path.dirname(__file__), "tokens.json")
-    try:
-        with open(tokens_filepath, "w", encoding="utf-8") as f:
-            json.dump({
-                "client_id": client_id,
-                "client_secret": client_secret,
-                "access_token": access_token,
-                "refresh_token": refresh_token
-            }, f, indent=4)
-        print(f"[+] Saved tokens securely to {tokens_filepath}")
-    except IOError as e:
-        print(f"[!] Error saving tokens to file: {e}")
+    # 5. Save tokens to files
+    tokens_filepaths = [
+        os.path.join(os.path.dirname(__file__), "tokens.json"),
+        os.path.join(os.path.dirname(os.path.dirname(__file__)), "01_data_ingestion", "tokens.json")
+    ]
+    for filepath in tokens_filepaths:
+        try:
+            os.makedirs(os.path.dirname(filepath), exist_ok=True)
+            with open(filepath, "w", encoding="utf-8") as f:
+                json.dump({
+                    "client_id": client_id,
+                    "client_secret": client_secret,
+                    "access_token": access_token,
+                    "refresh_token": refresh_token
+                }, f, indent=4)
+            print(f"[+] Saved tokens securely to {filepath}")
+        except IOError as e:
+            print(f"[!] Error saving tokens to file {filepath}: {e}")
         
     # 6. Test connection by making a CRM v2 API request
     print("\n[4] Testing connection to RD Station CRM v2 API...")

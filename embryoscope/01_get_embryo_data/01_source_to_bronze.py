@@ -109,7 +109,7 @@ class EmbryoscopeExtractor:
         safe_name = clinic_name.lower().replace(' ', '_')
         return f"../../database/embryoscope_{safe_name}.db"
     
-    def _extract_clinic_data(self, clinic_name: str, config: Dict[str, Any], patient_ids: Optional[list] = None, db_path: Optional[str] = None) -> bool:
+    def _extract_clinic_data(self, clinic_name: str, config: Dict[str, Any], patient_ids: Optional[list] = None, db_path: Optional[str] = None, backfill: bool = False) -> bool:
         """
         Extract data for a single clinic, writing to its own DuckDB file.
         Only fetch embryo data for new patient-treatment pairs.
@@ -210,21 +210,39 @@ class EmbryoscopeExtractor:
                 self.logger.info(f"[{clinic_name}] Filtered out {merge_count} 'Merge' treatments from comparison.")
             
             all_pairs = set(zip(treatments_filtered['PatientIDx'], treatments_filtered['TreatmentName']))
-            new_pairs = all_pairs - existing_pairs
-            self.logger.info(f"[{clinic_name}] Found {len(new_pairs)} new patient-treatment pairs needing embryo data.")
+            
+            # Identify unseen pairs
+            unseen_pairs = all_pairs - existing_pairs
+            
+            # Identify ongoing pairs
+            ongoing_pairs = {
+                pair for pair in all_pairs 
+                if str(pair[0]) in ongoing_patient_idxs
+            }
+            
+            # Process pairs that are either unseen OR currently ongoing (or all if backfill is enabled)
+            if backfill or os.getenv("FULL_BACKFILL", "False").lower() in ("true", "1", "yes"):
+                new_pairs = all_pairs
+                self.logger.info(f"[{clinic_name}] FULL BACKFILL ENABLED. Processing all {len(new_pairs)} pairs.")
+            else:
+                new_pairs = unseen_pairs | ongoing_pairs
+                self.logger.info(f"[{clinic_name}] Found {len(new_pairs)} patient-treatment pairs needing embryo data (unseen or ongoing).")
             
             # Log detailed breakdown
             if new_pairs:
-                self.logger.info(f"[{clinic_name}] New pairs breakdown:")
+                self.logger.info(f"[{clinic_name}] Pairs breakdown:")
                 self.logger.info(f"  - Total pairs from API: {len(all_pairs)}")
                 self.logger.info(f"  - Existing pairs in DB: {len(existing_pairs)}")
-                self.logger.info(f"  - New pairs to process: {len(new_pairs)}")
-                self.logger.info(f"  - Estimated embryo API calls: {len(new_pairs)}")
+                self.logger.info(f"  - Unseen pairs to process: {len(unseen_pairs)}")
+                self.logger.info(f"  - Ongoing pairs to update: {len(ongoing_pairs)}")
+                self.logger.info(f"  - Total pairs to extract: {len(new_pairs)}")
             else:
-                self.logger.info(f"[{clinic_name}] No new patient-treatment pairs found. Skipping embryo data extraction.")
+                self.logger.info(f"[{clinic_name}] No patient-treatment pairs found. Skipping embryo data extraction.")
             
-            # 4. Fetch embryo data only for new pairs (parallel, progress bar)
+            # 4. Fetch embryo data only for new/ongoing pairs (parallel, progress bar)
             all_embryo_data = []
+            pairs_to_save_treatment = set()
+            
             def fetch_embryo_for_pair(pair):
                 patient_idx, treatment_name = pair
                 embryo_data = api_client.get_embryo_data(patient_idx, treatment_name)
@@ -232,10 +250,10 @@ class EmbryoscopeExtractor:
                     # Check if patient is ongoing; if so, skip logging as missing
                     if str(patient_idx) in ongoing_patient_idxs:
                         self.logger.debug(f"[{clinic_name}] Pair (PatientIDx={patient_idx}, TreatmentName={treatment_name}) is ongoing, will retry in future runs.")
-                        return pd.DataFrame()  # Do not treat as missing
+                        return pd.DataFrame(), False
                     else:
                         self.logger.warning(f"[{clinic_name}] No embryo data for pair (PatientIDx={patient_idx}, TreatmentName={treatment_name}) and patient is NOT ongoing.")
-                        return pd.DataFrame()
+                        return pd.DataFrame(), True
                 # Save raw embryo_data to bronze
                 if 'EmbryoDataList' in embryo_data:
                     raw_embryos = embryo_data['EmbryoDataList']
@@ -244,17 +262,20 @@ class EmbryoscopeExtractor:
                         rec['PatientIDx'] = patient_idx
                         rec['TreatmentName'] = treatment_name
                     db_manager.save_bronze_raw('embryo_data', raw_embryos, extraction_timestamp, run_id, clinic_name)
-                return data_processor.process_embryo_data(embryo_data, patient_idx, treatment_name, extraction_timestamp, run_id)
+                return data_processor.process_embryo_data(embryo_data, patient_idx, treatment_name, extraction_timestamp, run_id), True
             new_pairs_list = list(new_pairs)
             if new_pairs_list:
-                self.logger.info(f"[{clinic_name}] Starting embryo data extraction for {len(new_pairs_list)} new pairs...")
+                self.logger.info(f"[{clinic_name}] Starting embryo data extraction for {len(new_pairs_list)} pairs...")
                 with concurrent.futures.ThreadPoolExecutor(max_workers=clinic_workers) as executor:
                     futures = {executor.submit(fetch_embryo_for_pair, pair): pair for pair in new_pairs_list}
                     for f in tqdm(concurrent.futures.as_completed(futures), total=len(futures), 
                                 desc=f"Fetching embryo data for {clinic_name}", unit="pair"):
-                        result = f.result()
-                        if not result.empty:
-                            all_embryo_data.append(result)
+                        pair = futures[f]
+                        result_df, should_save = f.result()
+                        if should_save:
+                            pairs_to_save_treatment.add(pair)
+                        if not result_df.empty:
+                            all_embryo_data.append(result_df)
                 
                 # Log detailed results
                 total_embryos_fetched = sum(len(df) for df in all_embryo_data)
@@ -273,7 +294,7 @@ class EmbryoscopeExtractor:
                     embryo_data_df = pd.DataFrame()
             else:
                 embryo_data_df = pd.DataFrame()
-                self.logger.info(f"[{clinic_name}] No embryo data to fetch (no new pairs).")
+                self.logger.info(f"[{clinic_name}] No embryo data to fetch (no new/ongoing pairs).")
             self.logger.info(f"[{clinic_name}] Fetched {len(embryo_data_df)} embryo data records from API.")
             self.logger.debug(f"[{clinic_name}] Fetched {len(embryo_data_df)} embryo data records from API.")
             # 4b. Fetch IDA score data for the clinic
@@ -289,12 +310,11 @@ class EmbryoscopeExtractor:
             self.logger.info(f"[{clinic_name}] Fetched {len(idascore_df)} IDA score records from API.")
             self.logger.debug(f"[{clinic_name}] Fetched {len(idascore_df)} IDA score records from API.")
             
-            # 5. Filter data to only save NEW records (avoid PRIMARY KEY violations)
-            # Only save treatments that correspond to new pairs
-            if new_pairs:
-                new_pairs_set = set(new_pairs)
+            # 5. Filter data to only save NEW/resolved records (avoid PRIMARY KEY violations)
+            # Only save treatments that correspond to the pairs we want to save
+            if pairs_to_save_treatment:
                 treatments_to_save = treatments_df[
-                    treatments_df.apply(lambda row: (row['PatientIDx'], row['TreatmentName']) in new_pairs_set, axis=1)
+                    treatments_df.apply(lambda row: (row['PatientIDx'], row['TreatmentName']) in pairs_to_save_treatment, axis=1)
                 ]
             else:
                 treatments_to_save = pd.DataFrame()
@@ -323,12 +343,13 @@ class EmbryoscopeExtractor:
             self.logger.error(f"[{clinic_name}] Error in extraction: {e}")
             return False
     
-    def extract_single_location(self, location: str) -> bool:
+    def extract_single_location(self, location: str, backfill: bool = False) -> bool:
         """
         Extract data from a single embryoscope location.
         
         Args:
             location: Location name
+            backfill: Whether to run full backfill
             
         Returns:
             True if extraction successful, False otherwise
@@ -340,18 +361,19 @@ class EmbryoscopeExtractor:
                 self.logger.warning(f"Location {location} is not enabled or not found")
                 return False
             
-            return self._extract_clinic_data(location, config)
+            return self._extract_clinic_data(location, config, backfill=backfill)
             
         except Exception as e:
             self.logger.error(f"Error in extraction for {location}: {e}")
             return False
     
-    def extract_all_locations(self, parallel: bool = True) -> Dict[str, bool]:
+    def extract_all_locations(self, parallel: bool = True, backfill: bool = False) -> Dict[str, bool]:
         """
         Extract data from all enabled embryoscope locations.
         
         Args:
             parallel: Whether to run extractions in parallel
+            backfill: Whether to run full backfill
             
         Returns:
             Dictionary with extraction results for each location
@@ -374,7 +396,7 @@ class EmbryoscopeExtractor:
             with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
                 # Submit all extraction tasks
                 future_to_location = {
-                    executor.submit(self.extract_single_location, location): location
+                    executor.submit(self.extract_single_location, location, backfill=backfill): location
                     for location in enabled_embryoscopes.keys()
                 }
                 
@@ -392,7 +414,7 @@ class EmbryoscopeExtractor:
             # Sequential extraction
             self.logger.info("Running sequential extraction")
             for location in enabled_embryoscopes.keys():
-                result = self.extract_single_location(location)
+                result = self.extract_single_location(location, backfill=backfill)
                 results[location] = result
                 self.logger.info(f"Completed extraction for {location}: {'SUCCESS' if result else 'FAILED'}")
         
@@ -430,7 +452,7 @@ class EmbryoscopeExtractor:
         
         return summary
 
-    def extract_for_patients(self, clinic_name: str, patient_ids: list, db_path: Optional[str] = None) -> bool:
+    def extract_for_patients(self, clinic_name: str, patient_ids: list, db_path: Optional[str] = None, backfill: bool = False) -> bool:
         """
         Public method to extract data for a subset of patients for a given clinic, optionally to a custom DB path.
         """
@@ -438,11 +460,16 @@ class EmbryoscopeExtractor:
         if not config or not config.get('enabled', False):
             self.logger.warning(f"Location {clinic_name} is not enabled or not found")
             return False
-        return self._extract_clinic_data(clinic_name, config, patient_ids=patient_ids, db_path=db_path)
+        return self._extract_clinic_data(clinic_name, config, patient_ids=patient_ids, db_path=db_path, backfill=backfill)
 
 
 def main():
     """Main function to run the embryoscope extraction."""
+    import argparse
+    parser = argparse.ArgumentParser(description="Embryoscope Data Extraction")
+    parser.add_argument("--backfill", action="store_true", help="Perform a full backfill/read all")
+    args = parser.parse_args()
+    
     try:
         # Initialize extractor
         extractor = EmbryoscopeExtractor()
@@ -452,7 +479,7 @@ def main():
         
         # Run extraction
         extractor.logger.info("Starting embryoscope data extraction...")
-        results = extractor.extract_all_locations(parallel=True)
+        results = extractor.extract_all_locations(parallel=True, backfill=args.backfill)
         
         # Print results
         extractor.logger.info("\nExtraction Results:")

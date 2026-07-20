@@ -2,6 +2,26 @@
 set PARENT_STEP=%1
 if "%PARENT_STEP%"=="" set PARENT_STEP=1
 
+REM ========================================
+REM VPN CONFIGURATION (Sophos Connect)
+REM ========================================
+REM Only manage VPN if not running as part of the complete dataflow
+set "VPN_NAME=189.108.75.147"
+set "SOPHOS_CLI=C:\Program Files (x86)\Sophos\Connect\sccli.exe"
+set "EXIT_CODE=0"
+
+if "%PROJECT_ROOT%"=="" if "%VPN_NAME%" neq "" (
+    echo.
+    echo Connecting to Sophos VPN: %VPN_NAME%...
+    if exist "%SOPHOS_CLI%" (
+        "%SOPHOS_CLI%" enable -n "%VPN_NAME%"
+        echo Waiting 5 seconds for VPN to establish...
+        timeout /t 5 >nul
+    ) else (
+        echo WARNING: Sophos Connect CLI not found at "%SOPHOS_CLI%"
+    )
+)
+
 echo ========================================
 echo RUNNING COMPLETE CLINISYS DATAFLOW
 echo ========================================
@@ -14,7 +34,8 @@ if %errorlevel% neq 0 (
     echo Current directory: %CD%
     echo Batch file path: %~dp0
     pause
-    exit /b 1
+    set "EXIT_CODE=1"
+    goto cleanup
 )
 
 REM Activate conda environment (based on user memory)
@@ -29,7 +50,8 @@ python 01_source_to_bronze.py
 if %errorlevel% neq 0 (
     echo ERROR: Step %PARENT_STEP%.1 failed
     pause
-    exit /b 1
+    set "EXIT_CODE=1"
+    goto cleanup
 )
 
 echo.
@@ -40,7 +62,8 @@ python 02_01_bronze_to_silver.py
 if %errorlevel% neq 0 (
     echo ERROR: Step %PARENT_STEP%.2 failed
     pause
-    exit /b 1
+    set "EXIT_CODE=1"
+    goto cleanup
 )
 
 echo.
@@ -60,7 +83,8 @@ python 03_silver_to_gold.py
 if %errorlevel% neq 0 (
     echo ERROR: Step %PARENT_STEP%.4 failed
     pause
-    exit /b 1
+    set "EXIT_CODE=1"
+    goto cleanup
 )
 
 echo.
@@ -71,4 +95,13 @@ echo.
 echo All steps completed without errors.
 echo Check logs in clinisys\logs\
 echo.
-exit /b 0 
+
+:cleanup
+if "%PROJECT_ROOT%"=="" if "%VPN_NAME%" neq "" (
+    echo.
+    echo Disconnecting from Sophos VPN: %VPN_NAME%...
+    if exist "%SOPHOS_CLI%" (
+        "%SOPHOS_CLI%" disable -n "%VPN_NAME%"
+    )
+)
+exit /b %EXIT_CODE% 
