@@ -13,7 +13,7 @@ if %errorlevel% neq 0 (
     echo ERROR: Failed to change to data_lake_scripts directory
     echo Current directory: %CD%
     echo Batch file path: %~dp0
-    pause
+    @REM pause (removed for automated execution)
     exit /b 1
 )
 
@@ -28,7 +28,7 @@ echo ========================================
 python 01_merge_clinisys_embryoscope.py
 if %errorlevel% neq 0 (
     echo ERROR: Step %PARENT_STEP%.1 failed
-    pause
+    @REM pause (removed for automated execution)
     exit /b 1
 )
 
@@ -39,7 +39,7 @@ echo ========================================
 python 02_combine_redlara_planilha.py
 if %errorlevel% neq 0 (
     echo ERROR: Step %PARENT_STEP%.2 failed
-    pause
+    @REM pause (removed for automated execution)
     exit /b 1
 )
 
@@ -50,7 +50,7 @@ echo ========================================
 python 03_combine_embryoscope_planilha.py
 if %errorlevel% neq 0 (
     echo ERROR: Step %PARENT_STEP%.3 failed
-    pause
+    @REM pause (removed for automated execution)
     exit /b 1
 )
 
@@ -72,7 +72,7 @@ echo ========================================
 python 04_02_export_clinsisy_embryoscope_planilha.py
 if %errorlevel% neq 0 (
     echo ERROR: Step %PARENT_STEP%.5 failed
-    pause
+    @REM pause (removed for automated execution)
     exit /b 1
 )
 

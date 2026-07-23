@@ -21,7 +21,7 @@ echo ========================================
 python "01_ingest_bronze.py"
 if %errorlevel% neq 0 (
     echo ERROR: Step %PARENT_STEP%.1 failed
-    pause
+    @REM pause (removed for automated execution)
     exit /b 1
 )
 
@@ -32,7 +32,7 @@ echo ========================================
 python "02_unify_silver.py"
 if %errorlevel% neq 0 (
     echo ERROR: Step %PARENT_STEP%.2 failed
-    pause
+    @REM pause (removed for automated execution)
     exit /b 1
 )
 
@@ -43,7 +43,7 @@ echo ========================================
 python "03_generate_filling_report.py"
 if %errorlevel% neq 0 (
     echo ERROR: Step %PARENT_STEP%.3 failed
-    pause
+    @REM pause (removed for automated execution)
     exit /b 1
 )
 

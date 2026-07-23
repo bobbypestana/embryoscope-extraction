@@ -252,7 +252,7 @@ class EmbryoscopeExtractor:
                         self.logger.debug(f"[{clinic_name}] Pair (PatientIDx={patient_idx}, TreatmentName={treatment_name}) is ongoing, will retry in future runs.")
                         return pd.DataFrame(), False
                     else:
-                        self.logger.warning(f"[{clinic_name}] No embryo data for pair (PatientIDx={patient_idx}, TreatmentName={treatment_name}) and patient is NOT ongoing.")
+                        # self.logger.warning(f"[{clinic_name}] No embryo data for pair (PatientIDx={patient_idx}, TreatmentName={treatment_name}) and patient is NOT ongoing.")
                         return pd.DataFrame(), True
                 # Save raw embryo_data to bronze
                 if 'EmbryoDataList' in embryo_data:

@@ -38,10 +38,19 @@ logger = logging.getLogger(__name__)
 source_db_path = r'G:\My Drive\projetos_individuais\Huntington\database\huntington_data_lake.duckdb'
 target_db_path = r'G:\My Drive\projetos_individuais\Huntington\database\huntington_data_lake.duckdb'
 
-def build_query():
+def build_query(con=None):
     """Build SELECT query based on configured columns"""
     logger.info('Building query based on config...')
     
+    # Get existing columns in silver_embryoscope.embryo_data if connection is provided
+    existing_ed_cols = set()
+    if con:
+        try:
+            res = con.execute("PRAGMA table_info('silver_embryoscope.embryo_data')").fetchall()
+            existing_ed_cols = {row[1] for row in res}
+        except Exception as e:
+            logger.warning(f"Could not inspect silver_embryoscope.embryo_data table info: {e}")
+
     select_parts = []
     
     # 1. Patients - calculate YearOfBirth directly in query
@@ -78,12 +87,18 @@ def build_query():
                 END as embryo_EmbryoDate
             """)
         elif col in standard_cols:
-            select_parts.append(f'ed.{col} as embryo_{col}')
+            if not existing_ed_cols or col in existing_ed_cols:
+                select_parts.append(f'ed.{col} as embryo_{col}')
+            else:
+                select_parts.append(f'NULL as embryo_{col}')
         else:
             # Time annotations - include all 4 fields: Name, Time, Value, Timestamp
             for prefix in ['Name', 'Time', 'Value', 'Timestamp']:
-                select_parts.append(f'ed."{prefix}_{col}" as embryo_{prefix}_{col}')
-
+                col_name = f"{prefix}_{col}"
+                if not existing_ed_cols or col_name in existing_ed_cols:
+                    select_parts.append(f'ed."{col_name}" as embryo_{col_name}')
+                else:
+                    select_parts.append(f'NULL as embryo_{col_name}')
 
     # 4. IDAScore
     for col in gold_config.get('idascore', []):
@@ -121,11 +136,11 @@ def main():
         return
         
     try:
-        query = build_query()
-        
         logger.info('Connecting to database...')
         with duckdb.connect(source_db_path) as con:
             logger.info('Connected to DuckDB')
+            
+            query = build_query(con)
             
             # Execute query
             logger.info('Executing gold layer transformation...')

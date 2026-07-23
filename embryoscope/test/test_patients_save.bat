@@ -6,4 +6,4 @@ cd /d "%~dp0\.."
 
 call conda activate try_request
 python test\test_patients_save.py
-pause 
+@REM pause (removed for automated execution)

@@ -33,7 +33,7 @@ if %errorlevel% neq 0 (
     echo ERROR: Failed to change to clinisys directory
     echo Current directory: %CD%
     echo Batch file path: %~dp0
-    pause
+    @REM pause (removed for automated execution)
     set "EXIT_CODE=1"
     goto cleanup
 )
@@ -49,7 +49,7 @@ echo ========================================
 python 01_source_to_bronze.py
 if %errorlevel% neq 0 (
     echo ERROR: Step %PARENT_STEP%.1 failed
-    pause
+    @REM pause (removed for automated execution)
     set "EXIT_CODE=1"
     goto cleanup
 )
@@ -61,7 +61,7 @@ echo ========================================
 python 02_01_bronze_to_silver.py
 if %errorlevel% neq 0 (
     echo ERROR: Step %PARENT_STEP%.2 failed
-    pause
+    @REM pause (removed for automated execution)
     set "EXIT_CODE=1"
     goto cleanup
 )
@@ -82,7 +82,7 @@ echo ========================================
 python 03_silver_to_gold.py
 if %errorlevel% neq 0 (
     echo ERROR: Step %PARENT_STEP%.4 failed
-    pause
+    @REM pause (removed for automated execution)
     set "EXIT_CODE=1"
     goto cleanup
 )

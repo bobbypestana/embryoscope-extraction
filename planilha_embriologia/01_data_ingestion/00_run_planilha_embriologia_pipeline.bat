@@ -22,7 +22,7 @@ echo ========================================
 python planilha_embriologia/01_data_ingestion/01_planilha_embriologia_to_bronze.py
 if %errorlevel% neq 0 (
     echo ERROR: Step %PARENT_STEP%.1 failed
-    pause
+    @REM pause (removed for automated execution)
     exit /b 1
 )
 
@@ -33,7 +33,7 @@ echo ========================================
 python planilha_embriologia/01_data_ingestion/02_planilha_embriologia_to_silver.py
 if %errorlevel% neq 0 (
     echo ERROR: Step %PARENT_STEP%.2 failed
-    pause
+    @REM pause (removed for automated execution)
     exit /b 1
 )
 

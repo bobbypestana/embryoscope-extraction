@@ -42,8 +42,8 @@ def clean_patient_id(df, table_name, db_name):
                 cleaned_str = patient_id_str.replace('.', '')
                 if cleaned_str.isdigit():
                     converted_id = int(cleaned_str)
-                    # Discard if the result is 0
-                    if converted_id == 0:
+                    # Discard if the result is 0 or 1 (test cases)
+                    if converted_id in (0, 1):
                         return None
                     return converted_id
             except (ValueError, AttributeError):
@@ -52,8 +52,8 @@ def clean_patient_id(df, table_name, db_name):
         # Handle pure numeric strings
         if patient_id_str.isdigit():
             converted_id = int(patient_id_str)
-            # Discard if the result is 0
-            if converted_id == 0:
+            # Discard if the result is 0 or 1 (test cases)
+            if converted_id in (0, 1):
                 return None
             return converted_id
         

@@ -32,7 +32,7 @@ echo Activating conda environment...
 call conda activate try_request
 if %errorlevel% neq 0 (
     echo ERROR: Failed to activate conda environment
-    pause
+    @REM pause (removed for automated execution)
     exit /b 1
 )
 
@@ -43,7 +43,7 @@ echo ========================================
 python 01_extract_embryo_images.py --limit %LIMIT% --planes %PLANES% --mode %MODE% --retry %RETRY%
 if %errorlevel% neq 0 (
     echo ERROR: Step 1 Extraction failed
-    pause
+    @REM pause (removed for automated execution)
     exit /b 1
 )
 
@@ -54,7 +54,7 @@ echo ========================================
 python 02_sync_and_export_metadata.py
 if %errorlevel% neq 0 (
     echo ERROR: Step 2 Sync-Export failed
-    pause
+    @REM pause (removed for automated execution)
     exit /b 1
 )
 
@@ -65,5 +65,5 @@ echo ========================================
 echo Check extracted images in: export_images\
 echo Check Excel reports in: export_images\
 echo.
-pause
+@REM pause (removed for automated execution)
 exit /b 0

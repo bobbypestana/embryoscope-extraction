@@ -47,4 +47,4 @@ echo.
 echo ==============================================================================
 echo PIPELINE COMPLETED SUCCESSFULLY!
 echo ==============================================================================
-pause
+@REM pause (removed for automated execution)

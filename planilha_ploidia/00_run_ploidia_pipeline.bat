@@ -10,7 +10,7 @@ if %errorlevel% neq 0 (
     echo ERROR: Failed to change to planilha_ploidia directory
     echo Current directory: %CD%
     echo Batch file path: %~dp0
-    pause
+    @REM pause (removed for automated execution)
     exit /b 1
 )
 
@@ -25,7 +25,7 @@ echo ========================================
 python 01_create_data_ploidia_table.py
 if %errorlevel% neq 0 (
     echo ERROR: Step 1 failed
-    pause
+    @REM pause (removed for automated execution)
     exit /b 1
 )
 
@@ -36,7 +36,7 @@ echo ========================================
 python 02_fill_missing_values.py
 if %errorlevel% neq 0 (
     echo ERROR: Step 2 failed
-    pause
+    @REM pause (removed for automated execution)
     exit /b 1
 )
 
@@ -47,7 +47,7 @@ echo ========================================
 python 03_join_image_availability.py
 if %errorlevel% neq 0 (
     echo ERROR: Step 3 failed
-    pause
+    @REM pause (removed for automated execution)
     exit /b 1
 )
 

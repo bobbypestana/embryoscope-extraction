@@ -8,7 +8,7 @@ REM Change to the batch file's directory
 cd /d "%~dp0"
 if %errorlevel% neq 0 (
     echo ERROR: Failed to change to directory
-    pause
+    @REM pause (removed for automated execution)
     exit /b 1
 )
 
@@ -23,7 +23,7 @@ echo ========================================
 python 01_join_prescriptions.py
 if %errorlevel% neq 0 (
     echo ERROR: Step 1 failed
-    pause
+    @REM pause (removed for automated execution)
     exit /b 1
 )
 
@@ -34,7 +34,7 @@ echo ========================================
 python 02_create_wide_table.py
 if %errorlevel% neq 0 (
     echo ERROR: Step 2 failed
-    pause
+    @REM pause (removed for automated execution)
     exit /b 1
 )
 
@@ -45,7 +45,7 @@ echo ========================================
 python 03_export_to_excel.py
 if %errorlevel% neq 0 (
     echo ERROR: Step 3 failed
-    pause
+    @REM pause (removed for automated execution)
     exit /b 1
 )
 

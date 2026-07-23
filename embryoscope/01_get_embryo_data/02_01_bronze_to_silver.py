@@ -85,16 +85,17 @@ def calculate_column_filling_rates(df):
     return rates
 
 
-def filter_columns_by_null_rate(df, table_name, db_name, null_rate_threshold=90.0):
-    """Drop columns whose null rate exceeds *null_rate_threshold* (default 90%)."""
+def filter_columns_by_null_rate(df, table_name, db_name, null_rate_threshold=90.0, protected_columns=None):
+    """Drop columns whose null rate exceeds *null_rate_threshold* (default 90%), except protected_columns."""
     if df.empty:
         logger.warning(f"[{db_name}] DataFrame for {table_name} is empty, no columns to filter")
         return df, {}
+    protected_set = set(protected_columns or [])
     filling_rates = calculate_column_filling_rates(df)
     included, excluded = [], {}
     for col in df.columns:
         null_rate = 100.0 - filling_rates.get(col, 0.0)
-        if null_rate > null_rate_threshold:
+        if null_rate > null_rate_threshold and col not in protected_set:
             excluded[col] = null_rate
         else:
             included.append(col)
@@ -490,9 +491,18 @@ def process_embryo_data_database(db_path):
                      for c in embryo_df.columns if c.startswith('EmbryoDetails_')}
         )
 
+        gold_config_path = os.path.join(script_dir, 'gold_column_config.yml')
+        protected_cols = []
+        if os.path.exists(gold_config_path):
+            with open(gold_config_path, 'r') as f:
+                g_cfg = yaml.safe_load(f)
+            for ann in g_cfg.get('embryo_data', []):
+                for pfx in ['Name', 'Time', 'Value', 'Timestamp']:
+                    protected_cols.append(f'{pfx}_{ann}')
+
         embryo_df = clean_patient_id(embryo_df, 'embryo_data', db_name)
         embryo_df, _ = filter_columns_by_null_rate(
-            embryo_df, 'embryo_data', db_name, null_rate_threshold=90.0
+            embryo_df, 'embryo_data', db_name, null_rate_threshold=90.0, protected_columns=protected_cols
         )
 
         if embryo_df.empty:

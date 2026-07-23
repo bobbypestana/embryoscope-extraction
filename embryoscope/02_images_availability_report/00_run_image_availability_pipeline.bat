@@ -27,7 +27,7 @@ if %errorlevel% neq 0 (
     echo ERROR: Failed to change to report directory
     echo Current directory: %CD%
     echo Batch file path: %~dp0
-    pause
+    @REM pause (removed for automated execution)
     exit /b 1
 )
 
@@ -36,7 +36,7 @@ echo Activating conda environment...
 call conda activate try_request
 if %errorlevel% neq 0 (
     echo ERROR: Failed to activate conda environment
-    pause
+    @REM pause (removed for automated execution)
     exit /b 1
 )
 
@@ -51,7 +51,7 @@ if "%LIMIT%"=="" (
 )
 if %errorlevel% neq 0 (
     echo ERROR: Step 1 failed
-    pause
+    @REM pause (removed for automated execution)
     exit /b 1
 )
 
@@ -76,7 +76,7 @@ echo ========================================
 python 02_logs_to_bronze.py --input-dir "%RESULTS_DIR%"
 if %errorlevel% neq 0 (
     echo ERROR: Step 2 failed
-    pause
+    @REM pause (removed for automated execution)
     exit /b 1
 )
 
@@ -87,7 +87,7 @@ echo ========================================
 python 03_bronze_to_silver.py
 if %errorlevel% neq 0 (
     echo ERROR: Step 3 failed
-    pause
+    @REM pause (removed for automated execution)
     exit /b 1
 )
 
@@ -98,7 +98,7 @@ echo ========================================
 python 04_track_changes_to_gold.py
 if %errorlevel% neq 0 (
     echo ERROR: Step 4 failed
-    pause
+    @REM pause (removed for automated execution)
     exit /b 1
 )
 

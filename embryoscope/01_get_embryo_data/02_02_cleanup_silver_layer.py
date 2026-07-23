@@ -208,8 +208,8 @@ def main():
     """Main execution function."""
     logger = setup_logging()
     
-    # Find database files
-    database_dir = "../../database"
+    script_dir = Path(__file__).resolve().parent
+    database_dir = script_dir.parent.parent / "database"
     db_files = find_database_files(database_dir)
     
     if not db_files:

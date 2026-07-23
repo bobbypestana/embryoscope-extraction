@@ -13,7 +13,7 @@ if %errorlevel% neq 0 (
     echo ERROR: Failed to change to 01_data_ingestion directory
     echo Current directory: %CD%
     echo Batch file path: %~dp0
-    pause
+    @REM pause (removed for automated execution)
     exit /b 1
 )
 
@@ -28,7 +28,7 @@ echo ========================================
 python -u 01_source_to_bronze.py %*
 if %errorlevel% neq 0 (
     echo ERROR: Step %PARENT_STEP%.1 failed
-    pause
+    @REM pause (removed for automated execution)
     exit /b 1
 )
 
@@ -39,7 +39,7 @@ echo ========================================
 python -u 02_bronze_to_silver.py
 if %errorlevel% neq 0 (
     echo ERROR: Step %PARENT_STEP%.2 failed
-    pause
+    @REM pause (removed for automated execution)
     exit /b 1
 )
 
@@ -50,7 +50,7 @@ echo ========================================
 python -u 03_silver_to_gold.py
 if %errorlevel% neq 0 (
     echo ERROR: Step %PARENT_STEP%.3 failed
-    pause
+    @REM pause (removed for automated execution)
     exit /b 1
 )
 
@@ -61,7 +61,7 @@ echo ========================================
 python -u 04_generate_dashboard.py
 if %errorlevel% neq 0 (
     echo ERROR: Step %PARENT_STEP%.4 failed
-    pause
+    @REM pause (removed for automated execution)
     exit /b 1
 )
 

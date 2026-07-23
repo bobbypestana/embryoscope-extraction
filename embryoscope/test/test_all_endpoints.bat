@@ -13,4 +13,4 @@ python test\test_all_endpoints.py
 
 echo.
 echo Test completed.
-pause 
+@REM pause (removed for automated execution)

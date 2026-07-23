@@ -22,7 +22,7 @@ echo ========================================
 python planilha_embriologia/02_create_tables/01_combine_fresh_fet.py
 if %errorlevel% neq 0 (
     echo ERROR: Step %PARENT_STEP%.1 failed
-    pause
+    @REM pause (removed for automated execution)
     exit /b 1
 )
 

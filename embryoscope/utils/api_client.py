@@ -9,6 +9,7 @@ import time
 import hashlib
 import json
 import threading
+import re
 from typing import Dict, Any, Optional, List
 from datetime import datetime
 import logging
@@ -195,7 +196,12 @@ class EmbryoscopeAPIClient:
                     self.logger.debug(f"[API CALL] Empty response from {self.location} - {endpoint}")
                     return None
                 self.logger.debug(f"[API CALL] Response JSON: {response.text[:200]}...")
-                return response.json()
+                try:
+                    return response.json(strict=False)
+                except json.JSONDecodeError:
+                    # Sanitize invalid escape sequences (e.g. unescaped backslashes in clinician notes)
+                    cleaned_text = re.sub(r'\\(?![\\"/bfnrt]|u[0-9a-fA-F]{4})', r'\\\\', response.text)
+                    return json.loads(cleaned_text, strict=False)
             except json.JSONDecodeError as e:
                 self.logger.error(f"Invalid JSON response from {self.location} - {endpoint}: {e}")
                 self.logger.error(f"Response content: {response.text[:200]}...")  # Log first 200 chars
@@ -224,6 +230,9 @@ class EmbryoscopeAPIClient:
             patient_idx: Patient identifier
             treatment_name: Treatment name
         """
+        if not patient_idx or not treatment_name or not str(treatment_name).strip():
+            self.logger.warning(f"[{self.location}] Skipping get_embryo_data due to empty patient_idx ('{patient_idx}') or treatment_name ('{treatment_name}')")
+            return None
         params = {
             'PatientIDx': patient_idx,
             'TreatmentName': treatment_name

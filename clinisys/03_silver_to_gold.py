@@ -34,8 +34,9 @@ logger = logging.getLogger(__name__)
 logger.info(f'Loaded logging level: {logging_level_str}')
 
 # Database paths - read from clinisys_all, write to huntington_data_lake
-source_db_path = os.path.join('..', 'database', 'clinisys_all.duckdb')
-target_db_path = os.path.join('..', 'database', 'huntington_data_lake.duckdb')
+BASE_DIR = os.path.dirname(__file__)
+source_db_path = os.path.abspath(os.path.join(BASE_DIR, '..', 'database', 'clinisys_all.duckdb'))
+target_db_path = os.path.abspath(os.path.join(BASE_DIR, '..', 'database', 'huntington_data_lake.duckdb'))
 
 
 def build_select_columns():
@@ -114,6 +115,15 @@ def main():
                ) as rn
         FROM silver.view_tratamentos
         WHERE prontuario IS NOT NULL AND data_procedimento IS NOT NULL
+    ),
+    emb_cong_clean AS (
+        SELECT *,
+               ROW_NUMBER() OVER (
+                   PARTITION BY id_oocito 
+                   ORDER BY id DESC
+               ) as rn
+        FROM silver.view_embrioes_congelados
+        WHERE id_oocito IS NOT NULL AND id_oocito > 0
     )
     SELECT
         {', '.join(select_columns)}
@@ -127,8 +137,9 @@ def main():
         AND trat1.data_procedimento = micro.Data_DL
         AND trat1.rn = 1
     
-    LEFT JOIN silver.view_embrioes_congelados emb_cong 
+    LEFT JOIN emb_cong_clean emb_cong 
         ON emb_cong.id_oocito = oocito.id
+        AND emb_cong.rn = 1
         
     LEFT JOIN silver.view_congelamentos_embrioes cong_em 
         ON emb_cong.id_congelamento = cong_em.id 
@@ -156,7 +167,7 @@ def main():
     try:
         # Read data from source database
         logger.info('Connecting to source database to read data')
-        with duckdb.connect(source_db_path) as source_con:
+        with duckdb.connect(source_db_path, read_only=True) as source_con:
             logger.info('Connected to source DuckDB')
             
             # Indexes should be created in silver layer, not here

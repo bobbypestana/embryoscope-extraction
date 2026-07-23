@@ -1,10 +1,59 @@
 {
     "hooks": {
+        "PreToolCall": [
+            {
+                "name": "project_level_prevent_kill",
+                "type": "command",
+                "tools": ["run_command", "*"],
+                "command": "python \"g:\\My Drive\\projetos_individuais\\Huntington\\.antigravity\\validate_kill.py\""
+            }
+        ],
+        "BeforeToolCall": [
+            {
+                "name": "project_level_prevent_kill",
+                "type": "command",
+                "tools": ["run_command", "*"],
+                "command": "python \"g:\\My Drive\\projetos_individuais\\Huntington\\.antigravity\\validate_kill.py\""
+            }
+        ],
         "BeforeTool": [
             {
                 "name": "project_level_prevent_kill",
                 "type": "command",
-                "command": "python \".\\.antigravity\\validate_kill.py\""
+                "tools": ["run_command", "*"],
+                "command": "python \"g:\\My Drive\\projetos_individuais\\Huntington\\.antigravity\\validate_kill.py\""
+            }
+        ],
+        "pre_tool_call": [
+            {
+                "name": "project_level_prevent_kill",
+                "type": "command",
+                "tools": ["run_command", "*"],
+                "command": "python \"g:\\My Drive\\projetos_individuais\\Huntington\\.antigravity\\validate_kill.py\""
+            }
+        ],
+        "PostToolCall": [
+            {
+                "name": "project_level_register_pid",
+                "type": "command",
+                "tools": ["run_command", "*"],
+                "command": "python \"g:\\My Drive\\projetos_individuais\\Huntington\\.antigravity\\register_pid.py\""
+            }
+        ],
+        "AfterToolCall": [
+            {
+                "name": "project_level_register_pid",
+                "type": "command",
+                "tools": ["run_command", "*"],
+                "command": "python \"g:\\My Drive\\projetos_individuais\\Huntington\\.antigravity\\register_pid.py\""
+            }
+        ],
+        "after_tool_call": [
+            {
+                "name": "project_level_register_pid",
+                "type": "command",
+                "tools": ["run_command", "*"],
+                "command": "python \"g:\\My Drive\\projetos_individuais\\Huntington\\.antigravity\\register_pid.py\""
             }
         ]
     }

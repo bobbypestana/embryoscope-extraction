@@ -37,7 +37,7 @@ call conda activate try_request
 if %errorlevel% neq 0 (
     echo ERROR: Failed to activate try_request environment
     echo Please ensure the environment exists: conda create -n try_request python=3.9
-    pause
+    @REM pause (removed for automated execution)
     exit /b 1
 )
 
@@ -51,7 +51,7 @@ python --version >nul 2>&1
 if %errorlevel% neq 0 (
     echo ERROR: Python is not available in try_request environment
     echo Please check your conda installation and environment
-    pause
+    @REM pause (removed for automated execution)
     exit /b 1
 )
 
@@ -67,7 +67,7 @@ if %errorlevel% neq 0 (
     pip install -r requirements.txt >nul 2>&1
     if %errorlevel% neq 0 (
         echo ERROR: Failed to install required packages
-        pause
+        @REM pause (removed for automated execution)
         exit /b 1
     )
 )
@@ -81,7 +81,7 @@ echo ========================================
 if not exist "clinisys\00_run_dataflow_clinisys.bat" (
     echo ERROR: Cannot find clinisys\00_run_dataflow_clinisys.bat
     echo Current directory: %CD%
-    pause
+    @REM pause (removed for automated execution)
     exit /b 1
 )
 call "clinisys\00_run_dataflow_clinisys.bat" 1
@@ -98,7 +98,7 @@ echo ========================================
 if not exist "embryoscope\01_get_embryo_data\00_run_dataflow_embryoscope.bat" (
     echo ERROR: Cannot find embryoscope\01_get_embryo_data\00_run_dataflow_embryoscope.bat
     echo Current directory: %CD%
-    pause
+    @REM pause (removed for automated execution)
     exit /b 1
 )
 call "embryoscope\01_get_embryo_data\00_run_dataflow_embryoscope.bat" 2
@@ -115,7 +115,7 @@ echo ========================================
 if not exist "embryoscope\02_images_availability_report\00_run_image_availability_pipeline.bat" (
     echo ERROR: Cannot find embryoscope\02_images_availability_report\00_run_image_availability_pipeline.bat
     echo Current directory: %CD%
-    pause
+    @REM pause (removed for automated execution)
     exit /b 1
 )
 call "embryoscope\02_images_availability_report\00_run_image_availability_pipeline.bat" new
@@ -186,7 +186,7 @@ echo ========================================
 if not exist "data_lake_scripts\00_run_dataflow_lake_only.bat" (
     echo ERROR: Cannot find data_lake_scripts\00_run_dataflow_lake_only.bat
     echo Current directory: %CD%
-    pause
+    @REM pause (removed for automated execution)
     exit /b 1
 )
 call "data_lake_scripts\00_run_dataflow_lake_only.bat" 7
@@ -203,7 +203,7 @@ echo ========================================
 if not exist "planilha_ploidia\00_run_ploidia_pipeline.bat" (
     echo ERROR: Cannot find planilha_ploidia\00_run_ploidia_pipeline.bat
     echo Current directory: %CD%
-    pause
+    @REM pause (removed for automated execution)
     exit /b 1
 )
 call "planilha_ploidia\00_run_ploidia_pipeline.bat" 8
@@ -222,7 +222,7 @@ echo ========================================
 if not exist "embryos_with_prescription\00_run_prescription_pipeline.bat" (
     echo ERROR: Cannot find embryos_with_prescription\00_run_prescription_pipeline.bat
     echo Current directory: %CD%
-    pause
+    @REM pause (removed for automated execution)
     exit /b 1
 )
 call "embryos_with_prescription\00_run_prescription_pipeline.bat" 9
@@ -239,7 +239,7 @@ echo ========================================
 if not exist "protheus\01_ingestion\00_run_dataflow_protheus.bat" (
     echo ERROR: Cannot find protheus\01_ingestion\00_run_dataflow_protheus.bat
     echo Current directory: %CD%
-    pause
+    @REM pause (removed for automated execution)
     exit /b 1
 )
 call "protheus\01_ingestion\00_run_dataflow_protheus.bat" 10
