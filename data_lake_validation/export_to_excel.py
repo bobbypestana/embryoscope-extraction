@@ -11,14 +11,14 @@ def main():
     os.makedirs(EXPORT_DIR, exist_ok=True)
     
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    export_file = os.path.join(EXPORT_DIR, f'protheus_mesclada_vendas_{timestamp}.xlsx')
+    export_file = os.path.join(EXPORT_DIR, f'protheus_notas_faturadas_{timestamp}.xlsx')
     
     print(f"Connecting to DuckDB: {DB_PATH}...")
     conn = duckdb.connect(DB_PATH)
     
-    print("Fetching data from gold.protheus_mesclada_vendas...")
+    print("Fetching data from gold.protheus_notas_faturadas...")
     # Read entire table
-    df = conn.execute("SELECT * FROM gold.protheus_mesclada_vendas").df()
+    df = conn.execute("SELECT * FROM gold.protheus_notas_faturadas").df()
     print(f"Loaded {len(df):,} rows.")
     
     print(f"Exporting to Excel file: {export_file}...")

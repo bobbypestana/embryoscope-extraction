@@ -52,11 +52,11 @@
     *   *Scripts* (run in sequence inside `protheus/01_ingestion/`):
         1.  `01_source_to_bronze.py`: Ingests ERP source data to `bronze.protheus_*`.
         2.  `02_bronze_to_silver.py`: Cleans, formats, and casts data types into `silver.protheus_*`.
-        3.  `03_silver_to_gold.py`: Combines silver tables and attaches Clinisys view `silver.view_pacientes` to resolve patient chart IDs (`prontuario`), writing the final `gold.protheus_mesclada_vendas` table.
+        3.  `03_silver_to_gold.py`: Combines silver tables and attaches Clinisys view `silver.view_pacientes` to resolve patient chart IDs (`prontuario`), writing the final `gold.protheus_notas_faturadas` table.
 
 2.  **Step 2: Create All Patients Timeline**
     *   *Script*: `01_create_all_patient_timeline.py` (inside `finops/02_create_tables/`)
-    *   *Inputs*: `gold.protheus_mesclada_vendas` + Clinisys views (`silver.view_tratamentos`, `silver.view_extrato_atendimentos_central`, `silver.view_congelamentos_embrioes`, etc.)
+    *   *Inputs*: `gold.protheus_notas_faturadas` + Clinisys views (`silver.view_tratamentos`, `silver.view_extrato_atendimentos_central`, `silver.view_congelamentos_embrioes`, etc.)
     *   *Output*: `gold.all_patients_timeline`
 
 3.  **Step 3: Timeline Cleaning**
@@ -67,7 +67,7 @@
 
 4.  **Step 4: Create FinOps Summary**
     *   *Script*: `03_01_create_finops_summary.py` (inside `finops/02_create_tables/`)
-    *   *Inputs*: `gold.recent_patients_timeline` + `gold.protheus_mesclada_vendas`
+    *   *Inputs*: `gold.recent_patients_timeline` + `gold.protheus_notas_faturadas`
     *   *Output*: `gold.finops_summary`
 
 5.  **Step 5: Patient Info & Domain Timelines Slices**
@@ -102,7 +102,7 @@
 *   **Objectives**: To close the feedback loop on financial billing operations and generate structured billing reports (`relatórios de cobranças`).
 *   **Expected Dependencies**:
     *   `gold.finops_summary`
-    *   `gold.protheus_mesclada_vendas`
+    *   `gold.protheus_notas_faturadas`
     *   `gold.all_patients_timeline`
 *   **Implementation Steps**:
     *   *(To be defined: SQL aggregates, formatting rules, Excel/CSV output pipelines, and Power BI visual integrations)*.

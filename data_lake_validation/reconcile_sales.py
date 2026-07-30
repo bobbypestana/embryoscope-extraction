@@ -47,7 +47,7 @@ def main():
     print("Running Pre-run Schema Safeguard...")
     pre_run_schema_safeguard(
         conn, 
-        "gold.protheus_mesclada_vendas", 
+        "gold.protheus_notas_faturadas", 
         "silver.mesclada_vendas", 
         ["Loja", "Numero", "Serie Docto.", "DT Emissao"],
         join_keys_b=["Loja", "Numero", "Serie Docto.", "DT Emissao"]
@@ -55,7 +55,7 @@ def main():
     
     # Step 2: Schema Comparison
     print("Comparing schemas...")
-    desc_gold = conn.execute("DESCRIBE gold.protheus_mesclada_vendas").df()
+    desc_gold = conn.execute("DESCRIBE gold.protheus_notas_faturadas").df()
     desc_silver = conn.execute("DESCRIBE silver.mesclada_vendas").df()
     
     gold_cols = {row['column_name'].lower(): (row['column_name'], row['column_type']) for _, row in desc_gold.iterrows()}
@@ -69,7 +69,7 @@ def main():
     
     # Step 3: Fetching data for overall counts and validation
     print("Fetching global counts...")
-    gold_count = conn.execute("SELECT COUNT(*) FROM gold.protheus_mesclada_vendas WHERE \"Grp\" != '5' AND \"DT Emissao\" BETWEEN '2022-01-02' AND '2026-06-12'").fetchone()[0]
+    gold_count = conn.execute("SELECT COUNT(*) FROM gold.protheus_notas_faturadas WHERE \"Grp\" != '5' AND \"DT Emissao\" BETWEEN '2022-01-02' AND '2026-06-12'").fetchone()[0]
     silver_count = conn.execute("SELECT COUNT(*) FROM silver.mesclada_vendas WHERE \"Grp\" != '5' AND \"DT Emissao\" BETWEEN '2022-01-02' AND '2026-06-12'").fetchone()[0]
     
     print(f"Gold Row Count: {gold_count:,}")
@@ -85,7 +85,7 @@ def main():
             TRY_CAST("DT Emissao" AS DATE) AS DT_Emissao,
             COUNT(*) AS line_items,
             SUM("Total") AS total_amount
-        FROM gold.protheus_mesclada_vendas
+        FROM gold.protheus_notas_faturadas
         WHERE "Grp" != '5' 
           AND "DT Emissao" BETWEEN '2022-01-02' AND '2026-06-12'
           AND "Loja" IS NOT NULL
@@ -158,7 +158,7 @@ def main():
             "nom paciente" AS "Nom Paciente",
             "total" AS Total,
             "qntd." AS "Quant."
-        FROM gold.protheus_mesclada_vendas
+        FROM gold.protheus_notas_faturadas
         WHERE "grp" != '5' 
           AND "dt emissao" BETWEEN '2022-01-02' AND '2026-06-12'
     """

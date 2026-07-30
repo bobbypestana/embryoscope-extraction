@@ -119,7 +119,7 @@ TABLES_CONFIG = {
         "date_col": "transfer_date",
         "group_col": "incubadora_padronizada"
     },
-    "protheus_mesclada_vendas": {
+    "protheus_notas_faturadas": {
         "keys": ["loja", "numero", "serie_docto", "produto", "cliente"],
         "value_cols": ["qntd", "total"],
         "date_col": "data_emissao",

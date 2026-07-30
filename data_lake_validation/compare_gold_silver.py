@@ -65,7 +65,7 @@ def run_comparison():
     """
 
     print("Fetching Gold invoices...")
-    df_gold_inv = conn.execute(query_invoices.format(table="gold.protheus_mesclada_vendas")).df()
+    df_gold_inv = conn.execute(query_invoices.format(table="gold.protheus_notas_faturadas")).df()
     print("Fetching Silver invoices...")
     df_silver_inv = conn.execute(query_invoices.format(table="silver.mesclada_vendas")).df()
 
@@ -115,7 +115,7 @@ def run_comparison():
         """
         
         print(f"Fetching Gold {entity_name}s...")
-        df_gold_ent = conn.execute(query_entities.format(table="gold.protheus_mesclada_vendas")).df()
+        df_gold_ent = conn.execute(query_entities.format(table="gold.protheus_notas_faturadas")).df()
         print(f"Fetching Silver {entity_name}s...")
         df_silver_ent = conn.execute(query_entities.format(table="silver.mesclada_vendas")).df()
 
