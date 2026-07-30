@@ -89,6 +89,18 @@ if %errorlevel% neq 0 (
 
 echo.
 echo ========================================
+echo STEP %PARENT_STEP%.5: Gold Extrato Atendimento Central
+echo ========================================
+python 03_02_gold_extrato_atendimento_central.py
+if %errorlevel% neq 0 (
+    echo ERROR: Step %PARENT_STEP%.5 failed
+    @REM pause (removed for automated execution)
+    set "EXIT_CODE=1"
+    goto cleanup
+)
+
+echo.
+echo ========================================
 echo DATAFLOW COMPLETED SUCCESSFULLY!
 echo ========================================
 echo.

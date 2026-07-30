@@ -2,7 +2,7 @@
 """
 Protheus Silver to Gold Consolidation Script
 Combines silver.notas, silver.clientes, silver.produtos, silver.vendedores, and silver.tes
-to build gold.protheus_notas_faturadas and gold.protheus_pedidos_de_vendas.
+to build gold.protheus_notas_faturadas and gold.protheus_pedidos_a_faturar.
 Maps customer and patient identifiers directly from Protheus ERP tables, while resolving the couple chart ID (prontuario) via tiered Clinisys matching.
 """
 
@@ -203,14 +203,15 @@ def update_prontuario_column(con):
     logger.info(f"Final prontuario matching stats: Total={stats[0]:,}, Matched={stats[1]:,}, Unmatched={stats[2]:,}, Rate={rate:.2f}%")
 
 
-def create_gold_pedidos_de_vendas_table(con):
-    logger.info("Combining Silver tables into gold.protheus_pedidos_de_vendas...")
+def create_gold_pedidos_a_faturar_table(con):
+    logger.info("Combining Silver tables into gold.protheus_pedidos_a_faturar...")
 
     con.execute("DROP TABLE IF EXISTS gold.pedidos_de_vendas")
     con.execute("DROP TABLE IF EXISTS gold.protheus_pedidos_de_vendas")
+    con.execute("DROP TABLE IF EXISTS gold.protheus_pedidos_a_faturar")
 
     query = """
-    CREATE TABLE gold.protheus_pedidos_de_vendas AS
+    CREATE TABLE gold.protheus_pedidos_a_faturar AS
     WITH notas_dedup AS (
         SELECT 
             D2_PEDIDO,
@@ -258,6 +259,8 @@ def create_gold_pedidos_de_vendas_table(con):
         TRY_CAST(p.C5_ORCRES AS INTEGER) AS "Orcamento",
         TRY_CAST(p.C5_CLIENTE AS INTEGER) AS "Cliente",
         c_cli_cli.A1_NOME AS "Nome",
+        c_cli_cli.A1_CGC AS CPF,
+        TRY_CAST(-1 AS INTEGER) AS prontuario,
         -- Point 3: Map L1_PACIENT with fallback to C6_CLI
         TRY_CAST(COALESCE(l1.L1_PACIENT, p.C6_CLI) AS INTEGER) AS "Paciente",
         -- Point 3: Map L1_NOMPACI with fallback to A1_NOME
@@ -305,8 +308,8 @@ def create_gold_pedidos_de_vendas_table(con):
     """
 
     con.execute(query)
-    count = con.execute("SELECT COUNT(*) FROM gold.protheus_pedidos_de_vendas").fetchone()[0]
-    logger.info(f"Created gold.protheus_pedidos_de_vendas with {count:,} rows")
+    count = con.execute("SELECT COUNT(*) FROM gold.protheus_pedidos_a_faturar").fetchone()[0]
+    logger.info(f"Created gold.protheus_pedidos_a_faturar with {count:,} rows")
 
     # Log patient coverage stats
     patient_stats = con.execute("""
@@ -314,12 +317,57 @@ def create_gold_pedidos_de_vendas_table(con):
             COUNT(*) as total,
             COUNT(CASE WHEN "Paciente" != "Cliente" THEN 1 END) as patient_differs_from_client,
             COUNT(CASE WHEN "Nome Paciente" IS NOT NULL AND "Nome Paciente" != '' THEN 1 END) as has_patient_name
-        FROM gold.protheus_pedidos_de_vendas
+        FROM gold.protheus_pedidos_a_faturar
     """).fetchone()
     pct_differs = (patient_stats[1] / patient_stats[0] * 100) if patient_stats[0] else 0.0
     pct_has_name = (patient_stats[2] / patient_stats[0] * 100) if patient_stats[0] else 0.0
     logger.info(f"  Patient coverage: {patient_stats[1]:,}/{patient_stats[0]:,} rows where Patient != Client ({pct_differs:.1f}%)")
     logger.info(f"  Patient name coverage: {patient_stats[2]:,}/{patient_stats[0]:,} rows with patient name ({pct_has_name:.1f}%)")
+
+
+def update_prontuario_column_pedidos(con):
+    logger.info("Updating prontuario column in gold.protheus_pedidos_a_faturar using Strategy L matching (Paciente & Cliente)...")
+
+    # 1. First run: Paciente
+    logger.info("Run 1 (pedidos): Matching via Paciente columns...")
+    find_prontuarios(
+        source_con=con,
+        clinisys_db_path=CLINISYS_DB_PATH,
+        source_schema='gold',
+        source_table='protheus_pedidos_a_faturar',
+        id_col='Paciente',
+        name_col='Nome Paciente',
+        birthdate_col=None,
+        cpf_col=None,
+        label='pedidos_paciente',
+        suffix='',
+    )
+
+    # 2. Second run: Cliente (matching remaining unmatched)
+    logger.info("Run 2 (pedidos): Matching via Cliente columns...")
+    find_prontuarios(
+        source_con=con,
+        clinisys_db_path=CLINISYS_DB_PATH,
+        source_schema='gold',
+        source_table='protheus_pedidos_a_faturar',
+        id_col='Cliente',
+        name_col='Nome',
+        birthdate_col=None,
+        cpf_col='CPF',
+        label='pedidos_cliente',
+        suffix='',
+    )
+
+    # Log final statistics for pedidos_a_faturar
+    stats = con.execute("""
+        SELECT 
+            COUNT(*) as total,
+            COUNT(CASE WHEN prontuario IS NOT NULL AND prontuario != -1 THEN 1 END) as matched,
+            COUNT(CASE WHEN prontuario IS NULL OR prontuario = -1 THEN 1 END) as unmatched
+        FROM gold.protheus_pedidos_a_faturar
+    """).fetchone()
+    rate = stats[1] / stats[0] * 100 if stats[0] else 0.0
+    logger.info(f"Final prontuario matching stats (gold.protheus_pedidos_a_faturar): Total={stats[0]:,}, Matched={stats[1]:,}, Unmatched={stats[2]:,}, Rate={rate:.2f}%")
 
 
 def main():
@@ -331,7 +379,8 @@ def main():
             con.execute("CREATE SCHEMA IF NOT EXISTS gold")
             create_gold_table(con)
             update_prontuario_column(con)
-            create_gold_pedidos_de_vendas_table(con)
+            create_gold_pedidos_a_faturar_table(con)
+            update_prontuario_column_pedidos(con)
             logger.info("=== PROTHEUS SILVER TO GOLD CONSOLIDATION FINISHED SUCCESSFUL ===")
     except Exception as e:
         logger.error(f"Gold Consolidation Failed: {e}", exc_info=True)
