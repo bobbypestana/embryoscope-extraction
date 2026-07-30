@@ -59,17 +59,18 @@ def main():
         r"-Id\s*:?\s*(\d+)"
     ]
 
-    target_pid = None
+    target_pids = set()
     for pattern in patterns:
-        match = re.search(pattern, command_line, re.IGNORECASE)
-        if match:
-            target_pid = match.group(1)
-            break
+        for match in re.finditer(pattern, command_line, re.IGNORECASE):
+            # Try to grab the group matching the PID digit
+            pid = next((g for g in match.groups() if g is not None), None)
+            if pid:
+                target_pids.add(pid)
 
     # If general process kill command is detected without specific PID (e.g. taskkill /F /IM ..., Stop-Process -Name ...)
     is_generic_kill = bool(re.search(r"\b(?:taskkill|Stop-Process)\b", command_line, re.IGNORECASE))
 
-    if target_pid or is_generic_kill:
+    if target_pids or is_generic_kill:
         registry = {}
         if os.path.exists(REGISTRY_FILE):
             try:
@@ -78,7 +79,7 @@ def main():
             except Exception:
                 registry = {}
         
-        if target_pid:
+        for target_pid in target_pids:
             owner = registry.get(str(target_pid))
             if owner and owner != agent_name:
                 print(json.dumps({
@@ -95,7 +96,8 @@ def main():
                     "systemMessage": f"🚨 Security Block: Attempted to kill unregistered PID {target_pid}."
                 }))
                 sys.exit(0)
-        elif is_generic_kill:
+                
+        if is_generic_kill and not target_pids:
             print(json.dumps({
                 "decision": "deny",
                 "reason": f"Access Denied. Generic process termination command detected ('{command_line}'). Agents must not terminate external processes.",
@@ -107,4 +109,5 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 

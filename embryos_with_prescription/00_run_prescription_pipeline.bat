@@ -38,16 +38,16 @@ if %errorlevel% neq 0 (
     exit /b 1
 )
 
-echo.
-echo ========================================
-echo STEP 3: Exporting to Excel
-echo ========================================
-python 03_export_to_excel.py
-if %errorlevel% neq 0 (
-    echo ERROR: Step 3 failed
-    @REM pause (removed for automated execution)
-    exit /b 1
-)
+@REM echo.
+@REM echo ========================================
+@REM echo STEP 3: Exporting to Excel
+@REM echo ========================================
+@REM python 03_export_to_excel.py
+@REM if %errorlevel% neq 0 (
+@REM     echo ERROR: Step 3 failed
+@REM     @REM pause (removed for automated execution)
+@REM     exit /b 1
+@REM )
 
 echo.
 echo ========================================

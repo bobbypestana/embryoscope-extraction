@@ -6,6 +6,12 @@
                 "type": "command",
                 "tools": ["run_command", "*"],
                 "command": "python \"g:\\My Drive\\projetos_individuais\\Huntington\\.antigravity\\validate_kill.py\""
+            },
+            {
+                "name": "project_level_prevent_drop_table",
+                "type": "command",
+                "tools": ["run_command", "write_to_file", "replace_file_content", "*"],
+                "command": "python \"g:\\My Drive\\projetos_individuais\\Huntington\\.antigravity\\validate_drop_table.py\""
             }
         ],
         "BeforeToolCall": [
@@ -14,6 +20,12 @@
                 "type": "command",
                 "tools": ["run_command", "*"],
                 "command": "python \"g:\\My Drive\\projetos_individuais\\Huntington\\.antigravity\\validate_kill.py\""
+            },
+            {
+                "name": "project_level_prevent_drop_table",
+                "type": "command",
+                "tools": ["run_command", "write_to_file", "replace_file_content", "*"],
+                "command": "python \"g:\\My Drive\\projetos_individuais\\Huntington\\.antigravity\\validate_drop_table.py\""
             }
         ],
         "BeforeTool": [
@@ -22,6 +34,12 @@
                 "type": "command",
                 "tools": ["run_command", "*"],
                 "command": "python \"g:\\My Drive\\projetos_individuais\\Huntington\\.antigravity\\validate_kill.py\""
+            },
+            {
+                "name": "project_level_prevent_drop_table",
+                "type": "command",
+                "tools": ["run_command", "write_to_file", "replace_file_content", "*"],
+                "command": "python \"g:\\My Drive\\projetos_individuais\\Huntington\\.antigravity\\validate_drop_table.py\""
             }
         ],
         "pre_tool_call": [
@@ -30,6 +48,12 @@
                 "type": "command",
                 "tools": ["run_command", "*"],
                 "command": "python \"g:\\My Drive\\projetos_individuais\\Huntington\\.antigravity\\validate_kill.py\""
+            },
+            {
+                "name": "project_level_prevent_drop_table",
+                "type": "command",
+                "tools": ["run_command", "write_to_file", "replace_file_content", "*"],
+                "command": "python \"g:\\My Drive\\projetos_individuais\\Huntington\\.antigravity\\validate_drop_table.py\""
             }
         ],
         "PostToolCall": [
