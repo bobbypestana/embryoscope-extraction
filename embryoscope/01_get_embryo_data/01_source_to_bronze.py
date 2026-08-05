@@ -135,7 +135,7 @@ class EmbryoscopeExtractor:
             self.logger.info(f"[{clinic_name}] Fetching all patients from API...")
             patients_data = api_client.get_patients()
             if patients_data is None:
-                self.logger.error(f"[{clinic_name}] Failed to fetch patients data")
+                self.logger.error(f"[{clinic_name}] Failed to fetch patients data (API error/unreachable). Aborting extraction for safety.")
                 return False
             # Save raw patients to bronze
             if 'Patients' in patients_data:
@@ -146,19 +146,24 @@ class EmbryoscopeExtractor:
             # Restrict to provided patient_ids if given
             if patient_ids is not None:
                 patients_df = patients_df[patients_df['PatientIDx'].isin(patient_ids)]
+            
             # 1b. Get ongoing patients
             self.logger.info(f"[{clinic_name}] Fetching ongoing patients from API...")
             ongoing_patients_data = api_client.get_ongoing_patients()
+            if ongoing_patients_data is None:
+                self.logger.error(f"[{clinic_name}] Failed to fetch ongoing patients data (API error/unreachable). Aborting extraction for safety.")
+                return False
             ongoing_patient_idxs = set()
-            if ongoing_patients_data and 'Patients' in ongoing_patients_data:
+            if 'Patients' in ongoing_patients_data and ongoing_patients_data['Patients']:
                 ongoing_patient_list = ongoing_patients_data['Patients']
                 for patient in ongoing_patient_list:
                     idx = patient.get('PatientIDx') or patient.get('PatientIdx') or patient.get('PatientID')
                     if idx:
                         ongoing_patient_idxs.add(str(idx))
             self.logger.info(f"[{clinic_name}] Found {len(ongoing_patient_idxs)} ongoing patients.")
+
             # 2. Get all treatments for each patient (parallel, progress bar)
-            self.logger.info(f"[{clinic_name}] Fetching all treatments from API (sequential)...")
+            self.logger.info(f"[{clinic_name}] Fetching all treatments from API...")
             all_treatments = []
             def fetch_treatments_for_patient(patient_idx):
                 treatments_data = api_client.get_treatments(patient_idx)
@@ -166,16 +171,15 @@ class EmbryoscopeExtractor:
                     return pd.DataFrame()
                 # Save raw treatments to bronze
                 if 'TreatmentList' in treatments_data:
-                    # Each treatment is a string, so wrap in dict with PatientIDx
                     raw_treatments = [
                         {'PatientIDx': patient_idx, 'TreatmentName': t} for t in treatments_data['TreatmentList']
                     ]
                     db_manager.save_bronze_raw('treatments', raw_treatments, extraction_timestamp, run_id, clinic_name)
                 return data_processor.process_treatments(treatments_data, patient_idx, extraction_timestamp, run_id)
-            patient_ids = list(patients_df['PatientIDx'])
-            if patient_ids:
+            patient_ids_list = list(patients_df['PatientIDx'])
+            if patient_ids_list:
                 with concurrent.futures.ThreadPoolExecutor(max_workers=clinic_workers) as executor:
-                    futures = {executor.submit(fetch_treatments_for_patient, pid): pid for pid in patient_ids}
+                    futures = {executor.submit(fetch_treatments_for_patient, pid): pid for pid in patient_ids_list}
                     for f in tqdm(concurrent.futures.as_completed(futures), total=len(futures), 
                                 desc=f"Fetching treatments for {clinic_name}", unit="patient"):
                         result = f.result()
@@ -183,7 +187,6 @@ class EmbryoscopeExtractor:
                             all_treatments.append(result)
                 if all_treatments:
                     treatments_df = pd.concat(all_treatments, ignore_index=True)
-                    # Cumulative batch logging for treatments
                     total_treatments = len(treatments_df)
                     for i in range(100, total_treatments + 1, 100):
                         self.logger.info(f"Processed {i} treatments records for {clinic_name}")
@@ -196,12 +199,13 @@ class EmbryoscopeExtractor:
             self.logger.info(f"[{clinic_name}] Fetched {len(treatments_df)} treatments from API.")
             self.logger.debug(f"[{clinic_name}] Fetched {len(treatments_df)} treatments from API.")
             
-            # 3. Compare with local DB to find new patient-treatment pairs
-            self.logger.info(f"[{clinic_name}] Comparing with local DuckDB to find new patient-treatment pairs...")
+            # 3. Compare with local DuckDB to determine pair extraction status
+            self.logger.info(f"[{clinic_name}] Comparing with local DuckDB state to determine pair extraction needs...")
             try:
-                existing_pairs = db_manager.get_all_existing_pairs(clinic_name)
-            except Exception:
-                existing_pairs = set()
+                existing_pairs_status = db_manager.get_existing_pairs_with_status(clinic_name)
+            except Exception as db_err:
+                self.logger.warning(f"[{clinic_name}] Could not fetch existing pairs status: {db_err}")
+                existing_pairs_status = {}
             
             # Filter out treatments with 'Merge' in the name (administrative entries)
             treatments_filtered = treatments_df[~treatments_df['TreatmentName'].str.contains('Merge', case=False, na=False)]
@@ -209,81 +213,93 @@ class EmbryoscopeExtractor:
             if merge_count > 0:
                 self.logger.info(f"[{clinic_name}] Filtered out {merge_count} 'Merge' treatments from comparison.")
             
-            all_pairs = set(zip(treatments_filtered['PatientIDx'], treatments_filtered['TreatmentName']))
+            all_pairs = set((str(row['PatientIDx']), str(row['TreatmentName'])) for _, row in treatments_filtered.iterrows())
             
-            # Identify unseen pairs
-            unseen_pairs = all_pairs - existing_pairs
+            # Categorize pairs based on ongoing state machine
+            is_full_backfill = backfill or os.getenv("FULL_BACKFILL", "False").lower() in ("true", "1", "yes")
             
-            # Identify ongoing pairs
-            ongoing_pairs = {
-                pair for pair in all_pairs 
-                if str(pair[0]) in ongoing_patient_idxs
-            }
+            pairs_to_fetch = {}  # pair -> target_is_ongoing
+            unseen_pairs_count = 0
+            currently_ongoing_count = 0
+            final_pull_count = 0
+            completed_skipped_count = 0
             
-            # Process pairs that are either unseen OR currently ongoing (or all if backfill is enabled)
-            if backfill or os.getenv("FULL_BACKFILL", "False").lower() in ("true", "1", "yes"):
-                new_pairs = all_pairs
-                self.logger.info(f"[{clinic_name}] FULL BACKFILL ENABLED. Processing all {len(new_pairs)} pairs.")
-            else:
-                new_pairs = unseen_pairs | ongoing_pairs
-                self.logger.info(f"[{clinic_name}] Found {len(new_pairs)} patient-treatment pairs needing embryo data (unseen or ongoing).")
+            for pair in all_pairs:
+                pid, tname = pair
+                is_currently_ongoing = pid in ongoing_patient_idxs
+                was_previously_ongoing = existing_pairs_status.get(pair, False)
+                is_in_db = pair in existing_pairs_status
+                
+                if is_full_backfill:
+                    pairs_to_fetch[pair] = is_currently_ongoing
+                elif is_currently_ongoing:
+                    # Case 1: Active ongoing treatment
+                    pairs_to_fetch[pair] = True
+                    currently_ongoing_count += 1
+                elif was_previously_ongoing:
+                    # Case 2a: Final pull (was ongoing in DB, now disappeared from ongoing patients)
+                    pairs_to_fetch[pair] = False
+                    final_pull_count += 1
+                elif not is_in_db:
+                    # Case 2c: Brand new pair (started & finished between runs)
+                    pairs_to_fetch[pair] = False
+                    unseen_pairs_count += 1
+                else:
+                    # Case 2b: Already completed & finalized in DB
+                    completed_skipped_count += 1
+
+            self.logger.info(f"[{clinic_name}] Pairs breakdown:")
+            self.logger.info(f"  - Total pairs from API: {len(all_pairs)}")
+            self.logger.info(f"  - Existing pairs in DB: {len(existing_pairs_status)}")
+            self.logger.info(f"  - Unseen completed pairs to process: {unseen_pairs_count}")
+            self.logger.info(f"  - Active ongoing pairs to update: {currently_ongoing_count}")
+            self.logger.info(f"  - Final pull pairs (just completed): {final_pull_count}")
+            self.logger.info(f"  - Completed pairs skipped: {completed_skipped_count}")
+            self.logger.info(f"  - Total pairs to extract: {len(pairs_to_fetch)}")
             
-            # Log detailed breakdown
-            if new_pairs:
-                self.logger.info(f"[{clinic_name}] Pairs breakdown:")
-                self.logger.info(f"  - Total pairs from API: {len(all_pairs)}")
-                self.logger.info(f"  - Existing pairs in DB: {len(existing_pairs)}")
-                self.logger.info(f"  - Unseen pairs to process: {len(unseen_pairs)}")
-                self.logger.info(f"  - Ongoing pairs to update: {len(ongoing_pairs)}")
-                self.logger.info(f"  - Total pairs to extract: {len(new_pairs)}")
-            else:
-                self.logger.info(f"[{clinic_name}] No patient-treatment pairs found. Skipping embryo data extraction.")
-            
-            # 4. Fetch embryo data only for new/ongoing pairs (parallel, progress bar)
+            # 4. Fetch embryo data for selected pairs
             all_embryo_data = []
-            pairs_to_save_treatment = set()
+            updated_treatment_statuses = {}  # pair -> actual_is_ongoing
             
-            def fetch_embryo_for_pair(pair):
+            def fetch_embryo_for_pair(item):
+                pair, target_is_ongoing = item
                 patient_idx, treatment_name = pair
                 embryo_data = api_client.get_embryo_data(patient_idx, treatment_name)
+                
                 if embryo_data is None:
-                    # Check if patient is ongoing; if so, skip logging as missing
-                    if str(patient_idx) in ongoing_patient_idxs:
-                        self.logger.debug(f"[{clinic_name}] Pair (PatientIDx={patient_idx}, TreatmentName={treatment_name}) is ongoing, will retry in future runs.")
-                        return pd.DataFrame(), False
-                    else:
-                        # self.logger.warning(f"[{clinic_name}] No embryo data for pair (PatientIDx={patient_idx}, TreatmentName={treatment_name}) and patient is NOT ongoing.")
-                        return pd.DataFrame(), True
+                    # No embryo data returned (e.g. treatment with no embryos or failed embryos)
+                    self.logger.debug(f"[{clinic_name}] No embryo data returned for pair ({patient_idx}, {treatment_name}). Setting is_ongoing={target_is_ongoing}.")
+                    return pd.DataFrame(), pair, target_is_ongoing
+                
                 # Save raw embryo_data to bronze
                 if 'EmbryoDataList' in embryo_data:
                     raw_embryos = embryo_data['EmbryoDataList']
-                    # Add PatientIDx and TreatmentName to each record for business keys
                     for rec in raw_embryos:
                         rec['PatientIDx'] = patient_idx
                         rec['TreatmentName'] = treatment_name
                     db_manager.save_bronze_raw('embryo_data', raw_embryos, extraction_timestamp, run_id, clinic_name)
-                return data_processor.process_embryo_data(embryo_data, patient_idx, treatment_name, extraction_timestamp, run_id), True
-            new_pairs_list = list(new_pairs)
-            if new_pairs_list:
-                self.logger.info(f"[{clinic_name}] Starting embryo data extraction for {len(new_pairs_list)} pairs...")
+                
+                processed_df = data_processor.process_embryo_data(embryo_data, patient_idx, treatment_name, extraction_timestamp, run_id)
+                return processed_df, pair, target_is_ongoing
+
+            pairs_to_fetch_list = list(pairs_to_fetch.items())
+            if pairs_to_fetch_list:
+                self.logger.info(f"[{clinic_name}] Starting embryo data extraction for {len(pairs_to_fetch_list)} pairs...")
                 with concurrent.futures.ThreadPoolExecutor(max_workers=clinic_workers) as executor:
-                    futures = {executor.submit(fetch_embryo_for_pair, pair): pair for pair in new_pairs_list}
+                    futures = {executor.submit(fetch_embryo_for_pair, item): item[0] for item in pairs_to_fetch_list}
                     for f in tqdm(concurrent.futures.as_completed(futures), total=len(futures), 
                                 desc=f"Fetching embryo data for {clinic_name}", unit="pair"):
-                        pair = futures[f]
-                        result_df, should_save = f.result()
-                        if should_save:
-                            pairs_to_save_treatment.add(pair)
+                        result_df, pair, actual_is_ongoing = f.result()
+                        updated_treatment_statuses[pair] = actual_is_ongoing
                         if not result_df.empty:
                             all_embryo_data.append(result_df)
                 
-                # Log detailed results
                 total_embryos_fetched = sum(len(df) for df in all_embryo_data)
                 pairs_with_embryos = len(all_embryo_data)
-                pairs_without_embryos = len(new_pairs_list) - pairs_with_embryos
+                pairs_without_embryos = len(pairs_to_fetch_list) - pairs_with_embryos
                 
                 self.logger.info(f"[{clinic_name}] Embryo data extraction complete:")
-                self.logger.info(f"  - Pairs processed: {len(new_pairs_list)}")
+                self.logger.info(f"  - Pairs processed: {len(pairs_to_fetch_list)}")
                 self.logger.info(f"  - Pairs with embryo data: {pairs_with_embryos}")
                 self.logger.info(f"  - Pairs without embryo data: {pairs_without_embryos}")
                 self.logger.info(f"  - Total embryos fetched: {total_embryos_fetched}")
@@ -294,46 +310,46 @@ class EmbryoscopeExtractor:
                     embryo_data_df = pd.DataFrame()
             else:
                 embryo_data_df = pd.DataFrame()
-                self.logger.info(f"[{clinic_name}] No embryo data to fetch (no new/ongoing pairs).")
-            self.logger.info(f"[{clinic_name}] Fetched {len(embryo_data_df)} embryo data records from API.")
-            self.logger.debug(f"[{clinic_name}] Fetched {len(embryo_data_df)} embryo data records from API.")
+                self.logger.info(f"[{clinic_name}] No embryo data to fetch.")
+
             # 4b. Fetch IDA score data for the clinic
             self.logger.info(f"[{clinic_name}] Fetching IDA score data from API...")
             idascore_data = api_client.get_idascore()
             if idascore_data is not None:
-                # Save raw idascore to bronze
                 if 'Scores' in idascore_data:
                     db_manager.save_bronze_raw('idascore', idascore_data['Scores'], extraction_timestamp, run_id, clinic_name)
                 idascore_df = data_processor.process_idascore(idascore_data, extraction_timestamp, run_id)
             else:
                 idascore_df = pd.DataFrame()
             self.logger.info(f"[{clinic_name}] Fetched {len(idascore_df)} IDA score records from API.")
-            self.logger.debug(f"[{clinic_name}] Fetched {len(idascore_df)} IDA score records from API.")
-            
-            # 5. Filter data to only save NEW/resolved records (avoid PRIMARY KEY violations)
-            # Only save treatments that correspond to the pairs we want to save
-            if pairs_to_save_treatment:
-                treatments_to_save = treatments_df[
-                    treatments_df.apply(lambda row: (row['PatientIDx'], row['TreatmentName']) in pairs_to_save_treatment, axis=1)
-                ]
+
+            # 5. Build treatments to save with updated is_ongoing status
+            if updated_treatment_statuses:
+                # Filter treatments_df to pairs that were updated
+                treatments_to_save_list = []
+                for _, row in treatments_df.iterrows():
+                    pair = (str(row['PatientIDx']), str(row['TreatmentName']))
+                    if pair in updated_treatment_statuses:
+                        row_dict = row.to_dict()
+                        row_dict['is_ongoing'] = updated_treatment_statuses[pair]
+                        treatments_to_save_list.append(row_dict)
+                treatments_to_save = pd.DataFrame(treatments_to_save_list)
             else:
                 treatments_to_save = pd.DataFrame()
             
             self.logger.info(f"[{clinic_name}] Saving data to DuckDB...")
             data_to_save = {
-                'patients': patients_df,  # Save all patients (incremental logic handles deduplication)
-                'treatments': treatments_to_save,  # Only save NEW treatments
-                'embryo_data': embryo_data_df,  # Already filtered to new pairs
-                'idascore': idascore_df  # IDA scores are per clinic, not per pair
+                'patients': patients_df,
+                'treatments': treatments_to_save,
+                'embryo_data': embryo_data_df,
+                'idascore': idascore_df
             }
             row_counts = db_manager.save_data(data_to_save, clinic_name, run_id, extraction_timestamp)
             self.logger.info(f"[{clinic_name}] Saved data to {db_path}: {row_counts}")
-            self.logger.debug(f"[{clinic_name}] Saved data to {db_path}: {row_counts}")
             
             # Final summary
             self.logger.info(f"[{clinic_name}] Extraction summary:")
-            self.logger.info(f"  - New patient-treatment pairs: {len(new_pairs)}")
-            self.logger.info(f"  - Embryo API calls made: {len(new_pairs_list) if new_pairs_list else 0}")
+            self.logger.info(f"  - Pairs extracted/updated: {len(updated_treatment_statuses)}")
             self.logger.info(f"  - Embryo records added: {row_counts.get('embryo_data', 0)}")
             self.logger.info(f"  - Total records processed: {sum(row_counts.values())}")
             

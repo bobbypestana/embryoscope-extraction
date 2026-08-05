@@ -12,6 +12,7 @@ from sqlalchemy import create_engine, text
 from datetime import datetime
 import hashlib
 import os
+import time
 
 # Load config and logging level
 CONFIG_PATH = os.path.join(os.path.dirname(__file__), 'params.yml')
@@ -19,6 +20,16 @@ with open(CONFIG_PATH, 'r') as f:
     config = yaml.safe_load(f)
 logging_level_str = config.get('logging_level', 'INFO').upper()
 logging_level = getattr(logging, logging_level_str, logging.INFO)
+
+# Load primary keys configuration from column_config.yml
+COL_CONFIG_PATH = os.path.join(os.path.dirname(__file__), 'column_config.yml')
+try:
+    with open(COL_CONFIG_PATH, 'r') as f:
+        col_config = yaml.safe_load(f)
+    primary_keys = col_config.get('primary_keys', {})
+except Exception as e:
+    logging.warning(f"Could not load column_config.yml, using default primary keys: {e}")
+    primary_keys = {}
 
 # Setup logging
 LOGS_DIR = os.path.join(os.path.dirname(__file__), 'logs')
@@ -45,7 +56,16 @@ def load_config():
 def get_mysql_connection(config):
     """Create MySQL connection using SQLAlchemy"""
     connection_string = config['db']['connection_string']
-    return create_engine(connection_string)
+    return create_engine(
+        connection_string,
+        pool_recycle=300,
+        pool_pre_ping=True,
+        connect_args={
+            "connect_timeout": 60,
+            "read_timeout": 600,
+            "write_timeout": 600
+        }
+    )
 
 def get_duckdb_connection(duckdb_path):
     """Create DuckDB connection"""
@@ -53,29 +73,39 @@ def get_duckdb_connection(duckdb_path):
 
 def get_table_schema(engine, table_name):
     """Get the schema (column names and types) of a MySQL table"""
-    with engine.connect() as conn:
-        # Get column information
-        result = conn.execute(text(f"DESCRIBE {table_name}"))
-        columns = result.fetchall()
-        
-        schema = {}
-        for col in columns:
-            col_name = col[0]
-            col_type = col[1]
-            col_null = col[2]
-            col_key = col[3]
-            col_default = col[4]
-            col_extra = col[5]
-            
-            schema[col_name] = {
-                'type': col_type,
-                'null': col_null,
-                'key': col_key,
-                'default': col_default,
-                'extra': col_extra
-            }
-        
-        return schema
+    max_retries = 3
+    retry_delay = 2
+    for attempt in range(1, max_retries + 1):
+        try:
+            with engine.connect() as conn:
+                # Get column information
+                result = conn.execute(text(f"DESCRIBE {table_name}"))
+                columns = result.fetchall()
+                
+                schema = {}
+                for col in columns:
+                    col_name = col[0]
+                    col_type = col[1]
+                    col_null = col[2]
+                    col_key = col[3]
+                    col_default = col[4]
+                    col_extra = col[5]
+                    
+                    schema[col_name] = {
+                        'type': col_type,
+                        'null': col_null,
+                        'key': col_key,
+                        'default': col_default,
+                        'extra': col_extra
+                    }
+                return schema
+        except Exception as e:
+            if attempt == max_retries:
+                logger.error(f"Failed to get schema for {table_name} after {max_retries} attempts: {e}")
+                raise
+            logger.warning(f"Attempt {attempt} failed to get schema for {table_name}: {e}. Retrying in {retry_delay} seconds...")
+            time.sleep(retry_delay)
+            retry_delay *= 2
 
 def map_mysql_to_duckdb_type(mysql_type):
     """Map MySQL data types to DuckDB data types - Conservative approach"""
@@ -118,7 +148,14 @@ def sync_table_schema(con, table_name, mysql_schema):
     existing_columns = get_duckdb_table_columns(con, table_name)
     
     # Standard columns that we add
-    standard_columns = {'hash', 'extraction_timestamp'}
+    standard_columns = {'hash', 'extraction_timestamp', 'is_deleted'}
+    
+    # Migrating existing table if is_deleted column is missing
+    if existing_columns and 'is_deleted' not in existing_columns:
+        logger.info(f"Adding is_deleted column to bronze.{table_name} (migration)")
+        con.execute(f"ALTER TABLE bronze.{table_name} ADD COLUMN is_deleted INTEGER DEFAULT 0")
+        con.execute(f"UPDATE bronze.{table_name} SET is_deleted = 0 WHERE is_deleted IS NULL")
+        existing_columns.add('is_deleted')
     
     # Find missing columns (excluding our standard columns)
     mysql_columns = set(mysql_schema.keys())
@@ -164,7 +201,8 @@ def create_duckdb_table(con, table_name, schema):
     # Add our standard columns
     columns.extend([
         "hash VARCHAR NOT NULL",
-        "extraction_timestamp VARCHAR NOT NULL"
+        "extraction_timestamp VARCHAR NOT NULL",
+        "is_deleted INTEGER DEFAULT 0"
     ])
     
     create_sql = f"""
@@ -176,6 +214,48 @@ def create_duckdb_table(con, table_name, schema):
     logger.info(f"Creating table bronze.{table_name}")
     con.execute(create_sql)
 
+def flag_deleted_in_bronze(con, table_name, pk_column, deleted_pks):
+    """Flag deleted records in bronze layer by setting is_deleted = 1"""
+    if not deleted_pks:
+        return
+    try:
+        list_pks = list(deleted_pks)
+        chunk_size = 500
+        for i in range(0, len(list_pks), chunk_size):
+            chunk = list_pks[i:i+chunk_size]
+            escaped_vals = ["'" + str(item).replace("'", "''") + "'" for item in chunk]
+            pks_in_str = ", ".join(escaped_vals)
+            update_query = f"""
+                UPDATE bronze.{table_name}
+                SET is_deleted = 1
+                WHERE CAST("{pk_column}" AS VARCHAR) IN ({pks_in_str})
+            """
+            con.execute(update_query)
+        logger.info(f"Successfully flagged {len(deleted_pks)} deleted records in bronze.{table_name}")
+    except Exception as e:
+        logger.error(f"Failed to flag deleted records in bronze.{table_name}: {e}")
+
+def flag_active_in_bronze(con, table_name, pk_column, active_pks):
+    """Flag restored records in bronze layer by setting is_deleted = 0"""
+    if not active_pks:
+        return
+    try:
+        list_pks = list(active_pks)
+        chunk_size = 500
+        for i in range(0, len(list_pks), chunk_size):
+            chunk = list_pks[i:i+chunk_size]
+            escaped_vals = ["'" + str(item).replace("'", "''") + "'" for item in chunk]
+            pks_in_str = ", ".join(escaped_vals)
+            update_query = f"""
+                UPDATE bronze.{table_name}
+                SET is_deleted = 0
+                WHERE CAST("{pk_column}" AS VARCHAR) IN ({pks_in_str})
+            """
+            con.execute(update_query)
+        logger.info(f"Successfully unflagged {len(active_pks)} restored records in bronze.{table_name}")
+    except Exception as e:
+        logger.error(f"Failed to unflag restored records in bronze.{table_name}: {e}")
+
 def copy_table_data(engine, con, table_name, config):
     """Copy data from MySQL table to DuckDB table (incremental)"""
     logger.info(f"Copying data from MySQL table {table_name} (incremental mode)")
@@ -183,12 +263,70 @@ def copy_table_data(engine, con, table_name, config):
     # Get the query from config
     query = config['db']['tables'][table_name]['query']
     
-    # Read data from MySQL
-    with engine.connect() as mysql_conn:
-        df = pd.read_sql(query, mysql_conn)
+    # Read data from MySQL with retry logic
+    max_retries = 3
+    retry_delay = 2
+    df = None
+    for attempt in range(1, max_retries + 1):
+        try:
+            with engine.connect() as mysql_conn:
+                df = pd.read_sql(query, mysql_conn)
+            break
+        except Exception as e:
+            if attempt == max_retries:
+                logger.error(f"Failed to read data for {table_name} from MySQL after {max_retries} attempts: {e}")
+                raise
+            logger.warning(f"Attempt {attempt} failed to read data for {table_name} from MySQL: {e}. Retrying in {retry_delay} seconds...")
+            time.sleep(retry_delay)
+            retry_delay *= 2
     
     logger.info(f"Read {len(df)} rows from MySQL table {table_name}")
     
+    pk_column = primary_keys.get(table_name, 'id')
+    logger.info(f"Using primary key '{pk_column}' for delete detection in table {table_name}")
+    
+    # Get existing active primary keys from DuckDB to find deleted ones
+    existing_pks = set()
+    previously_deleted_pks = set()
+    try:
+        existing_cols = get_duckdb_table_columns(con, table_name)
+        if pk_column in existing_cols:
+            if "is_deleted" in existing_cols:
+                # Active records
+                rows = con.execute(f'SELECT "{pk_column}" FROM bronze.{table_name} WHERE is_deleted = 0 OR is_deleted IS NULL').fetchall()
+                existing_pks = {str(r[0]).strip() for r in rows if r[0] is not None}
+                # Previously deleted records (to check if they need to be restored)
+                rows_del = con.execute(f'SELECT "{pk_column}" FROM bronze.{table_name} WHERE is_deleted = 1').fetchall()
+                previously_deleted_pks = {str(r[0]).strip() for r in rows_del if r[0] is not None}
+            else:
+                rows = con.execute(f'SELECT "{pk_column}" FROM bronze.{table_name}').fetchall()
+                existing_pks = {str(r[0]).strip() for r in rows if r[0] is not None}
+            logger.info(f"Found {len(existing_pks)} active and {len(previously_deleted_pks)} deleted primary keys in bronze.{table_name}")
+    except Exception as e:
+        logger.warning(f"Could not get existing primary keys for {table_name}: {e}")
+    
+    # Extract fetched PKs if dataframe is not empty
+    if len(df) > 0 and pk_column in df.columns:
+        fetched_pks = {str(val).strip() for val in df[pk_column] if val is not None}
+    else:
+        fetched_pks = set()
+    
+    # Flag deleted records
+    if existing_pks:
+        deleted_pks = existing_pks - fetched_pks
+        if deleted_pks:
+            logger.warning(f"Found {len(deleted_pks)} records deleted in source for {table_name}. Flagging them...")
+            flag_deleted_in_bronze(con, table_name, pk_column, deleted_pks)
+        else:
+            logger.info(f"No deleted records detected for {table_name}.")
+            
+    # Unflag restored records
+    if previously_deleted_pks and fetched_pks:
+        undeleted_pks = previously_deleted_pks & fetched_pks
+        if undeleted_pks:
+            logger.info(f"Found {len(undeleted_pks)} records restored in source for {table_name}. Unflagging them...")
+            flag_active_in_bronze(con, table_name, pk_column, undeleted_pks)
+            
     if len(df) == 0:
         logger.warning(f"No data found in table {table_name}")
         return
@@ -211,6 +349,7 @@ def copy_table_data(engine, con, table_name, config):
     new_df = df.copy()
     new_df['hash'] = hash_values
     new_df['extraction_timestamp'] = extraction_timestamp
+    new_df['is_deleted'] = 0
     df = new_df
     
     # Get existing hashes from DuckDB to avoid duplicates

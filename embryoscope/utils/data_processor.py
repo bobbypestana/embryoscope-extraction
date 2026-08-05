@@ -72,7 +72,8 @@ class EmbryoscopeDataProcessor:
         return df
     
     def process_data_generic(self, data: Dict[str, Any], data_type: str, extraction_timestamp: datetime, 
-                           run_id: str, patient_idx: str = None, treatment_name: str = None) -> pd.DataFrame:
+                           run_id: str, patient_idx: str = None, treatment_name: str = None,
+                           is_ongoing: bool = False, is_ongoing_map: Optional[Dict] = None) -> pd.DataFrame:
         """
         Generic data processing method using schema configuration.
         
@@ -83,6 +84,8 @@ class EmbryoscopeDataProcessor:
             run_id: Unique run identifier
             patient_idx: Patient identifier (for context-dependent data)
             treatment_name: Treatment name (for context-dependent data)
+            is_ongoing: Boolean flag for ongoing treatment
+            is_ongoing_map: Dictionary mapping (patient_idx, treatment_name) -> is_ongoing
             
         Returns:
             Processed dataframe with flattened structure
@@ -139,27 +142,32 @@ class EmbryoscopeDataProcessor:
         db_columns = column_mapping.get('db_columns', [])
         
         # Apply transformations
-        for db_col, transform_func in transformations.items():
-            if db_col in db_columns:
-                if data_type == 'treatments' and db_col == 'PatientIDx':
-                    df[db_col] = patient_idx
-                elif data_type == 'treatments' and db_col == 'TreatmentName':
-                    df[db_col] = df['TreatmentName']  # Already set above
-                elif data_type == 'embryo_data' and db_col in ['PatientIDx', 'TreatmentName']:
-                    if db_col == 'PatientIDx':
-                        df[db_col] = patient_idx
-                    elif db_col == 'TreatmentName':
-                        df[db_col] = treatment_name
+        for db_col in db_columns:
+            if data_type == 'treatments' and db_col == 'PatientIDx':
+                df[db_col] = patient_idx
+            elif data_type == 'treatments' and db_col == 'TreatmentName':
+                df[db_col] = df['TreatmentName']  # Already set above
+            elif data_type == 'treatments' and db_col == 'is_ongoing':
+                if is_ongoing_map:
+                    df[db_col] = df.apply(lambda r: is_ongoing_map.get((str(r.get('PatientIDx', patient_idx)), str(r.get('TreatmentName'))), is_ongoing), axis=1)
                 else:
-                    # Apply transformation function
-                    try:
-                        if data_type == 'patients':
-                            df[db_col] = df.apply(transform_func, axis=1)
-                        else:
-                            df[db_col] = df.apply(lambda row: transform_func(row), axis=1)
-                    except Exception as e:
-                        self.logger.warning(f"Error applying transformation for {db_col}: {e}")
-                        df[db_col] = None
+                    df[db_col] = is_ongoing
+            elif data_type == 'embryo_data' and db_col in ['PatientIDx', 'TreatmentName']:
+                if db_col == 'PatientIDx':
+                    df[db_col] = patient_idx
+                elif db_col == 'TreatmentName':
+                    df[db_col] = treatment_name
+            elif db_col in transformations:
+                transform_func = transformations[db_col]
+                # Apply transformation function
+                try:
+                    if data_type == 'patients':
+                        df[db_col] = df.apply(transform_func, axis=1)
+                    else:
+                        df[db_col] = df.apply(lambda row: transform_func(row), axis=1)
+                except Exception as e:
+                    self.logger.warning(f"Error applying transformation for {db_col}: {e}")
+                    df[db_col] = None
         
         # Keep only the columns that match the database schema
         if db_columns:
@@ -195,7 +203,8 @@ class EmbryoscopeDataProcessor:
         return self.process_data_generic(patients_data, 'patients', extraction_timestamp, run_id)
     
     def process_treatments(self, treatments_data: Dict[str, Any], patient_idx: str, 
-                          extraction_timestamp: datetime, run_id: str) -> pd.DataFrame:
+                          extraction_timestamp: datetime, run_id: str,
+                          is_ongoing: bool = False, is_ongoing_map: Optional[Dict] = None) -> pd.DataFrame:
         """
         Process treatments data and flatten JSON structure.
         
@@ -204,11 +213,14 @@ class EmbryoscopeDataProcessor:
             patient_idx: Patient identifier
             extraction_timestamp: Timestamp of extraction
             run_id: Unique run identifier
+            is_ongoing: Boolean flag indicating if treatment is ongoing
+            is_ongoing_map: Dict mapping (patient_idx, treatment_name) -> is_ongoing
             
         Returns:
             Processed dataframe with flattened structure
         """
-        return self.process_data_generic(treatments_data, 'treatments', extraction_timestamp, run_id, patient_idx)
+        return self.process_data_generic(treatments_data, 'treatments', extraction_timestamp, run_id, patient_idx,
+                                         is_ongoing=is_ongoing, is_ongoing_map=is_ongoing_map)
     
     def process_embryo_data(self, embryo_data: Dict[str, Any], patient_idx: str, treatment_name: str,
                            extraction_timestamp: datetime, run_id: str) -> pd.DataFrame:

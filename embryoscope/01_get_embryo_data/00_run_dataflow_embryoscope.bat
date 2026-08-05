@@ -47,7 +47,7 @@ echo.
 echo ========================================
 echo STEP %PARENT_STEP%.1: Extract from API to Bronze
 echo ========================================
-python 01_source_to_bronze.py 
+python 01_source_to_bronze.py
 if %errorlevel% neq 0 (
     echo ERROR: Step %PARENT_STEP%.1 failed
     @REM pause (removed for automated execution)

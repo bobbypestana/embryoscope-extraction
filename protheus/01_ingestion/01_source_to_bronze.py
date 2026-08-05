@@ -56,7 +56,7 @@ TABLE_PKS = {
     "empresas": ["M0_CODIGO", "M0_CODFIL"],
     "notas": ["F2_FILIAL", "F2_DOC", "F2_SERIE", "D2_ITEM"],
     "pedidos": ["C5_FILIAL", "C5_NUM", "C6_ITEM"],
-    "pedidos_venda": ["L1_FILIAL", "L1_NUM", "L2_ITEM"],
+    "venda_direta": ["L1_FILIAL", "L1_NUM", "L2_ITEM"],
     "tes": ["F4_CODIGO"],
     "produtos": ["B1_COD"],
     "clientes": ["A1_COD", "A1_LOJA"],
@@ -67,8 +67,12 @@ TABLE_PKS = {
 TABLE_DATE_COLS = {
     "notas": "F2_EMISSAO",
     "pedidos": "C5_EMISSAO",
-    "pedidos_venda": "L1_EMISSAO"
+    "venda_direta": "L1_EMISSAO"
 }
+
+# Retry configuration for per-tenant ingestion
+TENANT_MAX_RETRIES = 10     # attempts per tenant before giving up
+TENANT_RETRY_DELAY = 10     # flat delay in seconds between retries
 
 def get_existing_pks(table_name, company_id=None, filial=None, start_date=None, end_date=None):
     """
@@ -100,7 +104,7 @@ def get_existing_pks(table_name, company_id=None, filial=None, start_date=None, 
                     conditions.append(f"F2_FILIAL = '{filial}'")
                 elif table_name == "pedidos":
                     conditions.append(f"C5_FILIAL = '{filial}'")
-                elif table_name == "pedidos_venda":
+                elif table_name == "venda_direta":
                     conditions.append(f"L1_FILIAL = '{filial}'")
             if start_date and end_date and table_name in TABLE_DATE_COLS:
                 date_col = TABLE_DATE_COLS[table_name]
@@ -258,7 +262,8 @@ def write_to_bronze(table_name, rows):
         if x is None:
             return None
         if isinstance(x, (list, dict, tuple)):
-            return str(x)
+            import json
+            return json.dumps(x, ensure_ascii=False)
         try:
             if pd.isna(x):
                 return None
@@ -280,7 +285,7 @@ def write_to_bronze(table_name, rows):
     elif table_name == "pedidos":
         unique_parents = len({(r.get("company_id"), r.get("C5_FILIAL"), r.get("C5_NUM")) for r in rows if r.get("C5_NUM")})
         parent_label = "orders"
-    elif table_name == "pedidos_venda":
+    elif table_name == "venda_direta":
         unique_parents = len({(r.get("company_id"), r.get("L1_FILIAL"), r.get("L1_NUM")) for r in rows if r.get("L1_NUM")})
         parent_label = "direct sales"
     else:
@@ -537,7 +542,7 @@ def fetch_direct_sales_range(tenant_id, company_id, start_date_str, end_date_str
     
     # Retrieve existing PKs for auditing deletions
     filial = tenant_id.split(',')[1] if tenant_id and ',' in tenant_id else None
-    existing_pks = get_existing_pks("pedidos_venda", company_id, filial, start_date_str, end_date_str)
+    existing_pks = get_existing_pks("venda_direta", company_id, filial, start_date_str, end_date_str)
     fetched_pks = set()
     
     while True:
@@ -610,12 +615,12 @@ def fetch_direct_sales_range(tenant_id, company_id, start_date_str, end_date_str
     if existing_pks:
         deleted_pks = existing_pks - fetched_pks
         if deleted_pks:
-            logger.warning(f"Auditing 'pedidos_venda' (Tenant: {tenant_id}, range: {start_date_str}-{end_date_str}): "
+            logger.warning(f"Auditing 'venda_direta' (Tenant: {tenant_id}, range: {start_date_str}-{end_date_str}): "
                            f"{len(deleted_pks)} entries might have been deleted from the source. "
                            f"Examples: {list(deleted_pks)[:5]}")
-            flag_deleted_in_bronze("pedidos_venda", company_id, deleted_pks)
+            flag_deleted_in_bronze("venda_direta", company_id, deleted_pks)
         else:
-            logger.info(f"Auditing 'pedidos_venda' (Tenant: {tenant_id}, range: {start_date_str}-{end_date_str}): 0 entries deleted.")
+            logger.info(f"Auditing 'venda_direta' (Tenant: {tenant_id}, range: {start_date_str}-{end_date_str}): 0 entries deleted.")
             
     return new_rows, sales_read, flat_rows_read
 
@@ -636,44 +641,51 @@ def ingest_notas(force_backfill=False):
     
     # Loop through each tenant sequentially
     for tenant_id in ACCESSIBLE_TENANTS:
-        try:
-            logger.info(f"=== Ingesting Notas for Tenant: {tenant_id} ===")
-            company_id = tenant_id.split(',')[0]
-            
-            # 1. Quick check if tenant has any invoices at all
-            check_params = {
-                "dataIni": BACKFILL_START,
-                "dataFim": today.strftime("%Y%m%d"),
-                "nPage": 1,
-                "nPageSize": 1
-            }
-            check_res = make_request("/rest/CONSNOTA/notas", params=check_params, tenant_id=tenant_id)
-            if not check_res or "data" not in check_res or not check_res["data"]:
-                logger.info(f"Tenant {tenant_id} has no invoices in the backfill range. Skipping.")
-                continue
+        for attempt in range(1, TENANT_MAX_RETRIES + 1):
+            try:
+                logger.info(f"=== Ingesting Notas for Tenant: {tenant_id} (Attempt {attempt}/{TENANT_MAX_RETRIES}) ===")
+                company_id = tenant_id.split(',')[0]
                 
-            logger.info(f"Ingestion range for Tenant {tenant_id}: {start_dt.strftime('%Y%m%d')} to {end_dt.strftime('%Y%m%d')}")
-            
-            # Generate chunks
-            chunks = generate_date_chunks(start_dt, end_dt, force_backfill)
-            
-            for current_start, current_end in chunks:
-                data_ini_str = current_start.strftime("%Y%m%d")
-                data_fim_str = current_end.strftime("%Y%m%d")
+                # 1. Quick check if tenant has any invoices at all
+                check_params = {
+                    "dataIni": BACKFILL_START,
+                    "dataFim": today.strftime("%Y%m%d"),
+                    "nPage": 1,
+                    "nPageSize": 1
+                }
+                check_res = make_request("/rest/CONSNOTA/notas", params=check_params, tenant_id=tenant_id)
+                if not check_res or "data" not in check_res or not check_res["data"]:
+                    logger.info(f"Tenant {tenant_id} has no invoices in the backfill range. Skipping.")
+                    break
+                    
+                logger.info(f"Ingestion range for Tenant {tenant_id}: {start_dt.strftime('%Y%m%d')} to {end_dt.strftime('%Y%m%d')}")
                 
-                logger.info(f"Processing chunk {data_ini_str}-{data_fim_str} for Tenant {tenant_id}...")
-                new_rows, invoices_read, flat_rows_read = fetch_invoice_range(
-                    tenant_id, company_id, data_ini_str, data_fim_str, existing_hashes
-                )
+                # Generate chunks
+                chunks = generate_date_chunks(start_dt, end_dt, force_backfill)
                 
-                logger.info(f"Chunk {data_ini_str}-{data_fim_str} complete. Invoices read: {invoices_read}, Flat rows read: {flat_rows_read}. Unique new written: {len(new_rows)}")
-                
-                if new_rows:
-                    for r in new_rows:
-                        existing_hashes.add(r["hash"])
-                    write_to_bronze(table_name, new_rows)
-        except Exception as e:
-            logger.error(f"Error ingesting Notas for Tenant {tenant_id}: {e}")
+                for current_start, current_end in chunks:
+                    data_ini_str = current_start.strftime("%Y%m%d")
+                    data_fim_str = current_end.strftime("%Y%m%d")
+                    
+                    logger.info(f"Processing chunk {data_ini_str}-{data_fim_str} for Tenant {tenant_id}...")
+                    new_rows, invoices_read, flat_rows_read = fetch_invoice_range(
+                        tenant_id, company_id, data_ini_str, data_fim_str, existing_hashes
+                    )
+                    
+                    logger.info(f"Chunk {data_ini_str}-{data_fim_str} complete. Invoices read: {invoices_read}, Flat rows read: {flat_rows_read}. Unique new written: {len(new_rows)}")
+                    
+                    if new_rows:
+                        for r in new_rows:
+                            existing_hashes.add(r["hash"])
+                        write_to_bronze(table_name, new_rows)
+                break  # success — move to next tenant
+            except Exception as e:
+                if attempt == TENANT_MAX_RETRIES:
+                    logger.error(f"Notas Tenant {tenant_id} failed after {TENANT_MAX_RETRIES} attempts: {e}", exc_info=True)
+                else:
+                    sleep_time = TENANT_RETRY_DELAY
+                    logger.warning(f"Notas Tenant {tenant_id} attempt {attempt}/{TENANT_MAX_RETRIES} failed. Retrying in {sleep_time:.0f}s: {e}")
+                    time.sleep(sleep_time)
 
 def ingest_pedidos(force_backfill=False):
     table_name = "pedidos"
@@ -690,47 +702,54 @@ def ingest_pedidos(force_backfill=False):
     existing_hashes = get_existing_hashes(table_name)
     
     for tenant_id in ACCESSIBLE_TENANTS:
-        try:
-            logger.info(f"=== Ingesting Pedidos for Tenant: {tenant_id} ===")
-            company_id = tenant_id.split(',')[0]
-            
-            # Quick check if tenant has any orders
-            check_params = {
-                "dataIni": BACKFILL_START,
-                "dataFim": today.strftime("%Y%m%d"),
-                "nPage": 1,
-                "nPageSize": 1
-            }
-            check_res = make_request("/rest/CONSPED/pedidos", params=check_params, tenant_id=tenant_id)
-            if not check_res or "data" not in check_res or not check_res["data"]:
-                logger.info(f"Tenant {tenant_id} has no orders in the backfill range. Skipping.")
-                continue
+        for attempt in range(1, TENANT_MAX_RETRIES + 1):
+            try:
+                logger.info(f"=== Ingesting Pedidos for Tenant: {tenant_id} (Attempt {attempt}/{TENANT_MAX_RETRIES}) ===")
+                company_id = tenant_id.split(',')[0]
                 
-            logger.info(f"Ingestion range for Tenant {tenant_id}: {start_dt.strftime('%Y%m%d')} to {end_dt.strftime('%Y%m%d')}")
-            
-            chunks = generate_date_chunks(start_dt, end_dt, force_backfill)
-            
-            for current_start, current_end in chunks:
-                data_ini_str = current_start.strftime("%Y%m%d")
-                data_fim_str = current_end.strftime("%Y%m%d")
+                # Quick check if tenant has any orders
+                check_params = {
+                    "dataIni": BACKFILL_START,
+                    "dataFim": today.strftime("%Y%m%d"),
+                    "nPage": 1,
+                    "nPageSize": 1
+                }
+                check_res = make_request("/rest/CONSPED/pedidos", params=check_params, tenant_id=tenant_id)
+                if not check_res or "data" not in check_res or not check_res["data"]:
+                    logger.info(f"Tenant {tenant_id} has no orders in the backfill range. Skipping.")
+                    break
+                    
+                logger.info(f"Ingestion range for Tenant {tenant_id}: {start_dt.strftime('%Y%m%d')} to {end_dt.strftime('%Y%m%d')}")
                 
-                logger.info(f"Processing chunk {data_ini_str}-{data_fim_str} for Tenant {tenant_id}...")
-                new_rows, orders_read, flat_rows_read = fetch_sales_orders_range(
-                    tenant_id, company_id, data_ini_str, data_fim_str, existing_hashes
-                )
+                chunks = generate_date_chunks(start_dt, end_dt, force_backfill)
                 
-                logger.info(f"Chunk {data_ini_str}-{data_fim_str} complete. Orders read: {orders_read}, Flat rows read: {flat_rows_read}. Unique new written: {len(new_rows)}")
-                
-                if new_rows:
-                    for r in new_rows:
-                        existing_hashes.add(r["hash"])
-                    write_to_bronze(table_name, new_rows)
-        except Exception as e:
-            logger.error(f"Error ingesting Pedidos for Tenant {tenant_id}: {e}")
+                for current_start, current_end in chunks:
+                    data_ini_str = current_start.strftime("%Y%m%d")
+                    data_fim_str = current_end.strftime("%Y%m%d")
+                    
+                    logger.info(f"Processing chunk {data_ini_str}-{data_fim_str} for Tenant {tenant_id}...")
+                    new_rows, orders_read, flat_rows_read = fetch_sales_orders_range(
+                        tenant_id, company_id, data_ini_str, data_fim_str, existing_hashes
+                    )
+                    
+                    logger.info(f"Chunk {data_ini_str}-{data_fim_str} complete. Orders read: {orders_read}, Flat rows read: {flat_rows_read}. Unique new written: {len(new_rows)}")
+                    
+                    if new_rows:
+                        for r in new_rows:
+                            existing_hashes.add(r["hash"])
+                        write_to_bronze(table_name, new_rows)
+                break  # success — move to next tenant
+            except Exception as e:
+                if attempt == TENANT_MAX_RETRIES:
+                    logger.error(f"Pedidos Tenant {tenant_id} failed after {TENANT_MAX_RETRIES} attempts: {e}", exc_info=True)
+                else:
+                    sleep_time = TENANT_RETRY_DELAY
+                    logger.warning(f"Pedidos Tenant {tenant_id} attempt {attempt}/{TENANT_MAX_RETRIES} failed. Retrying in {sleep_time:.0f}s: {e}")
+                    time.sleep(sleep_time)
 
-def ingest_pedidos_venda(force_backfill=False):
-    table_name = "pedidos_venda"
-    logger.info("Starting ingestion of 'pedidos_venda' (Direct Sales)...")
+def ingest_venda_direta(force_backfill=False):
+    table_name = "venda_direta"
+    logger.info("Starting ingestion of 'venda_direta' (Direct Sales)...")
     
     today = datetime.now()
     if force_backfill:
@@ -743,43 +762,50 @@ def ingest_pedidos_venda(force_backfill=False):
     existing_hashes = get_existing_hashes(table_name)
     
     for tenant_id in ACCESSIBLE_TENANTS:
-        try:
-            logger.info(f"=== Ingesting Pedidos Venda for Tenant: {tenant_id} ===")
-            company_id = tenant_id.split(',')[0]
-            
-            # Quick check if tenant has any direct sales
-            check_params = {
-                "dataIni": BACKFILL_START,
-                "dataFim": today.strftime("%Y%m%d"),
-                "nPage": 1,
-                "nPageSize": 1
-            }
-            check_res = make_request("/rest/CONSPEVD/pedidos", params=check_params, tenant_id=tenant_id)
-            if not check_res or "data" not in check_res or not check_res["data"]:
-                logger.info(f"Tenant {tenant_id} has no direct sales in the backfill range. Skipping.")
-                continue
+        for attempt in range(1, TENANT_MAX_RETRIES + 1):
+            try:
+                logger.info(f"=== Ingesting Pedidos Venda for Tenant: {tenant_id} (Attempt {attempt}/{TENANT_MAX_RETRIES}) ===")
+                company_id = tenant_id.split(',')[0]
                 
-            logger.info(f"Ingestion range for Tenant {tenant_id}: {start_dt.strftime('%Y%m%d')} to {end_dt.strftime('%Y%m%d')}")
-            
-            chunks = generate_date_chunks(start_dt, end_dt, force_backfill)
-            
-            for current_start, current_end in chunks:
-                data_ini_str = current_start.strftime("%Y%m%d")
-                data_fim_str = current_end.strftime("%Y%m%d")
+                # Quick check if tenant has any direct sales
+                check_params = {
+                    "dataIni": BACKFILL_START,
+                    "dataFim": today.strftime("%Y%m%d"),
+                    "nPage": 1,
+                    "nPageSize": 1
+                }
+                check_res = make_request("/rest/CONSPEVD/pedidos", params=check_params, tenant_id=tenant_id)
+                if not check_res or "data" not in check_res or not check_res["data"]:
+                    logger.info(f"Tenant {tenant_id} has no direct sales in the backfill range. Skipping.")
+                    break
+                    
+                logger.info(f"Ingestion range for Tenant {tenant_id}: {start_dt.strftime('%Y%m%d')} to {end_dt.strftime('%Y%m%d')}")
                 
-                logger.info(f"Processing chunk {data_ini_str}-{data_fim_str} for Tenant {tenant_id}...")
-                new_rows, sales_read, flat_rows_read = fetch_direct_sales_range(
-                    tenant_id, company_id, data_ini_str, data_fim_str, existing_hashes
-                )
+                chunks = generate_date_chunks(start_dt, end_dt, force_backfill)
                 
-                logger.info(f"Chunk {data_ini_str}-{data_fim_str} complete. Sales read: {sales_read}, Flat rows read: {flat_rows_read}. Unique new written: {len(new_rows)}")
-                
-                if new_rows:
-                    for r in new_rows:
-                        existing_hashes.add(r["hash"])
-                    write_to_bronze(table_name, new_rows)
-        except Exception as e:
-            logger.error(f"Error ingesting Pedidos Venda for Tenant {tenant_id}: {e}")
+                for current_start, current_end in chunks:
+                    data_ini_str = current_start.strftime("%Y%m%d")
+                    data_fim_str = current_end.strftime("%Y%m%d")
+                    
+                    logger.info(f"Processing chunk {data_ini_str}-{data_fim_str} for Tenant {tenant_id}...")
+                    new_rows, sales_read, flat_rows_read = fetch_direct_sales_range(
+                        tenant_id, company_id, data_ini_str, data_fim_str, existing_hashes
+                    )
+                    
+                    logger.info(f"Chunk {data_ini_str}-{data_fim_str} complete. Sales read: {sales_read}, Flat rows read: {flat_rows_read}. Unique new written: {len(new_rows)}")
+                    
+                    if new_rows:
+                        for r in new_rows:
+                            existing_hashes.add(r["hash"])
+                        write_to_bronze(table_name, new_rows)
+                break  # success — move to next tenant
+            except Exception as e:
+                if attempt == TENANT_MAX_RETRIES:
+                    logger.error(f"Venda Direta Tenant {tenant_id} failed after {TENANT_MAX_RETRIES} attempts: {e}", exc_info=True)
+                else:
+                    sleep_time = TENANT_RETRY_DELAY
+                    logger.warning(f"Venda Direta Tenant {tenant_id} attempt {attempt}/{TENANT_MAX_RETRIES} failed. Retrying in {sleep_time:.0f}s: {e}")
+                    time.sleep(sleep_time)
 
 def ingest_full_table(name, path, max_sweeps=10):
     """
@@ -910,9 +936,6 @@ def main():
     logger.info("=== PROTHEUS SOURCE TO BRONZE INGESTION STARTED ===")
     logger.info(f"Target Database: {DUCKDB_PATH}")
     
-    max_retries = 10
-    retry_delay = 15
-    
     # Initialize Schema if not exists
     try:
         with duckdb.connect(DUCKDB_PATH) as con:
@@ -920,36 +943,22 @@ def main():
     except Exception as e:
         logger.warning(f"Failed to create schema directly on target database: {e}")
 
-    for attempt in range(1, max_retries + 1):
-        try:
-            # 1. Fetch dynamic tenants list
-            global ACCESSIBLE_TENANTS
-            ACCESSIBLE_TENANTS = get_dynamic_tenants(force_backfill=args.force_backfill)
-            
-            # Ingest multi-tenant invoices (Notas)
-            ingest_notas(force_backfill=args.force_backfill)
-            
-            # Ingest multi-tenant sales orders (Pedidos)
-            ingest_pedidos(force_backfill=args.force_backfill)
-            
-            # Ingest multi-tenant direct sales (Pedidos Venda)
-            ingest_pedidos_venda(force_backfill=args.force_backfill)
-            
-            # Ingest globally shared full-load tables
-            ingest_full_table("tes", "/rest/CONSTES/tes", max_sweeps=1)
-            ingest_full_table("produtos", "/rest/CONSPROD/produtos", max_sweeps=1)
-            ingest_full_table("clientes", "/rest/CONSCLI/clientes", max_sweeps=1)
-            ingest_full_table("vendedores", "/rest/CONSVEN/vendedores", max_sweeps=1)
-            
-            logger.info("=== PROTHEUS SOURCE TO BRONZE INGESTION FINISHED SUCCESSFUL ===")
-            break
-        except Exception as e:
-            logger.error(f"Ingestion Pipeline Attempt {attempt}/{max_retries} Failed: {e}", exc_info=True)
-            if attempt == max_retries:
-                logger.error("Maximum retries reached. Pipeline failed permanently.")
-                raise
-            logger.info(f"Retrying in {retry_delay} seconds...")
-            time.sleep(retry_delay)
+    # Fetch dynamic tenants list
+    global ACCESSIBLE_TENANTS
+    ACCESSIBLE_TENANTS = get_dynamic_tenants(force_backfill=args.force_backfill)
+
+    # Tenant-scoped ingestions (retries handled per-tenant inside each function)
+    ingest_notas(force_backfill=args.force_backfill)
+    ingest_pedidos(force_backfill=args.force_backfill)
+    ingest_venda_direta(force_backfill=args.force_backfill)
+
+    # Globally shared full-load tables (runs exactly once)
+    ingest_full_table("tes", "/rest/CONSTES/tes", max_sweeps=1)
+    ingest_full_table("produtos", "/rest/CONSPROD/produtos", max_sweeps=1)
+    ingest_full_table("clientes", "/rest/CONSCLI/clientes", max_sweeps=1)
+    ingest_full_table("vendedores", "/rest/CONSVEN/vendedores", max_sweeps=1)
+
+    logger.info("=== PROTHEUS SOURCE TO BRONZE INGESTION FINISHED SUCCESSFUL ===")
 
 if __name__ == "__main__":
     main()

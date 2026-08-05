@@ -70,6 +70,7 @@ int_columns:
   - codigo_ficha
   - IdadeEsposa_DG
   - id_micromanipulacao
+  - is_deleted
 
 # Float columns - will be cast to DOUBLE
 float_columns:
@@ -131,3 +132,8 @@ primary_keys:
   view_exames: id
   view_ovulos_congelados: id
   view_tratamentos_us_anexos: id
+  view_agenda: id
+  view_agendas: id
+  view_indicacao_novo: id
+  view_procedimentos: id
+  view_usuarios: id

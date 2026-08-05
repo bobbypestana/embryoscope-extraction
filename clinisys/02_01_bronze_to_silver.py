@@ -51,6 +51,13 @@ def main():
         for table in bronze_tables:
             logger.info(f'Processing {table}')
             try:
+                # Ensure is_deleted column exists in bronze table
+                existing_cols = con.execute(f"SELECT column_name FROM information_schema.columns WHERE table_schema = 'bronze' AND table_name = '{table}'").df()['column_name'].tolist()
+                if 'is_deleted' not in existing_cols:
+                    logger.info(f"Adding missing is_deleted column to bronze.{table}")
+                    con.execute(f"ALTER TABLE bronze.{table} ADD COLUMN is_deleted INTEGER DEFAULT 0")
+                    con.execute(f"UPDATE bronze.{table} SET is_deleted = 0 WHERE is_deleted IS NULL")
+
                 # Generate complete CAST SQL for all columns (no filtering)
                 cast_sql = generate_complete_cast_sql(con, table)
                 if cast_sql is None:

@@ -12,8 +12,10 @@ Strategy:
 """
 
 import os
+import ast
 import yaml
 import logging
+import pandas as pd
 import duckdb
 from datetime import datetime
 
@@ -180,23 +182,23 @@ def promote_pedidos(con):
     logger.info(f"Successfully promoted 'pedidos' to Silver. Rows: {count:,}")
 
 
-def promote_pedidos_venda(con):
-    logger.info("Promoting table 'pedidos_venda' from Bronze to Silver...")
+def promote_venda_direta(con):
+    logger.info("Promoting table 'venda_direta' from Bronze to Silver...")
 
     exists = con.execute("""
         SELECT COUNT(*) FROM information_schema.tables
-        WHERE table_schema = 'bronze' AND table_name = 'pedidos_venda'
+        WHERE table_schema = 'bronze' AND table_name = 'venda_direta'
     """).fetchone()[0]
 
     if not exists:
-        logger.error("Bronze table 'bronze.pedidos_venda' not found.")
+        logger.error("Bronze table 'bronze.venda_direta' not found.")
         return
 
     # Promote ALL columns from bronze, only replacing fields that need type casting.
     # Deduplicate by business primary keys: company_id, L1_FILIAL, L1_NUM, L2_ITEM
     # We filter out records that have been flagged as deleted in the source.
     query = """
-    CREATE OR REPLACE TABLE silver.pedidos_venda AS
+    CREATE OR REPLACE TABLE silver.venda_direta AS
     SELECT * REPLACE (
         CAST(try_strptime(L1_EMISSAO, '%Y%m%d') AS DATE) AS L1_EMISSAO,
         TRY_CAST(L2_QUANT   AS DOUBLE) AS L2_QUANT,
@@ -211,15 +213,131 @@ def promote_pedidos_venda(con):
                    PARTITION BY company_id, L1_FILIAL, L1_NUM, L2_ITEM
                    ORDER BY extraction_timestamp DESC
                ) AS rn
-        FROM bronze.pedidos_venda
+        FROM bronze.venda_direta
         WHERE COALESCE(is_deleted, 'FALSE') = 'FALSE'
     )
     WHERE rn = 1;
     """
 
     con.execute(query)
-    count = con.execute("SELECT COUNT(*) FROM silver.pedidos_venda").fetchone()[0]
-    logger.info(f"Successfully promoted 'pedidos_venda' to Silver. Rows: {count:,}")
+    count = con.execute("SELECT COUNT(*) FROM silver.venda_direta").fetchone()[0]
+    logger.info(f"Successfully promoted 'venda_direta' to Silver. Rows: {count:,}")
+
+
+def promote_pagamentos(con):
+    logger.info("Promoting 'pagamentos' from bronze.venda_direta PAGAMENTO column to silver...")
+
+    exists = con.execute("""
+        SELECT COUNT(*) FROM information_schema.tables
+        WHERE table_schema = 'bronze' AND table_name = 'venda_direta'
+    """).fetchone()[0]
+    if not exists:
+        logger.error("Bronze table 'bronze.venda_direta' not found. Skipping pagamentos promotion.")
+        return
+
+    # Use DuckDB JSON functionality to unnest the array of objects in the PAGAMENTO column.
+    query = """
+    CREATE OR REPLACE TABLE silver.pagamentos AS
+    WITH parsed_payments AS (
+        SELECT 
+            company_id,
+            extraction_timestamp,
+            -- Unnest the JSON list into individual row items
+            UNNEST(
+                FROM_JSON(
+                    PAGAMENTO,
+                    '["JSON"]'
+                )
+            ) AS payment_json
+        FROM bronze.venda_direta
+        WHERE PAGAMENTO IS NOT NULL
+          AND TRIM(PAGAMENTO) NOT IN ('', 'None', '[]')
+          AND COALESCE(is_deleted, 'FALSE') = 'FALSE'
+    ),
+    extracted_payments AS (
+        SELECT
+            company_id,
+            extraction_timestamp,
+            JSON_EXTRACT_STRING(payment_json, '$.L4_FILIAL') AS L4_FILIAL,
+            JSON_EXTRACT_STRING(payment_json, '$.L4_NUM') AS L4_NUM,
+            CAST(TRY_STRPTIME(JSON_EXTRACT_STRING(payment_json, '$.L4_DATA'), '%Y%m%d') AS DATE) AS L4_DATA,
+            TRY_CAST(JSON_EXTRACT_STRING(payment_json, '$.L4_VALOR') AS DOUBLE) AS L4_VALOR,
+            JSON_EXTRACT_STRING(payment_json, '$.L4_FORMA') AS L4_FORMA,
+            JSON_EXTRACT_STRING(payment_json, '$.L4_ADMINIS') AS L4_ADMINIS,
+            JSON_EXTRACT_STRING(payment_json, '$.L4_NUMCART') AS L4_NUMCART,
+            JSON_EXTRACT_STRING(payment_json, '$.L4_AGENCIA') AS L4_AGENCIA,
+            JSON_EXTRACT_STRING(payment_json, '$.L4_CONTA') AS L4_CONTA,
+            JSON_EXTRACT_STRING(payment_json, '$.L4_RG') AS L4_RG,
+            JSON_EXTRACT_STRING(payment_json, '$.L4_TELEFON') AS L4_TELEFON,
+            JSON_EXTRACT_STRING(payment_json, '$.L4_OBS') AS L4_OBS,
+            JSON_EXTRACT_STRING(payment_json, '$.L4_TERCEIR') AS L4_TERCEIR,
+            JSON_EXTRACT_STRING(payment_json, '$.L4_SITUA') AS L4_SITUA,
+            JSON_EXTRACT_STRING(payment_json, '$.L4_DATATEF') AS L4_DATATEF,
+            JSON_EXTRACT_STRING(payment_json, '$.L4_HORATEF') AS L4_HORATEF,
+            JSON_EXTRACT_STRING(payment_json, '$.L4_DOCTEF') AS L4_DOCTEF,
+            JSON_EXTRACT_STRING(payment_json, '$.L4_AUTORIZ') AS L4_AUTORIZ,
+            JSON_EXTRACT_STRING(payment_json, '$.L4_DATCANC') AS L4_DATCANC,
+            JSON_EXTRACT_STRING(payment_json, '$.L4_HORCANC') AS L4_HORCANC,
+            JSON_EXTRACT_STRING(payment_json, '$.L4_DOCCANC') AS L4_DOCCANC,
+            JSON_EXTRACT_STRING(payment_json, '$.L4_INSTITU') AS L4_INSTITU,
+            JSON_EXTRACT_STRING(payment_json, '$.L4_NSUTEF') AS L4_NSUTEF,
+            JSON_EXTRACT_STRING(payment_json, '$.L4_TIPCART') AS L4_TIPCART,
+            TRY_CAST(JSON_EXTRACT_STRING(payment_json, '$.L4_MOEDA') AS DOUBLE) AS L4_MOEDA,
+            JSON_EXTRACT_STRING(payment_json, '$.L4_MESACTA') AS L4_MESACTA,
+            JSON_EXTRACT_STRING(payment_json, '$.L4_ANOACTA') AS L4_ANOACTA,
+            JSON_EXTRACT_STRING(payment_json, '$.L4_TIPOCHQ') AS L4_TIPOCHQ,
+            JSON_EXTRACT_STRING(payment_json, '$.L4_CGC') AS L4_CGC,
+            JSON_EXTRACT_STRING(payment_json, '$.L4_NOMECLI') AS L4_NOMECLI,
+            JSON_EXTRACT_STRING(payment_json, '$.L4_SERCHQ') AS L4_SERCHQ,
+            JSON_EXTRACT_STRING(payment_json, '$.L4_COMP') AS L4_COMP,
+            JSON_EXTRACT_STRING(payment_json, '$.L4_ORIGEM') AS L4_ORIGEM,
+            JSON_EXTRACT_STRING(payment_json, '$.L4_FORMPG') AS L4_FORMPG,
+            JSON_EXTRACT_STRING(payment_json, '$.L4_VENDTEF') AS L4_VENDTEF,
+            JSON_EXTRACT_STRING(payment_json, '$.L4_FORMAID') AS L4_FORMAID,
+            JSON_EXTRACT_STRING(payment_json, '$.L4_PARCTEF') AS L4_PARCTEF,
+            TRY_CAST(JSON_EXTRACT_STRING(payment_json, '$.L4_TROCO') AS DOUBLE) AS L4_TROCO,
+            JSON_EXTRACT_STRING(payment_json, '$.L4_ITEM') AS L4_ITEM,
+            JSON_EXTRACT_STRING(payment_json, '$.L4_ESTORN') AS L4_ESTORN,
+            JSON_EXTRACT_STRING(payment_json, '$.L4_OPERAES') AS L4_OPERAES,
+            JSON_EXTRACT_STRING(payment_json, '$.L4_SERPDV') AS L4_SERPDV,
+            JSON_EXTRACT_STRING(payment_json, '$.L4_PAFMD5') AS L4_PAFMD5,
+            JSON_EXTRACT_STRING(payment_json, '$.L4_DOC') AS L4_DOC,
+            JSON_EXTRACT_STRING(payment_json, '$.L4_CONTDOC') AS L4_CONTDOC,
+            JSON_EXTRACT_STRING(payment_json, '$.L4_CONTONF') AS L4_CONTONF,
+            TRY_CAST(JSON_EXTRACT_STRING(payment_json, '$.L4_DESPRC') AS DOUBLE) AS L4_DESPRC,
+            JSON_EXTRACT_STRING(payment_json, '$.L4_BANPRC') AS L4_BANPRC,
+            TRY_CAST(JSON_EXTRACT_STRING(payment_json, '$.L4_ACRSFIN') AS DOUBLE) AS L4_ACRSFIN,
+            JSON_EXTRACT_STRING(payment_json, '$.L4_PROCFID') AS L4_PROCFID,
+            JSON_EXTRACT_STRING(payment_json, '$.L4_NUMCFID') AS L4_NUMCFID,
+            JSON_EXTRACT_STRING(payment_json, '$.L4_CONHTL') AS L4_CONHTL,
+            JSON_EXTRACT_STRING(payment_json, '$.L4_CODVP') AS L4_CODVP,
+            TRY_CAST(JSON_EXTRACT_STRING(payment_json, '$.L4_DESCMN') AS DOUBLE) AS L4_DESCMN,
+            JSON_EXTRACT_STRING(payment_json, '$.L4_BANDEIR') AS L4_BANDEIR,
+            JSON_EXTRACT_STRING(payment_json, '$.L4_REDEAUT') AS L4_REDEAUT,
+            JSON_EXTRACT_STRING(payment_json, '$.L4_IDPGVFP') AS L4_IDPGVFP,
+            JSON_EXTRACT_STRING(payment_json, '$.L4_IDRSPFI') AS L4_IDRSPFI,
+            JSON_EXTRACT_STRING(payment_json, '$.L4_IDCNAB') AS L4_IDCNAB,
+            JSON_EXTRACT_STRING(payment_json, '$.L4_TRNID') AS L4_TRNID,
+            JSON_EXTRACT_STRING(payment_json, '$.L4_TRNPCID') AS L4_TRNPCID,
+            JSON_EXTRACT_STRING(payment_json, '$.L4_TRNEXID') AS L4_TRNEXID,
+            TRY_CAST(JSON_EXTRACT_STRING(payment_json, '$.L4_ACRCART') AS DOUBLE) AS L4_ACRCART
+        FROM parsed_payments
+    )
+    SELECT * EXCLUDE(rn)
+    FROM (
+        SELECT *,
+               ROW_NUMBER() OVER (
+                   PARTITION BY company_id, L4_FILIAL, L4_NUM, COALESCE(L4_DOCTEF, ''), COALESCE(L4_AUTORIZ, '')
+                   ORDER BY extraction_timestamp DESC
+               ) AS rn
+        FROM extracted_payments
+    )
+    WHERE rn = 1;
+    """
+
+    con.execute(query)
+    count = con.execute("SELECT COUNT(*) FROM silver.pagamentos").fetchone()[0]
+    logger.info(f"Successfully promoted 'pagamentos' to Silver. Rows: {count:,}")
 
 
 def main():
@@ -231,7 +349,7 @@ def main():
             con.execute("CREATE SCHEMA IF NOT EXISTS silver")
 
             # Ensure is_deleted column exists in bronze tables to prevent promotion BinderExceptions
-            for table_name in ["notas", "pedidos", "pedidos_venda"]:
+            for table_name in ["notas", "pedidos", "venda_direta"]:
                 exists = con.execute(f"""
                     SELECT COUNT(*) FROM information_schema.tables 
                     WHERE table_schema = 'bronze' AND table_name = '{table_name}'
@@ -243,9 +361,26 @@ def main():
                         con.execute(f"ALTER TABLE bronze.{table_name} ADD COLUMN is_deleted VARCHAR")
                         con.execute(f"UPDATE bronze.{table_name} SET is_deleted = 'FALSE'")
 
+            # Rename legacy pedidos_venda → venda_direta if still present
+            for schema in ["bronze", "silver"]:
+                old_exists = con.execute(f"""
+                    SELECT COUNT(*) FROM information_schema.tables
+                    WHERE table_schema = '{schema}' AND table_name = 'pedidos_venda'
+                """).fetchone()[0]
+                new_exists = con.execute(f"""
+                    SELECT COUNT(*) FROM information_schema.tables
+                    WHERE table_schema = '{schema}' AND table_name = 'venda_direta'
+                """).fetchone()[0]
+                if old_exists and not new_exists:
+                    logger.info(f"Renaming {schema}.pedidos_venda → {schema}.venda_direta...")
+                    con.execute(f"ALTER TABLE {schema}.pedidos_venda RENAME TO venda_direta")
+                elif old_exists and new_exists:
+                    logger.warning(f"Both {schema}.pedidos_venda and {schema}.venda_direta exist — skipping rename of {schema}.pedidos_venda.")
+
             promote_notas(con)
             promote_pedidos(con)
-            promote_pedidos_venda(con)
+            promote_venda_direta(con)
+            promote_pagamentos(con)
             promote_full_load(con, "empresas",   ["M0_CODIGO", "M0_CODFIL"])
             promote_full_load(con, "tes",        ["F4_CODIGO"])
             promote_full_load(con, "produtos",   ["B1_COD"])

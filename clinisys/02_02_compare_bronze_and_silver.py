@@ -111,9 +111,13 @@ logger.info('=' * 80)
 for table in bronze_tables:
     try:
         bronze_result = con.execute(f"SELECT COUNT(*) FROM bronze.{table}").fetchone()
+        active_bronze_result = con.execute(f"SELECT COUNT(*) FROM bronze.{table} WHERE COALESCE(is_deleted, 0) = 0").fetchone()
+        deleted_bronze_result = con.execute(f"SELECT COUNT(*) FROM bronze.{table} WHERE COALESCE(is_deleted, 0) = 1").fetchone()
         silver_result = con.execute(f"SELECT COUNT(*) FROM silver.{table}").fetchone()
         
         bronze_rows = bronze_result[0] if bronze_result else 0
+        active_bronze_rows = active_bronze_result[0] if active_bronze_result else 0
+        deleted_bronze_rows = deleted_bronze_result[0] if deleted_bronze_result else 0
         silver_rows = silver_result[0] if silver_result else 0
         
         # Get previous counts
@@ -124,14 +128,21 @@ for table in bronze_tables:
         bronze_delta = format_delta(bronze_rows, previous_bronze)
         silver_delta = format_delta(silver_rows, previous_silver)
         
-        logger.info(f'{table}: Bronze={bronze_rows}, Silver={silver_rows} (DeltaBronze={bronze_delta}, DeltaSilver={silver_delta})')
+        logger.info(f'{table}: BronzeTotal={bronze_rows}, BronzeActive={active_bronze_rows}, BronzeDeleted={deleted_bronze_rows}, Silver={silver_rows} (DeltaBronze={bronze_delta}, DeltaSilver={silver_delta})')
         
+        if active_bronze_rows != silver_rows:
+            logger.warning(f'Row mismatch between Active Bronze ({active_bronze_rows}) and Silver ({silver_rows}) for {table}')
+            
         # Store current counts for next run
         current_counts[f'{table}_bronze'] = bronze_rows
+        current_counts[f'{table}_active_bronze'] = active_bronze_rows
+        current_counts[f'{table}_deleted_bronze'] = deleted_bronze_rows
         current_counts[f'{table}_silver'] = silver_rows
     except Exception as e:
         logger.error(f"Error checking table {table}: {e}")
         current_counts[f'{table}_bronze'] = 0
+        current_counts[f'{table}_active_bronze'] = 0
+        current_counts[f'{table}_deleted_bronze'] = 0
         current_counts[f'{table}_silver'] = 0
 
 # Save current counts for next comparison
@@ -139,10 +150,12 @@ save_current_counts(current_counts)
 
 # Summary statistics
 total_bronze_rows = sum(current_counts.get(f'{table}_bronze', 0) for table in bronze_tables)
+total_active_bronze_rows = sum(current_counts.get(f'{table}_active_bronze', 0) for table in bronze_tables)
+total_deleted_bronze_rows = sum(current_counts.get(f'{table}_deleted_bronze', 0) for table in bronze_tables)
 total_silver_rows = sum(current_counts.get(f'{table}_silver', 0) for table in bronze_tables)
 
 logger.info('=' * 80)
-logger.info(f'SUMMARY: Total Bronze rows: {total_bronze_rows:,}, Total Silver rows: {total_silver_rows:,}')
+logger.info(f'SUMMARY: Total Bronze: {total_bronze_rows:,} (Active: {total_active_bronze_rows:,}, Deleted: {total_deleted_bronze_rows:,}), Total Silver: {total_silver_rows:,}')
 
 # Show tables with significant growth (more than 100 rows)
 logger.info('Tables with significant growth (>100 rows):')

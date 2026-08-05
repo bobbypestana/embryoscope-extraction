@@ -230,7 +230,7 @@ def create_gold_pedidos_a_faturar_table(con):
           AND TRIM(D2_PEDIDO) != ''
     ),
     l1_dedup AS (
-        -- Point 3: Patient resolution via SL10X0 L1 (silver.pedidos_venda)
+        -- Point 3: Patient resolution via SL10X0 L1 (silver.venda_direta)
         SELECT 
             L1_FILIAL,
             L1_PEDRES,
@@ -240,7 +240,7 @@ def create_gold_pedidos_a_faturar_table(con):
                 PARTITION BY L1_FILIAL, L1_PEDRES 
                 ORDER BY extraction_timestamp DESC
             ) as rn
-        FROM silver.pedidos_venda
+        FROM silver.venda_direta
         WHERE is_deleted = FALSE 
           AND L1_PEDRES IS NOT NULL 
           AND TRIM(L1_PEDRES) != ''

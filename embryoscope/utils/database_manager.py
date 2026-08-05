@@ -16,9 +16,11 @@ from utils.schema_config import get_table_schema, get_supported_data_types, vali
 
 def check_db_lock(db_path):
     """Check if the DuckDB file can be opened (not locked by another process)."""
+    if not os.path.exists(db_path):
+        return True
     import duckdb
     try:
-        conn = duckdb.connect(db_path)
+        conn = duckdb.connect(db_path, read_only=True)
         conn.close()
         return True
     except Exception as e:
@@ -30,13 +32,6 @@ class EmbryoscopeDatabaseManager:
     """Manages DuckDB database operations for embryoscope data."""
     
     def __init__(self, db_path: str, schema: str = 'embryoscope'):
-        """
-        Initialize the database manager.
-        
-        Args:
-            db_path: Path to DuckDB database file
-            schema: Database schema name
-        """
         self.db_path = db_path
         self.schema = schema
         self.logger = logging.getLogger("embryoscope_database")
@@ -48,31 +43,33 @@ class EmbryoscopeDatabaseManager:
         if not check_db_lock(db_path):
             raise RuntimeError(f"Database file '{db_path}' is locked. Please close all other processes using this file and try again.")
         
+        import gc
+        gc.collect()
+        
         # Initialize database
         self._init_database()
     
     def _init_database(self):
         """Initialize database schema and tables."""
+        print("   -> _init_database starting...")
         try:
+            print("   -> Connecting duckdb...")
             with duckdb.connect(self.db_path) as conn:
-                # Only create bronze schema
+                print("   -> Connected. Creating bronze schema...")
                 conn.execute(f"CREATE SCHEMA IF NOT EXISTS bronze")
-                # Create metadata tables (default schema)
+                print("   -> Creating metadata tables...")
                 self._create_metadata_tables(conn)
-                # Create data tables (default schema)
+                print("   -> Creating data tables...")
                 self._create_data_tables(conn)
+                print("   -> _init_database complete.")
         except Exception as e:
             if "being used by another process" in str(e):
                 self.logger.warning(f"Database file is locked, will retry: {e}")
-                # Wait a bit and retry
                 import time
                 time.sleep(2)
                 with duckdb.connect(self.db_path) as conn:
-                    # Only create bronze schema
                     conn.execute(f"CREATE SCHEMA IF NOT EXISTS bronze")
-                    # Create metadata tables (default schema)
                     self._create_metadata_tables(conn)
-                    # Create data tables (default schema)
                     self._create_data_tables(conn)
             else:
                 raise
@@ -148,6 +145,14 @@ class EmbryoscopeDatabaseManager:
             
             conn.execute(create_sql)
             self.logger.debug(f"Created/verified table: data_{data_type}")
+        
+        # Schema migration: ensure data_treatments has is_ongoing column
+        try:
+            cols = [row[0] for row in conn.execute("DESCRIBE data_treatments").fetchall()]
+            if 'is_ongoing' not in cols:
+                conn.execute("ALTER TABLE data_treatments ADD COLUMN is_ongoing BOOLEAN DEFAULT FALSE")
+        except Exception as migration_e:
+            self.logger.debug(f"Migration note for is_ongoing column: {migration_e}")
     
     def _create_bronze_tables(self, conn):
         """Create bronze (raw) tables for each data type."""
@@ -216,7 +221,8 @@ class EmbryoscopeDatabaseManager:
                 df_new = df[df.apply(is_new, axis=1)]
                 if not df_new.empty:
                     conn.register('df_new', df_new)
-                    conn.execute(f"INSERT INTO {table} SELECT * FROM df_new")
+                    cols_str = ", ".join([f'"{col}"' for col in df_new.columns])
+                    conn.execute(f"INSERT INTO {table} ({cols_str}) SELECT {cols_str} FROM df_new")
                     conn.unregister('df_new')
                 return len(df_new)
             return 0
@@ -314,9 +320,10 @@ class EmbryoscopeDatabaseManager:
             self.logger.info(f"No new/changed rows for {table_name} at {location}")
             return 0
         
-        # Insert new rows using DuckDB's DataFrame insertion
+        # Insert new rows using DuckDB's DataFrame insertion (matching column names explicitly)
+        cols_str = ", ".join([f'"{col}"' for col in new_rows.columns])
         conn.register("new_rows", new_rows)
-        conn.execute(f"INSERT INTO {table_name} SELECT * FROM new_rows")
+        conn.execute(f"INSERT INTO {table_name} ({cols_str}) SELECT {cols_str} FROM new_rows")
         conn.unregister("new_rows")
         
         self.logger.info(f"Inserted {len(new_rows)} new/changed rows into {table_name} for {location}")
@@ -415,6 +422,40 @@ class EmbryoscopeDatabaseManager:
             """
             return conn.execute(query, [location, location]).df()
     
+    def get_existing_pairs_with_status(self, location: str) -> Dict[Tuple[str, str], bool]:
+        """
+        Get existing patient-treatment pairs and their latest is_ongoing status.
+        
+        Args:
+            location: Location identifier
+            
+        Returns:
+            Dict mapping (PatientIDx, TreatmentName) -> is_ongoing (bool)
+        """
+        with duckdb.connect(self.db_path) as conn:
+            try:
+                cols = [row[0] for row in conn.execute("DESCRIBE data_treatments").fetchall()]
+                if 'is_ongoing' not in cols:
+                    conn.execute("ALTER TABLE data_treatments ADD COLUMN is_ongoing BOOLEAN DEFAULT FALSE")
+            except Exception:
+                pass
+
+            query = """
+                SELECT PatientIDx, TreatmentName, COALESCE(is_ongoing, FALSE) as is_ongoing
+                FROM data_treatments
+                WHERE _location = ?
+                QUALIFY ROW_NUMBER() OVER (
+                    PARTITION BY PatientIDx, TreatmentName, _location 
+                    ORDER BY _extraction_timestamp DESC
+                ) = 1
+            """
+            try:
+                result = conn.execute(query, [location]).fetchall()
+                return {(str(row[0]), str(row[1])): bool(row[2]) for row in result}
+            except Exception as e:
+                self.logger.debug(f"Could not query data_treatments table: {e}")
+                return {}
+
     def get_all_existing_pairs(self, location: str) -> set:
         """
         Get all existing patient-treatment pairs from the database.
@@ -426,20 +467,7 @@ class EmbryoscopeDatabaseManager:
         Returns:
             Set of tuples (PatientIDx, TreatmentName) representing existing pairs
         """
-        with duckdb.connect(self.db_path) as conn:
-            # Query treatments table to get existing pairs
-            query = """
-                SELECT DISTINCT PatientIDx, TreatmentName 
-                FROM data_treatments 
-                WHERE _location = ?
-            """
-            try:
-                result = conn.execute(query, [location]).fetchall()
-                return set((row[0], row[1]) for row in result)
-            except Exception as e:
-                # Table might not exist yet on first run
-                self.logger.debug(f"Could not query data_treatments table: {e}")
-                return set()
+        return set(self.get_existing_pairs_with_status(location).keys())
     
     def get_data_summary(self, location: str = None) -> Dict[str, Any]:
         """

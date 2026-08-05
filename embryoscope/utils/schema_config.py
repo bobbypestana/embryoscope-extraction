@@ -25,6 +25,7 @@ TABLE_SCHEMAS = {
         'columns': [
             'PatientIDx VARCHAR',
             'TreatmentName VARCHAR',
+            'is_ongoing BOOLEAN DEFAULT FALSE',
             '_location VARCHAR',
             '_extraction_timestamp TIMESTAMP',
             '_run_id VARCHAR',
@@ -82,7 +83,7 @@ COLUMN_MAPPINGS = {
     },
     'treatments': {
         'api_fields': ['TreatmentList'],  # This is a list, not individual fields
-        'db_columns': ['PatientIDx', 'TreatmentName'],
+        'db_columns': ['PatientIDx', 'TreatmentName', 'is_ongoing'],
         'transformations': {
             'PatientIDx': lambda row, patient_idx: patient_idx,
             'TreatmentName': lambda row: row  # row is the treatment name string

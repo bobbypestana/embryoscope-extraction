@@ -62,6 +62,10 @@ def get_column_transformation(column_name, column_type, sample_data=None):
             ELSE try_strptime({column_name}, '%H:%M')
         END AS {column_name}"""
     
+    # Special handling for is_deleted column - ensure INTEGER and non-null (default 0)
+    if column_name.lower() == 'is_deleted':
+        return f"COALESCE(try_cast({column_name} AS INTEGER), 0) AS {column_name}"
+    
     # Integer columns (except prontuario which needs special handling)
     if column_name.lower() in [col.lower() for col in COLUMN_CONFIG['int_columns']]:
         # Special handling for prontuario columns - keep as VARCHAR initially
@@ -199,5 +203,5 @@ def deduplicate_and_format_sql(table, cast_sql):
                ROW_NUMBER() OVER (PARTITION BY {primary_key} ORDER BY extraction_timestamp DESC) AS rn
         FROM bronze.{table}
     )
-    WHERE rn = 1;
+    WHERE rn = 1 AND COALESCE(is_deleted, 0) = 0;
     '''
