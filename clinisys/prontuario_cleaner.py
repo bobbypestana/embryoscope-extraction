@@ -9,12 +9,13 @@ import pandas as pd
 logger = logging.getLogger(__name__)
 
 
-def convert_to_int(prontuario_val):
+def convert_to_int(prontuario_val, allow_zero=False):
     """
     Convert prontuario value to integer, handling various formats
     
     Args:
         prontuario_val: Raw prontuario value
+        allow_zero: Whether to allow 0 as a valid prontuario (default: False)
         
     Returns:
         Integer prontuario or None if invalid
@@ -27,7 +28,9 @@ def convert_to_int(prontuario_val):
         # If it's a whole number float, convert to int
         if prontuario_val.is_integer():
             result = int(prontuario_val)
-            return None if result == 0 else result
+            if result == 0 and not allow_zero:
+                return None
+            return result
         # If it has decimal places, this might be an error - log and return None
         logger.warning(f"Unexpected decimal value in prontuario: {prontuario_val}")
         return None
@@ -39,7 +42,9 @@ def convert_to_int(prontuario_val):
     if prontuario_str.isdigit():
         result = int(prontuario_str)
         # Discard if result is 0
-        return None if result == 0 else result
+        if result == 0 and not allow_zero:
+            return None
+        return result
     
     # Handle formatted numbers with dots (e.g., "520.124" -> 520124)
     # Only process if it's not a simple float representation
@@ -51,7 +56,9 @@ def convert_to_int(prontuario_val):
             if cleaned_str.isdigit():
                 result = int(cleaned_str)
                 # Discard if result is 0
-                return None if result == 0 else result
+                if result == 0 and not allow_zero:
+                    return None
+                return result
         except (ValueError, AttributeError):
             pass
     
@@ -85,6 +92,10 @@ def clean_prontuario_columns(con, table_name):
     # Special handling for view_pacientes - we cannot discard records
     is_patient_table = table_name == 'view_pacientes'
     
+    # Allow prontuario = 0 for view_agenda and view_extrato_atendimentos_central
+    allow_zero_tables = {'view_agenda', 'view_extrato_atendimentos_central'}
+    allow_zero = table_name in allow_zero_tables
+    
     if is_patient_table:
         # For view_pacientes: Keep all records, just clean the prontuario values
         # Get all data from the table
@@ -93,7 +104,7 @@ def clean_prontuario_columns(con, table_name):
         # Apply the conversion to all prontuario columns
         for prontuario_col in prontuario_columns:
             logger.info(f"Cleaning prontuario column: {prontuario_col} in {table_name}")
-            all_data[prontuario_col] = all_data[prontuario_col].apply(convert_to_int)
+            all_data[prontuario_col] = all_data[prontuario_col].apply(lambda x: convert_to_int(x, allow_zero=allow_zero))
             logger.info(f"[{table_name}] {prontuario_col} cleaning completed (kept all records)")
         
         # Create a temporary table with the cleaned data
@@ -117,7 +128,7 @@ def clean_prontuario_columns(con, table_name):
         # Apply the conversion to all prontuario columns
         for prontuario_col in prontuario_columns:
             logger.info(f"Cleaning prontuario column: {prontuario_col} in {table_name}")
-            all_data[prontuario_col] = all_data[prontuario_col].apply(convert_to_int)
+            all_data[prontuario_col] = all_data[prontuario_col].apply(lambda x: convert_to_int(x, allow_zero=allow_zero))
         
         # For non-patient tables, we want to keep records that have at least ONE valid prontuario
         # Create a mask for records that have at least one valid prontuario value

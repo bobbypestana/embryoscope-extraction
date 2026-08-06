@@ -46,7 +46,6 @@ def get_column_transformation(column_name, column_type, sample_data=None):
                 WHEN {column_name} IS NULL THEN NULL
                 WHEN {column_name} IN ('00/00/0000', '0000-00-00', '00/00/00', '0000/00/00', 'NULL', 'null', '') THEN NULL
                 WHEN try_strptime({column_name}, '%d/%m/%Y') IS NULL THEN NULL
-                WHEN try_strptime({column_name}, '%d/%m/%Y') > CURRENT_DATE THEN NULL
                 WHEN year(try_strptime({column_name}, '%d/%m/%Y')) < 1900 OR year(try_strptime({column_name}, '%d/%m/%Y')) > 2030 THEN NULL
                 ELSE try_strptime({column_name}, '%d/%m/%Y')
             END AS DATE

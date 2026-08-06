@@ -234,4 +234,15 @@ def feature_creation(con, table):
             f"numero_dias, dose_total, grupo_medicamento"
         )
 
+    elif table == 'view_agenda':
+        # Add flag_date_suspect: true if data is more than a year in the future
+        logger.info(f"Adding flag_date_suspect to silver.{table}")
+        con.execute(f"""
+            CREATE OR REPLACE TABLE silver.{table} AS
+            SELECT *,
+                   COALESCE(data > CURRENT_DATE + INTERVAL 1 YEAR, FALSE) AS flag_date_suspect
+            FROM silver.{table}
+        """)
+        logger.info(f"flag_date_suspect added to silver.{table}")
+
     # Add more table-specific features here as needed

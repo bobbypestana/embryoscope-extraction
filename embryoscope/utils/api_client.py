@@ -140,6 +140,8 @@ class EmbryoscopeAPIClient:
                 response = self.session.request(method, url, **kwargs)
                 self.last_status_code = response.status_code
                 self.logger.debug(f"[RESPONSE] status={response.status_code}, content={response.text[:200]}...")
+                if response.status_code == 401:
+                    return response
                 response.raise_for_status()
                 return response
             except Exception as e:
