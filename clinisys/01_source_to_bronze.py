@@ -301,7 +301,7 @@ def copy_table_data(engine, con, table_name, config):
             else:
                 rows = con.execute(f'SELECT "{pk_column}" FROM bronze.{table_name}').fetchall()
                 existing_pks = {str(r[0]).strip() for r in rows if r[0] is not None}
-            logger.info(f"Found {len(existing_pks)} active and {len(previously_deleted_pks)} deleted primary keys in bronze.{table_name}")
+            logger.info(f"Found {len(existing_pks)} active and {len(previously_deleted_pks)} previously deleted primary keys in bronze.{table_name}")
     except Exception as e:
         logger.warning(f"Could not get existing primary keys for {table_name}: {e}")
     
@@ -318,7 +318,7 @@ def copy_table_data(engine, con, table_name, config):
             logger.warning(f"Found {len(deleted_pks)} records deleted in source for {table_name}. Flagging them...")
             flag_deleted_in_bronze(con, table_name, pk_column, deleted_pks)
         else:
-            logger.info(f"No deleted records detected for {table_name}.")
+            logger.info(f"No new deleted records detected in source for {table_name}.")
             
     # Unflag restored records
     if previously_deleted_pks and fetched_pks:

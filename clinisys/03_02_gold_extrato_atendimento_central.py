@@ -88,31 +88,7 @@ def main():
             gold_count = target_con.execute("SELECT count(*) FROM gold.extrato_atendimento_central").fetchone()[0]
             logger.info(f"Successfully created gold.extrato_atendimento_central table with {gold_count:,} rows.")
 
-            # Fast reconciliation comparison
-            logger.info("Performing native comparison/reconciliation...")
-            overlapping_count = target_con.execute("""
-                SELECT count(*) 
-                FROM gold.extrato_atendimento_central g
-                JOIN source_db.silver.view_extrato_atendimentos_central s
-                  ON g.agendamento_id = s.agendamento_id
-                WHERE CAST(g.data AS DATE) >= CAST('2019-01-01' AS DATE)
-            """).fetchone()[0]
-            
-            logger.info(f"Number of overlapping agendamento_ids: {overlapping_count:,}")
-
-            # Verify schema
-            gold_cols = set(d[0] for d in target_con.execute("DESCRIBE gold.extrato_atendimento_central").fetchall())
-            ingested_cols = set(d[0] for d in target_con.execute("DESCRIBE source_db.silver.view_extrato_atendimentos_central").fetchall())
-            
-            logger.info("=" * 80)
-            logger.info("RECONCILIATION REPORT (FULLY OPTIMIZED HASH JOINS)")
-            logger.info("=" * 80)
-            if gold_cols == ingested_cols:
-                logger.info("[PASS] Column schemas match exactly!")
-            else:
-                logger.warning(f"[FAIL] Column mismatch! Missing: {ingested_cols - gold_cols}")
             logger.info(f"Execution time: {time.time() - start_time:.2f} seconds")
-            logger.info("=" * 80)
 
             target_con.execute("DETACH source_db;")
 
