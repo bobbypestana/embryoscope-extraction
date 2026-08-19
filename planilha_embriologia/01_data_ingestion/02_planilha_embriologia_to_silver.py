@@ -44,10 +44,10 @@ logger = logging.getLogger(__name__)
 # Configuration
 DUCKDB_PATH = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), 'database', 'huntington_data_lake.duckdb')
 BRONZE_PATTERN = 'planilha_%'  # Pattern to match all Planilha tables
-SHEET_TYPES = ['fet', 'fresh']  # Process each sheet type separately
+SHEET_TYPES = ['fresh', 'fet']  # Process each sheet type separately
 
-# Refinement Configuration (All available years)
-YEARS_TO_PROCESS = ['2021', '2022', '2023', '2024', '2025']
+# Refinement Configuration (All available years 2021-2026)
+YEARS_TO_PROCESS = ['2021', '2022', '2023', '2024', '2025', '2026']
 REFERENCE_TABLES = {
     'fresh': 'planilha_2024_ibira_fresh',
     'fet': 'planilha_2024_ibira_fet'
@@ -101,15 +101,16 @@ WHITELIST = {
         'no_da_transfer_1a_2a_3a',
         'dia_et',
         'no_et',
+        'gravidez_bioquimica',
         'gravidez_clinica',
         'obs'
     ]
 }
 
-# Values for TIPO 1 filtering (used as prefixes)
+# Values for TIPO 1 filtering (used as prefixes for shared tables)
 TIPO_FILTERS = {
-    'fresh': ['FIC/ICSI', 'FIV/ICSI', 'FOT', 'FOT OR', 'OR', 'FRESH'],
-    'fet': ['FET', 'FET/OR', 'FET/ER']
+    'fresh': ['FIC/ICSI', 'FIV/ICSI', 'FOT', 'FOT OR', 'OR', 'FRESH', 'ICSI', 'FIV', 'CONG'],
+    'fet': ['FET', 'FET/OR', 'FET/ER', 'RECEPTORA', 'RECEP', 'TEC', 'DESCONG']
 }
 
 # Explicit Synonyms (Global heuristics)
@@ -120,11 +121,52 @@ SYNONYMS = {
     'no_nascidos': 'no_nascidos',
     'na_nascidos': 'no_nascidos',
     'n_o_nascidos': 'no_nascidos',
+    'dados_nascimento': 'no_nascidos',
+    'n_biopsiados': 'no_biopsiados',
+    'n_analisados': 'qtd_analisados',
+    'n_et': 'no_et',
+    'num_et': 'no_et',
+    'n_da_transfer': 'no_da_transfer_1a_2a_3a',
+    'numero_da_transfer_1a_2a_3a': 'no_da_transfer_1a_2a_3a',
+    'numero_da_transfer_1_2_3': 'no_da_transfer_1a_2a_3a',
+    'numero_da_transfer': 'no_da_transfer_1a_2a_3a',
     'data_crio_somente_a_primeira_data_do_cong': 'data_crio',
+    'data_crio_embriao': 'data_crio',
+    'data_crio_embrioes': 'data_crio',
     'tipo_de_tratamento': 'tipo_1',
     'data_cryo': 'data_crio',
-    # Name column: older tables use bare 'NOME', newer ones 'NOME DA PACIENTE'
+    'dia_crio': 'dia_cryo',
     'nome': 'nome_da_paciente',
+    'paciente': 'nome_da_paciente',
+    'nasc': 'data_de_nasc',
+    'data_nasc': 'data_de_nasc',
+    'prontuario': 'pin',
+    'pronturio': 'pin',
+    'idade': 'idade_mulher',
+    'idade_da_mulher': 'idade_mulher',
+    'idade_do_esperma': 'idade_espermatozoide',
+    'idade_do_espermatozoide': 'idade_espermatozoide',
+    'origem_sptz': 'origem',
+    'tipo_sptz': 'tipo',
+    'origem_do_espermatozoide': 'origem',
+    'tipo_do_espermatozoide': 'tipo',
+    'data_do_fot': 'data_da_puncao',
+    'data_do_procedimento': 'data_da_puncao',
+    'data_da_coleta': 'data_da_puncao',
+    'data_transferencia': 'data_da_fet',
+    'data_da_transferencia': 'data_da_fet',
+    'data_cong': 'data_crio',
+    'beta': 'result',
+    'transf': 'no_et',
+    'blast': 'qtd_blasto',
+    'blasto': 'qtd_blasto',
+    'normais': 'qtd_normais',
+    'causa': 'fator_1',
+    'incub': 'incubadora',
+    'incub_d5': 'incubadora',
+    'tipo_de_inseminacao_ou_icsi': 'tipo_de_inseminacao',
+    'tipo_inseminacao': 'tipo_de_inseminacao',
+    'tipo_da_doacao_recepcao': 'tipo_da_doacao',
 }
 
 # ==============================================================================
@@ -745,6 +787,249 @@ TABLE_CONFIGS = {
             },
             'filters': []  # Include all rows for FET
         }
+    },
+    'planilha_2022_bh_2022': {
+        'sheet_name': '2022',
+        'fresh': {
+            'mapping': {
+                'nome_da_paciente': 'NOME',
+                'data_de_nasc': 'DATA DE NASC.',
+                'pin': 'PIN',
+                'tipo_1': 'TIPO 1',
+                'data_da_puncao': 'DATA',
+                'fator_1': 'FATOR 1',
+                'incubadora': 'INCUB',
+                'data_crio': 'DATA CRIO',
+                'tipo_de_inseminacao': 'TIPO 2',
+                'tipo_biopsia': 'TIPO 3',
+                'altura': 'ALTURA',
+                'peso': 'PESO',
+                'idade_espermatozoide': '',
+                'origem': 'ORIGEM',
+                'tipo': 'TIPO',
+                'opu': 'OPU',
+                'total_de_mii': 'MII',
+                'qtd_blasto': '# BLASTO',
+                'qtd_blasto_tq_a_e_b': '# BLASTO TQ',
+                'no_biopsiados': '# DPI',
+                'qtd_analisados': 'QTD ANALISADOS',
+                'qtd_normais': 'QTD NORMAIS',
+                'dia_cryo': 'DIA CRYO'
+            },
+            'filters': ['FIC/ICSI', 'FIV/ICSI', 'FOT', 'FOT OR', 'OR', 'FRESH', 'CONG. ÓVULOS', 'CONG']
+        },
+        'fet': {
+            'mapping': {
+                'nome_da_paciente': 'NOME',
+                'data_de_nasc': 'DATA DE NASC.',
+                'pin': 'PIN',
+                'tipo_1': 'TIPO 1',
+                'data_da_fet': 'DATA',
+                'data_crio': 'DATA CRIO',
+                'result': 'RESULT',
+                'tipo_do_resultado': 'TIPO DO RESULTADO',
+                'no_nascidos': '',
+                'tipo_de_tratamento': 'TIPO 1',
+                'tipo_de_fet': 'TIPO 2',
+                'tipo_biopsia': 'TIPO 3',
+                'tipo_da_doacao': 'TIPO 1',
+                'idade_mulher': 'IDADE',
+                'idade_do_cong_de_embriao': '',
+                'preparo_para_transferencia': '',
+                'dia_cryo': 'DIA CRYO',
+                'no_da_transfer_1a_2a_3a': '',
+                'dia_et': 'DIA ET',
+                'no_et': 'NºET',
+                'gravidez_bioquimica': '',
+                'gravidez_clinica': '',
+                'obs': 'OBS'
+            },
+            'filters': ['FET', 'FET/OR', 'FET/ER', 'DESCONG']
+        }
+    },
+    'planilha_2023_ibira_total_2023_nova': {
+        'sheet_name': 'Total 2023 Nova ',
+        'header_row': 1,
+        'fresh': {
+            'mapping': {
+                'nome_da_paciente': 'NOME',
+                'data_de_nasc': 'DATA DE NASC.',
+                'pin': 'PIN',
+                'tipo_1': 'TIPO 1',
+                'data_da_puncao': 'DIA',
+                'fator_1': 'FATOR 1',
+                'incubadora': 'INCUB',
+                'data_crio': 'DATA CRIO',
+                'tipo_de_inseminacao': 'TIPO 2',  
+                'tipo_biopsia': 'TIPO 3',  
+                'altura': 'ALTURA',
+                'peso': 'PESO',
+                'idade_espermatozoide': '', 
+                'origem': 'ORIGEM',
+                'tipo': 'TIPO',
+                'opu': 'OPU',
+                'total_de_mii': 'MII',
+                'qtd_blasto': '# BLASTO',
+                'qtd_blasto_tq_a_e_b': '# BLASTO TQ',  
+                'no_biopsiados': '# DPI',  
+                'qtd_analisados': 'N° ANALISADOS', 
+                'qtd_normais': '# DPI NL', 
+                'dia_cryo': 'DIA CRIO'
+            },
+            'filters': ['FIC/ICSI', 'FIV/ICSI', 'FOT', 'FOT OR', 'OR', 'FRESH']
+        },
+        'fet': {
+            'mapping': {
+                'nome_da_paciente': 'NOME',
+                'data_de_nasc': 'DATA DE NASC.',
+                'pin': 'PIN',
+                'tipo_1': 'TIPO 1',
+                'data_da_fet': 'DIA',
+                'data_crio': 'DATA CRIO',
+                'result': 'RESULT',
+                'tipo_do_resultado': 'ADMINISTRAÇÃO 1',
+                'no_nascidos': '',
+                'tipo_de_tratamento': 'TIPO 1',
+                'tipo_de_fet': 'TIPO 2',
+                'tipo_biopsia': 'TIPO 3',
+                'tipo_da_doacao': 'TIPO 1',
+                'idade_mulher': 'IDADE',
+                'idade_do_cong_de_embriao': 'IDADE OÓ NO CONG (PARA FET OU FOT)',
+                'preparo_para_transferencia': '',
+                'dia_cryo': 'DIA CRIO',
+                'no_da_transfer_1a_2a_3a': '',
+                'dia_et': 'DIA ET',
+                'no_et': 'NºET',
+                'gravidez_bioquimica': '',
+                'gravidez_clinica': '',
+                'obs': 'OBS'
+            },
+            'filters': ['FET', 'FET/OR', 'FET/ER']
+        }
+    },
+    'planilha_2022_ssa_fiv': {
+        'sheet_name': 'FIV',
+        'fresh': {
+            'mapping': {
+                'nome_da_paciente': 'Paciente',
+                'data_de_nasc': 'Nasc.',
+                'pin': 'Prontuário',
+                'tipo_1': 'Proced.',
+                'data_da_puncao': 'Data',
+                'fator_1': 'Causa',
+                'incubadora': 'Incub.',
+                'data_crio': 'Vitrif.1',
+                'tipo_de_inseminacao': 'ICSI',
+                'tipo_biopsia': '',
+                'altura': '',
+                'peso': '',
+                'idade_espermatozoide': '',
+                'origem': 'origem',
+                'tipo': 'Tipo',
+                'opu': 'Capt',
+                'total_de_mii': 'MII',
+                'qtd_blasto': '#BLAST',
+                'qtd_blasto_tq_a_e_b': 'Vitrif.1',
+                'no_biopsiados': '',
+                'qtd_analisados': '',
+                'qtd_normais': 'NORMAIS',
+                'dia_cryo': 'Dia'
+            },
+            'filters': []
+        }
+    },
+    'planilha_2022_ssa_tec': {
+        'sheet_name': 'TEC',
+        'fet': {
+            'mapping': {
+                'nome_da_paciente': 'Paciente',
+                'data_de_nasc': 'Nasc.',
+                'pin': 'Prontuário',
+                'tipo_1': 'Proced.',
+                'data_da_fet': 'Data',
+                'data_crio': 'Data Cong.',
+                'result': 'Beta',
+                'tipo_do_resultado': 'Tipo',
+                'no_nascidos': 'Dados Nascimento',
+                'tipo_de_tratamento': 'Proced.',
+                'tipo_de_fet': 'Proced.',
+                'tipo_biopsia': '',
+                'tipo_da_doacao': '',
+                'idade_mulher': 'Idade',
+                'idade_do_cong_de_embriao': '',
+                'preparo_para_transferencia': '',
+                'dia_cryo': 'D',
+                'no_da_transfer_1a_2a_3a': 'nº',
+                'dia_et': 'Dia',
+                'no_et': 'Transf',
+                'gravidez_bioquimica': 'Beta',
+                'gravidez_clinica': 'SG',
+                'obs': 'Obs'
+            },
+            'filters': []
+        }
+    },
+    'planilha_2023_ssa_fiv': {
+        'sheet_name': 'FIV',
+        'fresh': {
+            'mapping': {
+                'nome_da_paciente': 'NOME',
+                'data_de_nasc': '',
+                'pin': 'DATA',
+                'tipo_1': 'TIPO 1',
+                'data_da_puncao': 'DATA',
+                'fator_1': '',
+                'incubadora': '',
+                'data_crio': '',
+                'tipo_de_inseminacao': 'TIPO 2',
+                'tipo_biopsia': '',
+                'altura': '',
+                'peso': '',
+                'idade_espermatozoide': '',
+                'origem': 'ORIGEM SPTZ',
+                'tipo': 'TIPO SPTZ',
+                'opu': 'OPU',
+                'total_de_mii': 'MII',
+                'qtd_blasto': 'CLIVADOS',
+                'qtd_blasto_tq_a_e_b': 'TQ D3',
+                'no_biopsiados': '',
+                'qtd_analisados': '',
+                'qtd_normais': '',
+                'dia_cryo': ''
+            },
+            'filters': []
+        }
+    },
+    'planilha_2023_ssa_tec': {
+        'sheet_name': 'TEC',
+        'fet': {
+            'mapping': {
+                'nome_da_paciente': 'Paciente',
+                'data_de_nasc': '',
+                'pin': 'Prontuário',
+                'tipo_1': 'Tipo 1',
+                'data_da_fet': 'Data',
+                'data_crio': 'Data Cong.',
+                'result': 'Beta',
+                'tipo_do_resultado': 'Tipo 2',
+                'no_nascidos': '',
+                'tipo_de_tratamento': 'Tipo 1',
+                'tipo_de_fet': 'Tipo 2',
+                'tipo_biopsia': '',
+                'tipo_da_doacao': '',
+                'idade_mulher': 'Idade',
+                'idade_do_cong_de_embriao': '',
+                'preparo_para_transferencia': '',
+                'dia_cryo': 'D',
+                'no_da_transfer_1a_2a_3a': '',
+                'dia_et': 'Dia',
+                'no_et': 'Transf',
+                'gravidez_bioquimica': '',
+                'gravidez_clinica': '',
+                'obs': 'Obs'
+            },
+            'filters': []
+        }
     }
 }
 
@@ -798,18 +1083,24 @@ def normalize_column_name(col_name):
     return col_str
 
 def get_bronze_tables(con, sheet_type=None):
-    """Get all bronze tables matching the pattern, optionally filtered by sheet type, including '_total' tables."""
+    """Get all bronze tables matching the pattern, optionally filtered by sheet type, including shared tables."""
     try:
         # Search for bronze tables for this sheet type
-        # 2024-2025 use _fet and _fresh
-        # 2022-2023 use _total
-        # The query now explicitly includes tables ending with the sheet_type OR containing '_total'
+        # Fresh matches: _fresh, _fot, _fiv, plus shared historical tables
+        # FET matches: _fet, _recep, _tec, plus shared historical tables
+        if sheet_type == 'fresh':
+            condition = "(table_name LIKE '%_fresh' OR table_name LIKE '%_fot' OR table_name LIKE '%_fiv' OR table_name LIKE '%_total%' OR table_name LIKE '%_geral%' OR table_name LIKE '%_anual%' OR table_name LIKE '%_2022')"
+        elif sheet_type == 'fet':
+            condition = "(table_name LIKE '%_fet' OR table_name LIKE '%_recep' OR table_name LIKE '%_tec' OR table_name LIKE '%_total%' OR table_name LIKE '%_geral%' OR table_name LIKE '%_anual%' OR table_name LIKE '%_2022')"
+        else:
+            condition = "1=1"
+
         query = f"""
             SELECT table_name 
             FROM information_schema.tables 
             WHERE table_schema = 'bronze' 
             AND table_name LIKE '{BRONZE_PATTERN}'
-            AND (table_name LIKE '%_{sheet_type}' OR table_name LIKE '%_total%' OR table_name LIKE '%_geral%' OR table_name LIKE '%_anual%')
+            AND {condition}
             ORDER BY table_name
         """
         bronze_tables = con.execute(query).fetchdf()['table_name'].tolist()
@@ -821,7 +1112,7 @@ def get_bronze_tables(con, sheet_type=None):
         ]
         
         if sheet_type:
-            logger.info(f"Found {len(bronze_tables)} bronze tables for '{sheet_type}' (including shared) for years {YEARS_TO_PROCESS}")
+            logger.info(f"Found {len(bronze_tables)} bronze tables for '{sheet_type}' for years {YEARS_TO_PROCESS}")
         
         return bronze_tables
     except Exception as e:
@@ -1065,13 +1356,13 @@ def clean_data(df, sheet_type):
     initial_step3_count = len(df)
     
     # Find PIN column
-    pin_col = next((col for col in df.columns if normalize_column_name(col) == normalize_column_name('PIN')), 'PIN')
+    pin_col = next((col for col in df.columns if normalize_column_name(col) == 'pin'), 'pin')
     
     # Determine procedure date column based on sheet type
     if sheet_type.upper() == 'FRESH':
-        date_col = next((col for col in df.columns if normalize_column_name(col) == normalize_column_name('DATA DA PUNÇÃO')), 'DATA DA PUNÇÃO')
+        date_col = next((col for col in df.columns if normalize_column_name(col) in ['data_da_puncao', 'data_crio', 'dia_cryo', 'dia']), 'data_da_puncao')
     else:  # FET
-        date_col = next((col for col in df.columns if normalize_column_name(col) == normalize_column_name('DATA DA FET')), 'DATA DA FET')
+        date_col = next((col for col in df.columns if normalize_column_name(col) in ['data_da_fet', 'data_crio', 'dia_cryo', 'dia']), 'data_da_fet')
     
     if pin_col in df.columns and date_col in df.columns:
         # A row is kept if either PIN or date is NOT blank
@@ -1278,20 +1569,25 @@ def process_bronze_to_silver(con, sheet_type):
                 logger.info(f"  Using explicit 'by hand' configuration for {table_name} ({sheet_type})")
                 # Manual Mapping
                 manual_map = type_config.get('mapping', {})
-                # Create a local map for this table's columns
                 cols_in_table = df.columns.tolist()
-                rename_map = {}
-                for silver_col, bronze_col in manual_map.items():
-                    # Support both explicit and normalized matching for the config key
-                    match = next((c for c in cols_in_table if c == bronze_col or normalize_column_name(c) == normalize_column_name(bronze_col)), None)
-                    if match:
-                        rename_map[match] = silver_col
                 
-                logger.info(f"  Mapped {len(rename_map)} columns for {table_name}")
-                df_standardized = df.rename(columns=rename_map)
-                # Keep only columns that were renamed (whitelisted in the config) or metadata
-                keep_cols = list(rename_map.values()) + ['file_name', 'sheet_name', 'line_number', 'extraction_timestamp']
-                df_standardized = df_standardized[[c for c in df_standardized.columns if c in keep_cols]]
+                # Build df_standardized directly from manual_map without dict key collision
+                df_standardized = pd.DataFrame(index=df.index)
+                for silver_col, bronze_col in manual_map.items():
+                    if bronze_col:
+                        match = next((c for c in cols_in_table if c == bronze_col or normalize_column_name(c) == normalize_column_name(bronze_col)), None)
+                        if match and match in df.columns:
+                            df_standardized[silver_col] = df[match]
+                        else:
+                            df_standardized[silver_col] = None
+                    else:
+                        df_standardized[silver_col] = None
+                
+                # Include metadata columns
+                for meta_col in ['file_name', 'sheet_name', 'line_number', 'extraction_timestamp']:
+                    if meta_col in df.columns:
+                        df_standardized[meta_col] = df[meta_col]
+                
                 logger.info(f"  After column selection: {len(df_standardized)} rows, {len(df_standardized.columns)} columns")
                 
                 # Manual Filters
@@ -1300,7 +1596,11 @@ def process_bronze_to_silver(con, sheet_type):
             else:
                 # Global Standardization logic
                 df_standardized = standardize_dataframe_columns(df, standardization_map)
-                allowed_types = TIPO_FILTERS.get(sheet_type, [])
+                is_shared_table = any(k in table_name.lower() for k in ['_total', '_geral', '_anual', '_2022'])
+                if is_shared_table:
+                    allowed_types = TIPO_FILTERS.get(sheet_type, [])
+                else:
+                    allowed_types = []  # Dedicated procedure sheet (keep all rows)
 
             # 2. Filter by TIPO 1 (Prefix matching) immediately
             if 'tipo_1' in df_standardized.columns and allowed_types:

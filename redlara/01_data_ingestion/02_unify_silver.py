@@ -231,14 +231,14 @@ TABLE_CONFIGS = {
             'gestational_age_at_delivery': 'Gestacional age at delivery',
             'type_of_delivery': 'Type of delivery',
             'number_of_newborns': 'Number of newborns',
-            'baby_1_weight': 'Baby 1 - Weight',
-            'baby_2_weight': 'Baby 2 - Weight',
-            'baby_3_weight': 'Baby 3 - Weight',
+            'baby_1_weight': ('Baby 1 - Weight', 'Weight (Kg) (beb\ufffd 1)'),
+            'baby_2_weight': ('Baby 2 - Weight', 'Weight (Kg) (beb\ufffd 2)'),
+            'baby_3_weight': ('Baby 3 - Weight', 'Weight (Kg) (beb\ufffd 3)'),
             'complications_of_pregnancy_specify': 'Complications of pregnancy specify',
 
             'number_of_fet_after_originally_frozen': 'Number of FET after originally frozen',
-            'n_of_biopsied': 'Nº of biopsied (analisados)',
-            'n_of_normal': 'Nº of normal',
+            'n_of_biopsied': 'N\u00ba of biopsied (analisados)',
+            'n_of_normal': 'N\u00ba of normal',
             'number_of_embryos_transferred': 'Number of embryos transferred',
 
             'year': 'year',
@@ -265,8 +265,8 @@ TABLE_CONFIGS = {
             'complications_of_pregnancy_specify': 'Complications of pregnancy specify',
 
             'number_of_fet_after_originally_frozen': 'Number of FET after originally frozen',
-            'n_of_biopsied': 'Nº of biopsied',
-            'n_of_normal': 'Nº of normal',
+            'n_of_biopsied': 'N\u00ba of biopsied',
+            'n_of_normal': 'N\u00ba of normal',
             'number_of_embryos_transferred': 'Number of embryos transferred',
 
             'year': 'year',
@@ -287,14 +287,14 @@ TABLE_CONFIGS = {
             'gestational_age_at_delivery': 'Gestational age at delivery',
             'type_of_delivery': 'Type of delivery',
             'number_of_newborns': 'Number of newborns',
-            'baby_1_weight': 'Baby 1 - Weight',
-            'baby_2_weight': 'Baby 2 - Weight',
-            'baby_3_weight': 'Baby 3 - Weight',
+            'baby_1_weight': ('Baby 1 - Weight', 'Weight (Kg) (beb\ufffd 1)'),
+            'baby_2_weight': ('Baby 2 - Weight', 'Weight (Kg) (beb\ufffd 2)'),
+            'baby_3_weight': ('Baby 3 - Weight', 'Weight (Kg) (beb\ufffd 3)'),
             'complications_of_pregnancy_specify': 'Complications of pregnancy specify',
 
             'number_of_fet_after_originally_frozen': 'Number of FET after originally frozen',
-            'n_of_biopsied': 'Nº of biopsied',
-            'n_of_normal': 'Nº of normal',
+            'n_of_biopsied': 'N\u00ba of biopsied',
+            'n_of_normal': 'N\u00ba of normal',
             'number_of_embryos_transferred': 'Number of embryos transferred',
 
             'year': 'year',
@@ -315,14 +315,14 @@ TABLE_CONFIGS = {
             'gestational_age_at_delivery': 'Gestacional age at delivery',
             'type_of_delivery': 'Type of delivery',
             'number_of_newborns': 'Number of newborns',
-            'baby_1_weight': 'Baby 1 - Weight',
-            'baby_2_weight': 'Baby 2 - Weight',
-            'baby_3_weight': 'Baby 3 - Weight',
+            'baby_1_weight': ('Baby 1 - Weight', 'Weight (Kg) (beb\ufffd 1)'),
+            'baby_2_weight': ('Baby 2 - Weight', 'Weight (Kg) (beb\ufffd 2)'),
+            'baby_3_weight': ('Baby 3 - Weight', 'Weight (Kg) (beb\ufffd 3)'),
             'complications_of_pregnancy_specify': 'Complications of pregnancy specify',
 
             'number_of_fet_after_originally_frozen': 'Number of FET after originally frozen',
-            'n_of_biopsied': 'Nº of biopsied (analisados)',
-            'n_of_normal': 'Nº of normal',
+            'n_of_biopsied': 'N\u00ba of biopsied (analisados)',
+            'n_of_normal': 'N\u00ba of normal',
             'number_of_embryos_transferred': 'Number of embryos transferred',
 
             'year': 'year',
@@ -343,14 +343,14 @@ TABLE_CONFIGS = {
             'gestational_age_at_delivery': 'Gestacional age at delivery',
             'type_of_delivery': 'Type of delivery',
             'number_of_newborns': 'Number of newborns',
-            'baby_1_weight': 'Baby 1 - Weight',
-            'baby_2_weight': 'Baby 2 - Weight',
-            'baby_3_weight': 'Baby 3 - Weight',
+            'baby_1_weight': ('Baby 1 - Weight', 'Weight (Kg) (beb\ufffd 1)'),
+            'baby_2_weight': ('Baby 2 - Weight', 'Weight (Kg) (beb\ufffd 2)'),
+            'baby_3_weight': ('Baby 3 - Weight', 'Weight (Kg) (beb\ufffd 3)'),
             'complications_of_pregnancy_specify': 'Complications of pregnancy specify',
 
             'number_of_fet_after_originally_frozen': 'Number of FET after originally frozen',
-            'n_of_biopsied': 'Nº of biopsied (analisados)',
-            'n_of_normal': 'Nº of normal',
+            'n_of_biopsied': 'N\u00ba of biopsied (analisados)',
+            'n_of_normal': 'N\u00ba of normal',
             'number_of_embryos_transferred': 'Number of embryos transferred',
 
             'year': 'year',
@@ -361,6 +361,28 @@ TABLE_CONFIGS = {
         }
     }
 }
+
+def find_matching_columns(table_cols, source_col):
+    import re
+    if not source_col:
+        return []
+    candidates = [source_col] if isinstance(source_col, str) else list(source_col)
+    matched = []
+    for cand in candidates:
+        if cand in table_cols:
+            matched.append(cand)
+            continue
+        norm_cand = re.sub(r'[^a-z0-9]', '', cand.lower())
+        for tc in table_cols:
+            norm_tc = re.sub(r'[^a-z0-9]', '', tc.lower())
+            if norm_cand == norm_tc and tc not in matched:
+                matched.append(tc)
+                break
+            # Handle accents or mojibake (e.g. bebê vs beb\ufffd)
+            elif norm_cand.replace('e', '') == norm_tc.replace('e', '') and tc not in matched:
+                matched.append(tc)
+                break
+    return matched
 
 def unify_tables():
     conn = duckdb.connect(str(DB_PATH))
@@ -382,6 +404,9 @@ def unify_tables():
         mapping = config.get('mapping', {})
         select_clause = []
         
+        # Get actual table columns to safely match column names
+        table_cols = [c[0] for c in conn.execute(f"SELECT * FROM bronze.{table_name} LIMIT 0").description]
+        
         for target_col, source_col in mapping.items():
             if target_col == 'prontuario':
                 target_type = 'INTEGER'
@@ -392,9 +417,12 @@ def unify_tables():
             else:
                 target_type = 'VARCHAR'
                 
-            if source_col:
-                # Quote source column to handle spaces etc.
-                select_clause.append(f'TRY_CAST("{source_col}" AS {target_type}) AS {target_col}')
+            actual_cols = find_matching_columns(table_cols, source_col)
+            if len(actual_cols) > 1:
+                coalesce_expr = ", ".join([f'TRY_CAST("{ac}" AS {target_type})' for ac in actual_cols])
+                select_clause.append(f"COALESCE({coalesce_expr}) AS {target_col}")
+            elif len(actual_cols) == 1:
+                select_clause.append(f'TRY_CAST("{actual_cols[0]}" AS {target_type}) AS {target_col}')
             else:
                 select_clause.append(f"CAST(NULL AS {target_type}) AS {target_col}")
         

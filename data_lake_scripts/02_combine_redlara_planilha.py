@@ -53,25 +53,32 @@ def create_combined_table(conn):
     join_query = """
     CREATE TABLE gold.redlara_planilha_combined AS
     WITH redlara_with_id AS (
-        SELECT *, row_number() OVER() as r_unique_id FROM silver.redlara_unified
+        SELECT 
+            *, 
+            COALESCE(
+                CASE WHEN prontuario > 0 THEN prontuario ELSE NULL END,
+                TRY_CAST(regexp_replace(chart_or_pin, '[^0-9]', '', 'g') AS INTEGER)
+            ) as cleaned_prontuario,
+            row_number() OVER() as r_unique_id 
+        FROM silver.redlara_unified
     ),
     planilha_with_id AS (
         SELECT *, row_number() OVER() as e_unique_id FROM silver.planilha_embriologia_combined
     ),
     step1 AS (
         -- Step 1: Exact Transfer Date match (valid prontuarios only)
-        SELECT r.r_unique_id, e.e_unique_id, 1 as step_id
+        SELECT r.r_unique_id, e.e_unique_id, 1 as step_id, 0 as date_diff_abs
         FROM redlara_with_id r
-        JOIN planilha_with_id e ON r.prontuario = e.prontuario
-        WHERE r.prontuario > 0 AND e.prontuario > 0
+        JOIN planilha_with_id e ON r.cleaned_prontuario = e.prontuario
+        WHERE r.cleaned_prontuario > 0 AND e.prontuario > 0
           AND r.date_of_embryo_transfer = e.fet_data_da_fet AND r.date_of_embryo_transfer IS NOT NULL
     ),
     step2 AS (
         -- Step 2: Transfer Date match (with 3-day tolerance)
-        SELECT r.r_unique_id, e.e_unique_id, 2 as step_id
+        SELECT r.r_unique_id, e.e_unique_id, 2 as step_id, abs(date_diff('day', r.date_of_embryo_transfer, e.fet_data_da_fet)) as date_diff_abs
         FROM redlara_with_id r
-        JOIN planilha_with_id e ON r.prontuario = e.prontuario
-        WHERE r.prontuario > 0 AND e.prontuario > 0
+        JOIN planilha_with_id e ON r.cleaned_prontuario = e.prontuario
+        WHERE r.cleaned_prontuario > 0 AND e.prontuario > 0
           AND date_diff('day', r.date_of_embryo_transfer, e.fet_data_da_fet) BETWEEN -3 AND 3
           AND r.date_of_embryo_transfer IS NOT NULL AND e.fet_data_da_fet IS NOT NULL
           AND r.r_unique_id NOT IN (SELECT r_unique_id FROM step1)
@@ -79,20 +86,20 @@ def create_combined_table(conn):
     ),
     step3 AS (
         -- Step 3: Cryo Date FET match (Exact)
-        SELECT r.r_unique_id, e.e_unique_id, 3 as step_id
+        SELECT r.r_unique_id, e.e_unique_id, 3 as step_id, 0 as date_diff_abs
         FROM redlara_with_id r
-        JOIN planilha_with_id e ON r.prontuario = e.prontuario
-        WHERE r.prontuario > 0 AND e.prontuario > 0
+        JOIN planilha_with_id e ON r.cleaned_prontuario = e.prontuario
+        WHERE r.cleaned_prontuario > 0 AND e.prontuario > 0
           AND r.date_when_embryos_were_cryopreserved = e.fet_data_crio AND r.date_when_embryos_were_cryopreserved IS NOT NULL
           AND r.r_unique_id NOT IN (SELECT r_unique_id FROM step1 UNION SELECT r_unique_id FROM step2)
           AND e.e_unique_id NOT IN (SELECT e_unique_id FROM step1 UNION SELECT e_unique_id FROM step2)
     ),
     step4 AS (
         -- Step 4: Cryo Date FET match (with 3-day tolerance)
-        SELECT r.r_unique_id, e.e_unique_id, 4 as step_id
+        SELECT r.r_unique_id, e.e_unique_id, 4 as step_id, abs(date_diff('day', r.date_when_embryos_were_cryopreserved, e.fet_data_crio)) as date_diff_abs
         FROM redlara_with_id r
-        JOIN planilha_with_id e ON r.prontuario = e.prontuario
-        WHERE r.prontuario > 0 AND e.prontuario > 0
+        JOIN planilha_with_id e ON r.cleaned_prontuario = e.prontuario
+        WHERE r.cleaned_prontuario > 0 AND e.prontuario > 0
           AND date_diff('day', r.date_when_embryos_were_cryopreserved, e.fet_data_crio) BETWEEN -3 AND 3
           AND r.date_when_embryos_were_cryopreserved IS NOT NULL AND e.fet_data_crio IS NOT NULL
           AND r.r_unique_id NOT IN (SELECT r_unique_id FROM step1 UNION SELECT r_unique_id FROM step2 UNION SELECT r_unique_id FROM step3)
@@ -100,20 +107,20 @@ def create_combined_table(conn):
     ),
     step5 AS (
         -- Step 5: Cryo Date Fresh match (Exact)
-        SELECT r.r_unique_id, e.e_unique_id, 5 as step_id
+        SELECT r.r_unique_id, e.e_unique_id, 5 as step_id, 0 as date_diff_abs
         FROM redlara_with_id r
-        JOIN planilha_with_id e ON r.prontuario = e.prontuario
-        WHERE r.prontuario > 0 AND e.prontuario > 0
+        JOIN planilha_with_id e ON r.cleaned_prontuario = e.prontuario
+        WHERE r.cleaned_prontuario > 0 AND e.prontuario > 0
           AND r.date_when_embryos_were_cryopreserved = e.fresh_data_crio AND r.date_when_embryos_were_cryopreserved IS NOT NULL
           AND r.r_unique_id NOT IN (SELECT r_unique_id FROM step1 UNION SELECT r_unique_id FROM step2 UNION SELECT r_unique_id FROM step3 UNION SELECT r_unique_id FROM step4)
           AND e.e_unique_id NOT IN (SELECT e_unique_id FROM step1 UNION SELECT e_unique_id FROM step2 UNION SELECT e_unique_id FROM step3 UNION SELECT e_unique_id FROM step4)
     ),
     step6 AS (
         -- Step 6: Cryo Date Fresh match (with 3-day tolerance)
-        SELECT r.r_unique_id, e.e_unique_id, 6 as step_id
+        SELECT r.r_unique_id, e.e_unique_id, 6 as step_id, abs(date_diff('day', r.date_when_embryos_were_cryopreserved, e.fresh_data_crio)) as date_diff_abs
         FROM redlara_with_id r
-        JOIN planilha_with_id e ON r.prontuario = e.prontuario
-        WHERE r.prontuario > 0 AND e.prontuario > 0
+        JOIN planilha_with_id e ON r.cleaned_prontuario = e.prontuario
+        WHERE r.cleaned_prontuario > 0 AND e.prontuario > 0
           AND date_diff('day', r.date_when_embryos_were_cryopreserved, e.fresh_data_crio) BETWEEN -3 AND 3
           AND r.date_when_embryos_were_cryopreserved IS NOT NULL AND e.fresh_data_crio IS NOT NULL
           AND r.r_unique_id NOT IN (SELECT r_unique_id FROM step1 UNION SELECT r_unique_id FROM step2 UNION SELECT r_unique_id FROM step3 UNION SELECT r_unique_id FROM step4 UNION SELECT r_unique_id FROM step5)
@@ -131,24 +138,36 @@ def create_combined_table(conn):
         SELECT * FROM (
             SELECT 
                 *,
-                ROW_NUMBER() OVER(PARTITION BY r_unique_id ORDER BY step_id) as r_rank,
-                ROW_NUMBER() OVER(PARTITION BY e_unique_id ORDER BY step_id) as e_rank
+                ROW_NUMBER() OVER(PARTITION BY r_unique_id ORDER BY step_id, date_diff_abs ASC) as r_rank,
+                ROW_NUMBER() OVER(PARTITION BY e_unique_id ORDER BY step_id, date_diff_abs ASC) as e_rank
             FROM all_matches
         ) WHERE r_rank = 1 AND e_rank = 1
     ),
     combined AS (
         SELECT 
-            COALESCE(r.prontuario, e.prontuario) as prontuario,
+            COALESCE(r.cleaned_prontuario, e.prontuario) as prontuario,
             COALESCE(r.date_of_embryo_transfer, e.fet_data_da_fet) as transfer_date,
-            COALESCE(TRY_CAST(r.number_of_newborns AS INTEGER), TRY_CAST(e.fet_no_nascidos AS INTEGER)) as merged_numero_de_nascidos,
+            COALESCE(
+                TRY_CAST(TRY_CAST(r.number_of_newborns AS DOUBLE) AS INTEGER),
+                TRY_CAST(TRY_CAST(e.fet_no_nascidos AS DOUBLE) AS INTEGER)
+            ) as merged_numero_de_nascidos,
             CASE 
-                WHEN e.fresh_incubadora ILIKE '%ES%' THEN 'Embryoscope'
+                WHEN e.fresh_incubadora IN ('\', '-', '/', '.', '0', 'N/A', 'NA', 'none', '') OR e.fresh_incubadora IS NULL THEN NULL
                 WHEN e.fresh_incubadora ILIKE '%THERMO%' THEN 'THERMO'
-                WHEN e.fresh_incubadora IS NOT NULL THEN 'K-SYSTEM'
-                ELSE NULL 
+                WHEN e.fresh_incubadora ILIKE '%ES%' OR e.fresh_incubadora ILIKE '%EMBRYOSCOPE%' THEN 'EMBRYOSCOPE'
+                ELSE 'K-SYSTEM'
             END as incubadora_padronizada,
             m.step_id as redlara_planilha_join_step,
-            r.* EXCLUDE (prontuario, date_of_embryo_transfer, number_of_newborns, r_unique_id),
+            CASE m.step_id
+                WHEN 1 THEN 'Exact Transfer Date'
+                WHEN 2 THEN 'Transfer Date (+/- 3 days)'
+                WHEN 3 THEN 'Exact Cryo Date (FET)'
+                WHEN 4 THEN 'Cryo Date (FET) (+/- 3 days)'
+                WHEN 5 THEN 'Exact Cryo Date (Fresh)'
+                WHEN 6 THEN 'Cryo Date (Fresh) (+/- 3 days)'
+                ELSE NULL
+            END as redlara_planilha_join_step_name,
+            r.* EXCLUDE (prontuario, cleaned_prontuario, date_of_embryo_transfer, number_of_newborns, r_unique_id),
             e.* EXCLUDE (prontuario, fet_data_da_fet, fet_no_nascidos, e_unique_id)
         FROM redlara_with_id r
         FULL OUTER JOIN best_matches m ON r.r_unique_id = m.r_unique_id
@@ -173,10 +192,10 @@ def create_combined_table(conn):
     total_gold = conn.execute("SELECT COUNT(*) FROM gold.redlara_planilha_combined").fetchone()[0]
     
     stats_by_step = conn.execute("""
-        SELECT redlara_planilha_join_step, COUNT(*) as count
+        SELECT redlara_planilha_join_step, redlara_planilha_join_step_name, COUNT(*) as count
         FROM gold.redlara_planilha_combined
         WHERE redlara_planilha_join_step IS NOT NULL
-        GROUP BY redlara_planilha_join_step
+        GROUP BY redlara_planilha_join_step, redlara_planilha_join_step_name
         ORDER BY redlara_planilha_join_step
     """).df()
     
@@ -195,17 +214,9 @@ def create_combined_table(conn):
     
     logger.info("-" * 60)
     logger.info("Matches by Waterfall Step:")
-    step_labels = {
-        1: "Exact Transfer Date",
-        2: "Transfer Date (+/- 3 days)",
-        3: "Exact Cryo Date (FET)",
-        4: "Cryo Date (FET) (+/- 3 days)",
-        5: "Exact Cryo Date (Fresh)",
-        6: "Cryo Date (Fresh) (+/- 3 days)"
-    }
     for _, row in stats_by_step.iterrows():
         step = int(row['redlara_planilha_join_step'])
-        label = step_labels.get(step, f"Step {step}")
+        label = row['redlara_planilha_join_step_name'] or f"Step {step}"
         logger.info(f"  Step {step}: {label:<35} | {int(row['count']):>6,}")
         
     logger.info("=" * 60)

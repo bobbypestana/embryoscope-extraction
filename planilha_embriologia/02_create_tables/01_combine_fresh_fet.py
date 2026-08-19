@@ -89,13 +89,13 @@ def combine_fresh_fet(conn):
         ) WHERE rn_fresh = 1 AND rn_fet = 1
     )
     SELECT 
-        COALESCE(CAST(f.prontuario AS INTEGER), CAST(t.prontuario AS INTEGER)) as prontuario,
+        COALESCE(TRY_CAST(f.prontuario AS INTEGER), TRY_CAST(t.prontuario AS INTEGER)) as prontuario,
         m.step_id as join_step,
         -- Fresh Columns
-        CAST(f.data_da_puncao AS DATE) as fresh_data_da_puncao,
+        TRY_CAST(f.data_da_puncao AS DATE) as fresh_data_da_puncao,
         f.fator_1 as fresh_fator_1,
         f.incubadora as fresh_incubadora,
-        CAST(f.data_crio AS DATE) as fresh_data_crio,
+        TRY_CAST(f.data_crio AS DATE) as fresh_data_crio,
         f.tipo_1 as fresh_tipo_1,
         f.tipo_de_inseminacao as fresh_tipo_de_inseminacao,
         f.tipo_biopsia as fresh_tipo_biopsia,
@@ -116,8 +116,8 @@ def combine_fresh_fet(conn):
         f.file_name as fresh_file_name,
         f.sheet_name as fresh_sheet_name,
         -- FET Columns
-        CAST(t.data_da_fet AS DATE) as fet_data_da_fet,
-        CAST(t.data_crio AS DATE) as fet_data_crio,
+        TRY_CAST(t.data_da_fet AS DATE) as fet_data_da_fet,
+        TRY_CAST(t.data_crio AS DATE) as fet_data_crio,
         t.result as fet_resultado,
         t.tipo_do_resultado as fet_tipo_resultado,
         t.no_nascidos as fet_no_nascidos,

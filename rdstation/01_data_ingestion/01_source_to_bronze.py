@@ -340,6 +340,7 @@ def fetch_and_ingest_range(client, table_name, endpoint, start_str, end_str, exi
     pks = TABLE_PKS.get(table_name, [])
     new_rows = []
     resp = None
+    total_written = 0
     
     while True:
         # Check if page is too high
@@ -393,6 +394,7 @@ def fetch_and_ingest_range(client, table_name, endpoint, start_str, end_str, exi
         # Write batches of 500 records to prevent memory build-up
         if len(new_rows) >= 500:
             write_to_bronze(table_name, new_rows)
+            total_written += len(new_rows)
             new_rows = []
             
         if len(data_list) < page_size:
@@ -407,7 +409,8 @@ def fetch_and_ingest_range(client, table_name, endpoint, start_str, end_str, exi
             logger.error(f"Cannot split range further (less than 1 minute). Writing what we have...")
             if new_rows:
                 write_to_bronze(table_name, new_rows)
-            return len(new_rows)
+                total_written += len(new_rows)
+            return total_written
             
         mid_dt = start_dt + (end_dt - start_dt) / 2
         start_fmt = start_dt.strftime("%Y-%m-%dT%H:%M:%SZ")
@@ -417,11 +420,12 @@ def fetch_and_ingest_range(client, table_name, endpoint, start_str, end_str, exi
         logger.info(f"Recursive split: Left: {start_fmt} to {mid_fmt} | Right: {mid_fmt} to {end_fmt}")
         left_count = fetch_and_ingest_range(client, table_name, endpoint, start_fmt, mid_fmt, existing_hashes, fetched_pks)
         right_count = fetch_and_ingest_range(client, table_name, endpoint, mid_fmt, end_fmt, existing_hashes, fetched_pks)
-        return left_count + right_count
+        return total_written + left_count + right_count
     else:
         if new_rows:
             write_to_bronze(table_name, new_rows)
-        return len(new_rows)
+            total_written += len(new_rows)
+        return total_written
 
 def generate_date_chunks(start_str, end_str):
     start_dt = pd.to_datetime(start_str)

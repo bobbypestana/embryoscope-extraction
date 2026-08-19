@@ -250,6 +250,7 @@ if %errorlevel% neq 0 (
 cd /d "%PROJECT_ROOT%"
 
 echo.
+echo.
 echo ========================================
 echo STEP 11: Running Mesclada Pipeline
 echo ========================================
@@ -305,13 +306,25 @@ echo ========================================
 @REM     pause
 @REM     exit /b 1
 @REM )
-@REM call "embryoscope_api\00_run_image_extraction_pipeline.bat" 14
-@REM if %errorlevel% neq 0 (
-@REM     echo ERROR: Step 14 failed
-@REM     pause
+@REM cd /d "%PROJECT_ROOT%"
+
+@REM echo.
+@REM echo ========================================
+@REM echo STEP 15: Running RD Station Ingestion Pipeline
+@REM echo ========================================
+@REM if not exist "rdstation\01_data_ingestion\00_run_dataflow_rdstation.bat" (
+@REM     echo ERROR: Cannot find rdstation\01_data_ingestion\00_run_dataflow_rdstation.bat
+@REM     echo Current directory: %CD%
+@REM     @REM pause (removed for automated execution)
 @REM     exit /b 1
 @REM )
+@REM call "rdstation\01_data_ingestion\00_run_dataflow_rdstation.bat" 15
+@REM if %errorlevel% neq 0 (
+@REM     echo ERROR: Step 15 failed
+@REM     set "FAILED_STEPS=%FAILED_STEPS% 15"
+@REM )
 @REM cd /d "%PROJECT_ROOT%"
+
 
 
 echo.

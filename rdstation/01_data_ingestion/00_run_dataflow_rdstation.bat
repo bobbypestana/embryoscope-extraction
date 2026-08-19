@@ -25,7 +25,7 @@ echo.
 echo ========================================
 echo STEP %PARENT_STEP%.1: Extract from API to Bronze
 echo ========================================
-python -u 01_source_to_bronze.py %*
+python -u 01_source_to_bronze.py
 if %errorlevel% neq 0 (
     echo ERROR: Step %PARENT_STEP%.1 failed
     @REM pause (removed for automated execution)
@@ -56,9 +56,20 @@ if %errorlevel% neq 0 (
 
 echo.
 echo ========================================
+echo STEP %PARENT_STEP%.3a: Leads Funil Mapping
+echo ========================================
+python -u 03_a_leads_funil.py
+if %errorlevel% neq 0 (
+    echo ERROR: Step %PARENT_STEP%.3a failed
+    @REM pause (removed for automated execution)
+    exit /b 1
+)
+
+echo.
+echo ========================================
 echo STEP %PARENT_STEP%.4: Ingestion Dashboard
 echo ========================================
-python -u 04_generate_dashboard.py
+python -u 04_a_generate_leads_funil_dashboard.py
 if %errorlevel% neq 0 (
     echo ERROR: Step %PARENT_STEP%.4 failed
     @REM pause (removed for automated execution)
