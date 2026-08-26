@@ -422,15 +422,16 @@ class EmbryoscopeDatabaseManager:
             """
             return conn.execute(query, [location, location]).df()
     
-    def get_existing_pairs_with_status(self, location: str) -> Dict[Tuple[str, str], bool]:
+    def get_existing_pairs_with_status(self, location: str) -> Dict[Tuple[str, str], Dict[str, bool]]:
         """
-        Get existing patient-treatment pairs and their latest is_ongoing status.
+        Get existing patient-treatment pairs with their latest is_ongoing status
+        and whether embryo records already exist in data_embryo_data.
         
         Args:
             location: Location identifier
             
         Returns:
-            Dict mapping (PatientIDx, TreatmentName) -> is_ongoing (bool)
+            Dict mapping (PatientIDx, TreatmentName) -> {'is_ongoing': bool, 'has_embryos': bool}
         """
         with duckdb.connect(self.db_path) as conn:
             try:
@@ -440,21 +441,129 @@ class EmbryoscopeDatabaseManager:
             except Exception:
                 pass
 
-            query = """
-                SELECT PatientIDx, TreatmentName, COALESCE(is_ongoing, FALSE) as is_ongoing
-                FROM data_treatments
-                WHERE _location = ?
-                QUALIFY ROW_NUMBER() OVER (
-                    PARTITION BY PatientIDx, TreatmentName, _location 
-                    ORDER BY _extraction_timestamp DESC
-                ) = 1
-            """
+            # Check if data_embryo_data exists
+            has_embryo_table = False
             try:
-                result = conn.execute(query, [location]).fetchall()
-                return {(str(row[0]), str(row[1])): bool(row[2]) for row in result}
+                conn.execute("SELECT 1 FROM data_embryo_data LIMIT 1")
+                has_embryo_table = True
+            except Exception:
+                pass
+
+            if has_embryo_table:
+                query = """
+                    WITH latest_treatments AS (
+                        SELECT PatientIDx, TreatmentName, COALESCE(is_ongoing, FALSE) as is_ongoing
+                        FROM data_treatments
+                        WHERE _location = ?
+                        QUALIFY ROW_NUMBER() OVER (
+                            PARTITION BY PatientIDx, TreatmentName, _location 
+                            ORDER BY _extraction_timestamp DESC
+                        ) = 1
+                    ),
+                    embryo_pairs AS (
+                        SELECT 
+                            PatientIDx, 
+                            TreatmentName,
+                            max(TRY_CAST(replace(regexp_extract(EmbryoID, 'D(20[0-9]{2}\\.[0-9]{2}\\.[0-9]{2})', 1), '.', '-') AS DATE)) as latest_embryo_date,
+                            list(EmbryoID) as embryo_ids
+                        FROM data_embryo_data
+                        WHERE _location = ?
+                        GROUP BY PatientIDx, TreatmentName
+                    )
+                    SELECT 
+                        t.PatientIDx, 
+                        t.TreatmentName, 
+                        t.is_ongoing,
+                        CASE WHEN e.PatientIDx IS NOT NULL THEN TRUE ELSE FALSE END as has_embryos,
+                        e.latest_embryo_date,
+                        e.embryo_ids
+                    FROM latest_treatments t
+                    LEFT JOIN embryo_pairs e 
+                        ON t.PatientIDx = e.PatientIDx AND t.TreatmentName = e.TreatmentName
+                """
+                try:
+                    result = conn.execute(query, [location, location]).fetchall()
+                    return {
+                        (str(row[0]), str(row[1])): {
+                            'is_ongoing': bool(row[2]),
+                            'has_embryos': bool(row[3]),
+                            'latest_embryo_date': row[4],
+                            'embryo_ids': set(row[5]) if row[5] else set()
+                        }
+                        for row in result
+                    }
+                except Exception as e:
+                    self.logger.debug(f"Could not query data_treatments table with embryos: {e}")
+            else:
+                query = """
+                    SELECT PatientIDx, TreatmentName, COALESCE(is_ongoing, FALSE) as is_ongoing
+                    FROM data_treatments
+                    WHERE _location = ?
+                    QUALIFY ROW_NUMBER() OVER (
+                        PARTITION BY PatientIDx, TreatmentName, _location 
+                        ORDER BY _extraction_timestamp DESC
+                    ) = 1
+                """
+                try:
+                    result = conn.execute(query, [location]).fetchall()
+                    return {
+                        (str(row[0]), str(row[1])): {
+                            'is_ongoing': bool(row[2]),
+                            'has_embryos': False,
+                            'latest_embryo_date': None,
+                            'embryo_ids': set()
+                        }
+                        for row in result
+                    }
+                except Exception as e:
+                    self.logger.debug(f"Could not query data_treatments table: {e}")
+
+            return {}
+
+    def get_existing_patients_and_treatments(self, location: str, lookback_days: int = 60) -> tuple:
+        """
+        Get existing patient IDs, recent patient IDs (with embryos in lookback_days),
+        and historical treatments from the database to avoid querying the API for all historical patients.
+        
+        Returns:
+            (all_patients_set, recent_patients_set, historical_treatments_df)
+        """
+        with duckdb.connect(self.db_path) as conn:
+            all_patients = set()
+            try:
+                patients_res = conn.execute("SELECT DISTINCT PatientIDx FROM data_patients WHERE _location = ?", [location]).fetchall()
+                all_patients = set(str(r[0]) for r in patients_res)
             except Exception as e:
-                self.logger.debug(f"Could not query data_treatments table: {e}")
-                return {}
+                self.logger.debug(f"Could not query existing patients: {e}")
+
+            recent_patients = set()
+            try:
+                recent_query = """
+                    SELECT DISTINCT PatientIDx
+                    FROM data_embryo_data
+                    WHERE _location = ?
+                      AND TRY_CAST(replace(regexp_extract(EmbryoID, 'D(20[0-9]{2}\\.[0-9]{2}\\.[0-9]{2})', 1), '.', '-') AS DATE) >= CURRENT_DATE - (? * INTERVAL '1 day')
+                """
+                recent_res = conn.execute(recent_query, [location, lookback_days]).fetchall()
+                recent_patients = set(str(r[0]) for r in recent_res)
+            except Exception as e:
+                self.logger.debug(f"Could not query recent patients: {e}")
+
+            historical_treatments_df = pd.DataFrame()
+            try:
+                historical_treatments_df = conn.execute("""
+                    SELECT PatientIDx, TreatmentName, is_ongoing
+                    FROM data_treatments
+                    WHERE _location = ?
+                    QUALIFY ROW_NUMBER() OVER (
+                        PARTITION BY PatientIDx, TreatmentName, _location 
+                        ORDER BY _extraction_timestamp DESC
+                    ) = 1
+                """, [location]).fetchdf()
+            except Exception as e:
+                self.logger.debug(f"Could not query historical treatments: {e}")
+
+            return all_patients, recent_patients, historical_treatments_df
 
     def get_all_existing_pairs(self, location: str) -> set:
         """

@@ -53,40 +53,86 @@ def combine_fresh_fet(conn):
     WITH fresh AS (
         SELECT *, ROW_NUMBER() OVER() as fresh_id
         FROM silver.planilha_embriologia_fresh
+        WHERE prontuario IS NOT NULL AND prontuario > 0
     ),
     fet AS (
         SELECT *, ROW_NUMBER() OVER() as fet_id
         FROM silver.planilha_embriologia_fet
+        WHERE prontuario IS NOT NULL AND prontuario > 0
     ),
+    -- Step 1: Matching Prontuario + Crio Date (+/- 2 days)
     step1 AS (
-        -- Step 1: Matching Prontuario + Crio Date (+/- 2 days)
         SELECT f.fresh_id, t.fet_id, 1 as step_id
         FROM fresh f
         JOIN fet t ON f.prontuario = t.prontuario
-        WHERE date_diff('day', TRY_CAST(f.data_crio AS TIMESTAMP), TRY_CAST(t.data_crio AS TIMESTAMP)) BETWEEN -2 AND 2
-          AND f.prontuario IS NOT NULL
+        WHERE f.data_crio IS NOT NULL AND t.data_crio IS NOT NULL
+          AND date_diff('day', TRY_CAST(f.data_crio AS DATE), TRY_CAST(t.data_crio AS DATE)) BETWEEN -2 AND 2
     ),
+    -- Step 2: Matching Prontuario + fet.data_crio == fresh.data_da_puncao (-2 to 7 days culture window)
     step2 AS (
-        -- Step 2: Matching Prontuario + FET Date == Punção Date (+/- 2 days)
         SELECT f.fresh_id, t.fet_id, 2 as step_id
         FROM fresh f
         JOIN fet t ON f.prontuario = t.prontuario
-        WHERE date_diff('day', TRY_CAST(f.data_da_puncao AS TIMESTAMP), TRY_CAST(t.data_da_fet AS TIMESTAMP)) BETWEEN -2 AND 2
-          AND f.prontuario IS NOT NULL
+        WHERE f.data_da_puncao IS NOT NULL AND t.data_crio IS NOT NULL
+          AND date_diff('day', TRY_CAST(f.data_da_puncao AS DATE), TRY_CAST(t.data_crio AS DATE)) BETWEEN -2 AND 7
           AND f.fresh_id NOT IN (SELECT fresh_id FROM step1)
           AND t.fet_id NOT IN (SELECT fet_id FROM step1)
     ),
+    -- Step 3: Same day Fresh transfer / FET Date == Punção Date (+/- 2 days)
+    step3 AS (
+        SELECT f.fresh_id, t.fet_id, 3 as step_id
+        FROM fresh f
+        JOIN fet t ON f.prontuario = t.prontuario
+        WHERE f.data_da_puncao IS NOT NULL AND t.data_da_fet IS NOT NULL
+          AND date_diff('day', TRY_CAST(f.data_da_puncao AS DATE), TRY_CAST(t.data_da_fet AS DATE)) BETWEEN -2 AND 5
+          AND f.fresh_id NOT IN (SELECT fresh_id FROM step1 UNION SELECT fresh_id FROM step2)
+          AND t.fet_id NOT IN (SELECT fet_id FROM step1 UNION SELECT fet_id FROM step2)
+    ),
+    -- Step 4: Closest preceding Fresh cycle within 730 days (2 years)
+    step4_candidates AS (
+        SELECT f.fresh_id, t.fet_id, 4 as step_id,
+               ROW_NUMBER() OVER(PARTITION BY t.fet_id ORDER BY date_diff('day', TRY_CAST(COALESCE(f.data_crio, f.data_da_puncao) AS DATE), TRY_CAST(t.data_da_fet AS DATE)) ASC) as rn
+        FROM fresh f
+        JOIN fet t ON f.prontuario = t.prontuario
+        WHERE COALESCE(f.data_crio, f.data_da_puncao) IS NOT NULL AND t.data_da_fet IS NOT NULL
+          AND date_diff('day', TRY_CAST(COALESCE(f.data_crio, f.data_da_puncao) AS DATE), TRY_CAST(t.data_da_fet AS DATE)) BETWEEN 0 AND 730
+          AND f.fresh_id NOT IN (SELECT fresh_id FROM step1 UNION SELECT fresh_id FROM step2 UNION SELECT fresh_id FROM step3)
+          AND t.fet_id NOT IN (SELECT fet_id FROM step1 UNION SELECT fet_id FROM step2 UNION SELECT fet_id FROM step3)
+    ),
+    step4 AS (
+        SELECT fresh_id, fet_id, step_id FROM step4_candidates WHERE rn = 1
+    ),
+    -- Step 5: For remaining unmatched FETs where patient has exactly ONE FRESH cycle in the lake
+    single_fresh_patients AS (
+        SELECT prontuario, MIN(fresh_id) as fresh_id
+        FROM fresh
+        WHERE fresh_id NOT IN (SELECT fresh_id FROM step1 UNION SELECT fresh_id FROM step2 UNION SELECT fresh_id FROM step3 UNION SELECT fresh_id FROM step4)
+        GROUP BY prontuario
+        HAVING COUNT(*) = 1
+    ),
+    step5_candidates AS (
+        SELECT s.fresh_id, t.fet_id, 5 as step_id,
+               ROW_NUMBER() OVER(PARTITION BY t.fet_id ORDER BY t.data_da_fet ASC) as rn
+        FROM fet t
+        JOIN single_fresh_patients s ON t.prontuario = s.prontuario
+        WHERE t.fet_id NOT IN (SELECT fet_id FROM step1 UNION SELECT fet_id FROM step2 UNION SELECT fet_id FROM step3 UNION SELECT fet_id FROM step4)
+    ),
+    step5 AS (
+        SELECT fresh_id, fet_id, step_id FROM step5_candidates WHERE rn = 1
+    ),
     all_combined_matches AS (
         SELECT * FROM step1
-        UNION ALL
-        SELECT * FROM step2
+        UNION ALL SELECT * FROM step2
+        UNION ALL SELECT * FROM step3
+        UNION ALL SELECT * FROM step4
+        UNION ALL SELECT * FROM step5
     ),
     final_matches AS (
         SELECT * FROM (
             SELECT *, ROW_NUMBER() OVER(PARTITION BY fresh_id ORDER BY step_id) as rn_fresh,
                       ROW_NUMBER() OVER(PARTITION BY fet_id ORDER BY step_id) as rn_fet
             FROM all_combined_matches
-        ) WHERE rn_fresh = 1 AND rn_fet = 1
+        ) WHERE rn_fet = 1
     )
     SELECT 
         COALESCE(TRY_CAST(f.prontuario AS INTEGER), TRY_CAST(t.prontuario AS INTEGER)) as prontuario,
@@ -137,9 +183,9 @@ def combine_fresh_fet(conn):
         t.gravidez_clinica as fet_gravidez_clinica,
         t.file_name as fet_file_name,
         t.sheet_name as fet_sheet_name
-    FROM fresh f
+    FROM (SELECT *, ROW_NUMBER() OVER() as fresh_id FROM silver.planilha_embriologia_fresh) f
     LEFT JOIN final_matches m ON f.fresh_id = m.fresh_id
-    FULL OUTER JOIN fet t ON m.fet_id = t.fet_id
+    FULL OUTER JOIN (SELECT *, ROW_NUMBER() OVER() as fet_id FROM silver.planilha_embriologia_fet) t ON m.fet_id = t.fet_id
     """
     
     conn.execute(query)
@@ -181,21 +227,24 @@ def combine_fresh_fet(conn):
     logger.info(f"Source FET rows:   {total_fet:,}")
     logger.info(f"--------------------------------------------------")
     logger.info(f"Total combined rows: {total_combined:,}")
-    logger.info(f"  Rows with BOTH (matched): {both_sides:,} ({fet_match_rate:.2f}% of FET)")
+    logger.info(f"  Rows with BOTH (matched): {both_sides:,} ({fet_match_rate:.2f}% of total FET)")
     logger.info(f"  Rows with FRESH only:     {fresh_only:,}")
     logger.info(f"  Rows with FET only:       {fet_only:,}")
     logger.info("--------------------------------------------------")
     logger.info("Matches by Waterfall Step:")
     
     step_labels = {
-        1: "Prontuario + Crio Date (+/- 2d)",
-        2: "Prontuario + FET Date == Punção Date"
+        1: "Prontuario + Cryo Date (+/- 2d)",
+        2: "Prontuario + Cryo Date == Puncao (-2 to 7d)",
+        3: "Prontuario + FET Date == Puncao (+/- 2d)",
+        4: "Prontuario + Closest preceding Fresh (< 730d)",
+        5: "Prontuario + Unique 1-to-1 patient match"
     }
     
     for _, row in stats_by_step.iterrows():
         step = int(row['join_step'])
         label = step_labels.get(step, f"Step {step}")
-        logger.info(f"  Step {step}: {label:<35} | {int(row['count']):>6,}")
+        logger.info(f"  Step {step}: {label:<45} | {int(row['count']):>6,}")
     
     logger.info("==================================================")
     logger.info("Result saved to silver.planilha_embriologia_combined")

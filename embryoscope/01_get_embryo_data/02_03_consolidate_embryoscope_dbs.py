@@ -69,8 +69,8 @@ def find_clinic_dbs():
     logger.debug(f"Looking for clinic DBs in: {DATABASE_DIR}")
     for db_path in glob(str(DATABASE_DIR / 'embryoscope_*.db')):
         logger.debug(f"Found DB candidate: {db_path}")
-        if 'test' in db_path or 'huntington_data_lake' in db_path:
-            logger.debug(f"Skipping DB (test or central): {db_path}")
+        if 'test' in db_path or 'huntington_data_lake' in db_path or 'vila_mariana' in db_path.lower():
+            logger.debug(f"Skipping DB (test, central, or excluded Vila Mariana): {db_path}")
             continue
         dbs.append(db_path)
     logger.debug(f"Clinic DBs to use: {dbs}")

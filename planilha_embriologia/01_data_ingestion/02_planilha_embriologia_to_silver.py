@@ -918,7 +918,7 @@ TABLE_CONFIGS = {
                 'data_da_puncao': 'Data',
                 'fator_1': 'Causa',
                 'incubadora': 'Incub.',
-                'data_crio': 'Vitrif.1',
+                'data_crio': 'Vitrif',
                 'tipo_de_inseminacao': 'ICSI',
                 'tipo_biopsia': '',
                 'altura': '',
@@ -928,10 +928,10 @@ TABLE_CONFIGS = {
                 'tipo': 'Tipo',
                 'opu': 'Capt',
                 'total_de_mii': 'MII',
-                'qtd_blasto': '#BLAST',
+                'qtd_blasto': 'Blast',
                 'qtd_blasto_tq_a_e_b': 'Vitrif.1',
-                'no_biopsiados': '',
-                'qtd_analisados': '',
+                'no_biopsiados': '#BLAST DPI',
+                'qtd_analisados': '#BLAST ANALISE',
                 'qtd_normais': 'NORMAIS',
                 'dia_cryo': 'Dia'
             },
@@ -947,7 +947,7 @@ TABLE_CONFIGS = {
                 'pin': 'Prontuário',
                 'tipo_1': 'Proced.',
                 'data_da_fet': 'Data',
-                'data_crio': 'Data Cong.',
+                'data_crio': 'Data.1',
                 'result': 'Beta',
                 'tipo_do_resultado': 'Tipo',
                 'no_nascidos': 'Dados Nascimento',
@@ -975,12 +975,12 @@ TABLE_CONFIGS = {
             'mapping': {
                 'nome_da_paciente': 'NOME',
                 'data_de_nasc': '',
-                'pin': 'DATA',
+                'pin': 'PRONTUÁRIO',
                 'tipo_1': 'TIPO 1',
                 'data_da_puncao': 'DATA',
                 'fator_1': '',
-                'incubadora': '',
-                'data_crio': '',
+                'incubadora': 'Incubadora',
+                'data_crio': 'EMB.CRYO',
                 'tipo_de_inseminacao': 'TIPO 2',
                 'tipo_biopsia': '',
                 'altura': '',
@@ -990,12 +990,12 @@ TABLE_CONFIGS = {
                 'tipo': 'TIPO SPTZ',
                 'opu': 'OPU',
                 'total_de_mii': 'MII',
-                'qtd_blasto': 'CLIVADOS',
-                'qtd_blasto_tq_a_e_b': 'TQ D3',
-                'no_biopsiados': '',
-                'qtd_analisados': '',
-                'qtd_normais': '',
-                'dia_cryo': ''
+                'qtd_blasto': '# BLASTO',
+                'qtd_blasto_tq_a_e_b': '# BLASTO TQ',
+                'no_biopsiados': '# DPI',
+                'qtd_analisados': 'Nº ANALISADOS',
+                'qtd_normais': '# DPI NL',
+                'dia_cryo': 'DIA CRYO'
             },
             'filters': []
         }
@@ -1022,11 +1022,11 @@ TABLE_CONFIGS = {
                 'preparo_para_transferencia': '',
                 'dia_cryo': 'D',
                 'no_da_transfer_1a_2a_3a': '',
-                'dia_et': 'Dia',
+                'dia_et': 'Dia transf.',
                 'no_et': 'Transf',
-                'gravidez_bioquimica': '',
-                'gravidez_clinica': '',
-                'obs': 'Obs'
+                'gravidez_bioquimica': 'Beta',
+                'gravidez_clinica': 'SG',
+                'obs': 'Observações'
             },
             'filters': []
         }
@@ -1089,7 +1089,7 @@ def get_bronze_tables(con, sheet_type=None):
         # Fresh matches: _fresh, _fot, _fiv, plus shared historical tables
         # FET matches: _fet, _recep, _tec, plus shared historical tables
         if sheet_type == 'fresh':
-            condition = "(table_name LIKE '%_fresh' OR table_name LIKE '%_fot' OR table_name LIKE '%_fiv' OR table_name LIKE '%_total%' OR table_name LIKE '%_geral%' OR table_name LIKE '%_anual%' OR table_name LIKE '%_2022')"
+            condition = "(table_name LIKE '%_fresh' OR table_name LIKE '%_fot' OR table_name LIKE '%_fiv' OR table_name LIKE '%_total%' OR table_name LIKE '%_geral%' OR table_name LIKE '%_anual%' OR table_name LIKE '%_2022' OR table_name LIKE '%_sheet1')"
         elif sheet_type == 'fet':
             condition = "(table_name LIKE '%_fet' OR table_name LIKE '%_recep' OR table_name LIKE '%_tec' OR table_name LIKE '%_total%' OR table_name LIKE '%_geral%' OR table_name LIKE '%_anual%' OR table_name LIKE '%_2022')"
         else:
@@ -1192,7 +1192,19 @@ def detect_column_types(df, sample_size=1000):
     # Sample data for analysis (to speed up detection)
     sample_df = df[data_columns].head(min(sample_size, len(df)))
     
+    ALWAYS_TEXT_COLS = {
+        'pin', 'prontuario', 'nome_da_paciente', 'tipo_1', 'fator_1', 'incubadora',
+        'tipo', 'origem', 'obs', 'result', 'tipo_do_resultado', 'tipo_biopsia',
+        'tipo_de_inseminacao', 'tipo_de_fet', 'tipo_de_tratamento', 'tipo_da_doacao',
+        'preparo_para_transferencia', 'gravidez_bioquimica', 'gravidez_clinica',
+        'dia_cryo', 'dia_et', 'file_name', 'sheet_name'
+    }
+    
     for col in data_columns:
+        if col.lower() in ALWAYS_TEXT_COLS:
+            column_types[col] = 'VARCHAR'
+            continue
+            
         # Get non-null values
         non_null_values = sample_df[col].dropna()
         

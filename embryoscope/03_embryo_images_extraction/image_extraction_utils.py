@@ -123,6 +123,7 @@ def map_location_to_api_config(location_name: str) -> str:
     # Mapping from database location names to API credential keys
     location_mapping = {
         'Ibirapuera': 'Ibirapuera',
+        'Itaim': 'Itaim',
         'Vila Mariana': 'Vila Mariana',
         'Belo Horizonte': 'Belo Horizonte',
         'Brasilia': 'Brasilia',

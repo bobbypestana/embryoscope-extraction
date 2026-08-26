@@ -492,13 +492,17 @@ def process_embryo_data_database(db_path):
         )
 
         gold_config_path = os.path.join(script_dir, 'gold_column_config.yml')
-        protected_cols = []
+        protected_cols = ['EmbryoID', 'PatientIDx', 'TreatmentName', 'InstrumentNumber', 'Position', 'WellNumber', 'FertilizationTime', 'EmbryoFate', 'EmbryoDescriptionID', 'LabelCode']
         if os.path.exists(gold_config_path):
             with open(gold_config_path, 'r') as f:
                 g_cfg = yaml.safe_load(f)
             for ann in g_cfg.get('embryo_data', []):
+                protected_cols.append(ann)
                 for pfx in ['Name', 'Time', 'Value', 'Timestamp']:
                     protected_cols.append(f'{pfx}_{ann}')
+
+        # Deduplicate columns if EmbryoDetails_EmbryoID collided with EmbryoID
+        embryo_df = embryo_df.loc[:, ~embryo_df.columns.duplicated()]
 
         embryo_df = clean_patient_id(embryo_df, 'embryo_data', db_name)
         embryo_df, _ = filter_columns_by_null_rate(
@@ -543,10 +547,27 @@ def main():
     logger.info("Starting embryoscope bronze->silver conversion.")
     logger.info(f"Looking for databases in: {db_dir}")
 
-    db_paths = glob.glob(os.path.join(db_dir, 'embryoscope_*.db'))
-    logger.info(f"Found {len(db_paths)} databases to process.")
+    raw_db_paths = glob.glob(os.path.join(db_dir, 'embryoscope_*.db'))
+    # Exclude disabled clinics and archived units like Vila Mariana from Silver layer
+    creds = params.get('embryoscope_credentials', {})
+    disabled_clinics = {
+        name.lower().replace(' ', '_')
+        for name, cfg in creds.items()
+        if not cfg.get('enabled', True)
+    }
+    disabled_clinics.add('vila_mariana')  # Ensure Vila Mariana is kept in bronze only
+
+    db_paths = []
+    for p in raw_db_paths:
+        base = os.path.basename(p).lower()
+        if any(f"embryoscope_{d}.db" in base for d in disabled_clinics):
+            logger.info(f"Skipping {os.path.basename(p)} from Silver transformation (kept in Bronze only).")
+            continue
+        db_paths.append(p)
+
+    logger.info(f"Found {len(db_paths)} active databases to process into Silver.")
     if not db_paths:
-        logger.warning("No embryoscope_*.db databases found in database/ directory.")
+        logger.warning("No active embryoscope_*.db databases to process.")
         return
 
     for db_path in db_paths:

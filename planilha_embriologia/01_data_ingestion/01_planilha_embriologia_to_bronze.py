@@ -13,6 +13,8 @@ from datetime import datetime
 import os
 import glob
 import re
+import openpyxl
+import unicodedata
 
 # Setup logging
 LOGS_DIR = os.path.join(os.path.dirname(__file__), 'logs')
@@ -47,7 +49,7 @@ YEAR_CONFIGS = {
         'header': 1
     },
     '2022': {
-        'sheets': ['TOTAL', 'TOTAL 2022', '2022'],
+        'sheets': ['TOTAL', 'TOTAL 2022', '2022', 'FRESH', 'FET', 'FOT', 'RECEP', 'FIV', 'TEC'],
         'header': 1
     },
     '2023': {
@@ -110,6 +112,10 @@ def get_all_excel_files():
                 if has_ibira and (' IBI.XLSX' in bname or ' IBI ' in bname):
                     logger.info(f"Skipping duplicate file: {os.path.basename(f)} (using IBIRA instead)")
                     continue
+                # Exclude 2022 BSB
+                if item == '2022' and 'BSB' in bname:
+                    logger.info(f"Skipping excluded file: {os.path.basename(f)} (2022 BSB excluded from ingestion)")
+                    continue
                 filtered_files.append(f)
             
             excel_files.extend(filtered_files)
@@ -121,17 +127,27 @@ def get_all_excel_files():
     logger.info(f"Total Excel files found: {len(excel_files)}")
     return sorted(excel_files)
 
-def detect_header_row(file_path, sheet_name, max_rows=10):
+def detect_header_row(file_path, sheet_name, max_rows=15):
     """
-    Attempt to detect the header row by looking for 'PIN', 'PRONTUARIO', or procedure keywords
-    in the first few rows. Returns the 0-indexed row number.
+    Attempt to detect the header row by looking for 'PIN', 'PRONTUARIO', 'PACIENTE', 'DATA', etc.
+    in the first max_rows rows using openpyxl. Returns the 0-indexed row number.
     """
     try:
-        df_top = pd.read_excel(file_path, sheet_name=sheet_name, nrows=max_rows, header=None, engine='openpyxl')
-        for i, row in df_top.iterrows():
-            row_vals = [str(val).upper().strip() for val in row if pd.notna(val)]
-            if any(col in row_vals for col in ['PIN', 'PRONTUARIO', 'PRONTURIO', 'DATA DA PUNCAO', 'DATA DA PUNÇÃO', 'DATA DA FET', 'TIPO 1', 'TIPO DE TRATAMENTO', 'PACIENTE', 'NOME DA PACIENTE']):
-                return i
+        wb = openpyxl.load_workbook(file_path, data_only=True, read_only=True)
+        if sheet_name not in wb.sheetnames:
+            wb.close()
+            return None
+        ws = wb[sheet_name]
+        rows = list(ws.iter_rows(values_only=True, max_row=max_rows))
+        wb.close()
+        for idx, row in enumerate(rows):
+            cells = [unicodedata.normalize('NFD', str(c)).upper() for c in row if c is not None]
+            has_paciente = any('PACIENTE' in c or 'NOME' in c for c in cells)
+            has_pin = any('PRONTUARIO' in c or 'PIN' in c or 'CONTROLE' in c or 'CHART' in c for c in cells)
+            has_data = any('DATA' in c or 'DIA' in c or 'DATE' in c for c in cells)
+            has_tipo = any('TIPO' in c or 'PROCED' in c or 'TRATAMENTO' in c or 'PROCEDURE' in c for c in cells)
+            if (has_paciente and has_data) or (has_pin and has_data) or (has_tipo and has_data):
+                return idx
     except Exception as e:
         logger.warning(f"Header detection failed for {file_path} [{sheet_name}]: {e}")
     return None
@@ -158,45 +174,45 @@ def generate_table_name(file_path, sheet_name):
     except Exception as e:
         logger.warning(f"Could not generate standard name, falling back to safe filename: {e}")
         base = os.path.splitext(os.path.basename(file_path))[0]
-        safe_base = re.sub(r'[^a-zA-Z0-9_]', '_', base).lower()
-        return f"planilha_{safe_base}_{sheet_name.lower()}"
+        return f"planilha_{base}_{sheet_name}".lower()
 
 def create_bronze_table(con, table_name, columns):
-    """Create a bronze table for a specific file - drops and recreates for fresh data"""
-    logger.info(f"Creating bronze table: {table_name}")
-    con.execute("CREATE SCHEMA IF NOT EXISTS bronze")
-    con.execute(f"DROP TABLE IF EXISTS bronze.{table_name}")
-    
-    sql_columns = []
-    used_names = set()
-    
-    for col in columns:
-        original_col = str(col) if pd.notna(col) and str(col).strip() != '' else 'unnamed_col'
-        counter = 0
-        unique_col = original_col
+    """Create a bronze table with all columns as VARCHAR/TEXT plus metadata"""
+    try:
+        con.execute("CREATE SCHEMA IF NOT EXISTS bronze")
+        con.execute(f"DROP TABLE IF EXISTS bronze.{table_name}")
         
-        while unique_col.lower() in [n.lower() for n in used_names]:
-            counter += 1
-            unique_col = f"{original_col}_{counter}"
+        col_defs = []
+        used_names = set()
         
-        sql_columns.append(f'"{unique_col}" VARCHAR')
-        used_names.add(unique_col)
-    
-    # Add metadata columns
-    sql_columns.extend([
-        'line_number INTEGER',
-        'extraction_timestamp VARCHAR',
-        'file_name VARCHAR',
-        'sheet_name VARCHAR'
-    ])
-    
-    create_table_sql = f"""
-    CREATE TABLE bronze.{table_name} (
-        {', '.join(sql_columns)}
-    )
-    """
-    con.execute(create_table_sql)
-    logger.info(f"Table bronze.{table_name} created successfully with {len(columns)} data columns")
+        for col in columns:
+            col_str = str(col) if pd.notna(col) and str(col).strip() != '' else 'unnamed_col'
+            counter = 0
+            unique_name = col_str
+            while unique_name.lower() in [n.lower() for n in used_names]:
+                counter += 1
+                unique_name = f"{col_str}_{counter}"
+            used_names.add(unique_name)
+            col_defs.append(f'"{unique_name}" VARCHAR')
+        
+        # Add metadata columns
+        col_defs.extend([
+            'line_number INTEGER',
+            'extraction_timestamp VARCHAR',
+            'file_name VARCHAR',
+            'sheet_name VARCHAR'
+        ])
+        
+        create_sql = f"""
+        CREATE TABLE bronze.{table_name} (
+            {', '.join(col_defs)}
+        )
+        """
+        con.execute(create_sql)
+        logger.info(f"Table bronze.{table_name} created successfully with {len(columns)} data columns")
+    except Exception as e:
+        logger.error(f"Error creating bronze table {table_name}: {e}")
+        raise
 
 def process_ssa_2022_file(file_path, con):
     """Special handler for CASOS 2022 SSA.xlsx: unions monthly FIV and TEC sheets"""
@@ -214,7 +230,9 @@ def process_ssa_2022_file(file_path, con):
             logger.info(f"Consolidating {len(fiv_sheets)} FIV monthly sheets for {file_name}...")
             fiv_dfs = []
             for s in fiv_sheets:
-                header_row = detect_header_row(file_path, s, max_rows=10) or 6
+                header_row = detect_header_row(file_path, s, max_rows=15)
+                if header_row is None:
+                    header_row = 0 if 'AGOSTO' in s.upper() else 6
                 df_s = pd.read_excel(file_path, sheet_name=s, header=header_row, dtype=str, engine='openpyxl')
                 df_s['sheet_name'] = s
                 fiv_dfs.append(df_s)
@@ -229,7 +247,9 @@ def process_ssa_2022_file(file_path, con):
             logger.info(f"Consolidating {len(tec_sheets)} TEC monthly sheets for {file_name}...")
             tec_dfs = []
             for s in tec_sheets:
-                header_row = detect_header_row(file_path, s, max_rows=10) or 4
+                header_row = detect_header_row(file_path, s, max_rows=15)
+                if header_row is None:
+                    header_row = 4
                 df_s = pd.read_excel(file_path, sheet_name=s, header=header_row, dtype=str, engine='openpyxl')
                 df_s['sheet_name'] = s
                 tec_dfs.append(df_s)
@@ -317,6 +337,11 @@ def process_excel_file(file_path, con):
         except ValueError:
             continue
 
+    # For CASOS 2023 IBIRA.xlsx, prioritize Total 2023 Nova over Total 2023
+    if year == '2023' and 'IBIRA' in file_name.upper():
+        if any('nova' in s.lower() for s in sheets_to_process):
+            sheets_to_process = [s for s in sheets_to_process if 'nova' in s.lower()]
+
     if not sheets_to_process:
         logger.warning(f"None of configured sheets {sheets_to_try} found in {file_name} (Available: {actual_sheets})")
         return 0
@@ -363,6 +388,10 @@ def main():
         logger.info("Creating DuckDB connection...")
         con = get_duckdb_connection()
         logger.info("DuckDB connection created successfully")
+        
+        # Ensure excluded and obsolete tables are cleaned up from bronze schema
+        con.execute("DROP TABLE IF EXISTS bronze.planilha_2022_bsb_sheet1")
+        con.execute("DROP TABLE IF EXISTS bronze.planilha_2023_ibira_total_2023")
         
         excel_files = get_all_excel_files()
         total_rows = 0

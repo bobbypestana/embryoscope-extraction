@@ -370,6 +370,216 @@ def update_prontuario_column_pedidos(con):
     logger.info(f"Final prontuario matching stats (gold.protheus_pedidos_a_faturar): Total={stats[0]:,}, Matched={stats[1]:,}, Unmatched={stats[2]:,}, Rate={rate:.2f}%")
 
 
+def create_gold_vendas_consolidadas_table(con):
+    logger.info("Combining silver.venda_direta and gold.protheus_pedidos_a_faturar into gold.protheus_vendas_consolidadas...")
+
+    con.execute("DROP TABLE IF EXISTS gold.protheus_vendas_consolidadas")
+
+    query = """
+    CREATE TABLE gold.protheus_vendas_consolidadas AS
+    WITH common_window AS (
+        SELECT 
+            GREATEST(
+                (SELECT MIN(L1_EMISSAO) FROM silver.venda_direta WHERE is_deleted = FALSE),
+                (SELECT MIN(CAST("Emissao" AS DATE)) FROM gold.protheus_pedidos_a_faturar)
+            ) AS start_date,
+            LEAST(
+                (SELECT MAX(L1_EMISSAO) FROM silver.venda_direta WHERE is_deleted = FALSE),
+                (SELECT MAX(CAST("Emissao" AS DATE)) FROM gold.protheus_pedidos_a_faturar)
+            ) AS end_date
+    ),
+    venda_direta_rows AS (
+        SELECT 
+            'VENDA_DIRETA' AS origem,
+            CASE
+                WHEN v.company_id = '01' THEN '1'
+                WHEN v.company_id = '03' THEN '3'
+                WHEN v.company_id = '05' THEN '5'
+                WHEN v.company_id = '06' THEN '6'
+                WHEN v.company_id = '07' THEN '7'
+                ELSE 'Unknown'
+            END AS grp,
+            CASE
+                WHEN v.company_id = '01' AND v.L1_FILIAL IN ('010101', '010150') THEN 'Ibirapuera'
+                WHEN v.company_id = '01' AND v.L1_FILIAL IN ('010155', '010104', '010106') THEN 'Vila Mariana'
+                WHEN v.company_id = '03' AND v.L1_FILIAL = '030101' THEN 'Campinas'
+                WHEN v.company_id = '06' AND v.L1_FILIAL = '060101' THEN 'Pro Fiv'
+                WHEN v.company_id = '05' AND v.L1_FILIAL = '0101' THEN 'Belo Horizonte'
+                WHEN v.company_id = '07' AND v.L1_FILIAL IN ('010101', '020101') THEN 'Salvador - Cenafert'
+                WHEN v.company_id = '07' AND v.L1_FILIAL IN ('030101') THEN 'FIV Brasilia'
+                WHEN v.company_id = '07' AND v.L1_FILIAL IN ('040101', '040102') THEN 'Rio de Janeiro'
+                ELSE 'Unknown Unit (' || COALESCE(v.company_id, '') || ', ' || COALESCE(v.L1_FILIAL, '') || ')'
+            END AS unidade,
+            TRY_CAST(v.L1_FILIAL AS INTEGER) AS filial,
+            TRY_CAST(v.L1_PEDRES AS INTEGER) AS pedido,
+            TRY_CAST(COALESCE(v.L1_ORCRES, v.L1_NUM) AS INTEGER) AS orcamento,
+            TRY_CAST(v.L1_CLIENTE AS INTEGER) AS cliente_id,
+            c_cli.A1_NOME AS nome_cliente,
+            c_cli.A1_CGC AS cpf,
+            TRY_CAST(-1 AS INTEGER) AS prontuario,
+            TRY_CAST(COALESCE(v.L1_PACIENT, c_pac.A1_COD) AS INTEGER) AS paciente_id,
+            COALESCE(v.L1_NOMPACI, c_pac.A1_NOME) AS nome_paciente,
+            TRY_CAST(v.L1_VEND AS INTEGER) AS medico_id,
+            vend.A3_NOME AS nome_medico,
+            CAST(v.L1_EMISSAO AS TIMESTAMP) AS dt_emissao,
+            MONTH(v.L1_EMISSAO) AS mes,
+            YEAR(v.L1_EMISSAO) AS ano,
+            TRY_CAST(COALESCE(v.L1_DOC, v.L2_DOC) AS INTEGER) AS num_nota,
+            COALESCE(v.L1_SERIE, v.L2_SERIE) AS serie_nota,
+            v.L2_PRODUTO AS produto_id,
+            TRY_CAST(prod.B1_GRUPO AS INTEGER) AS grupo_produto,
+            COALESCE(prod.B1_DESC, v.L2_DESCRI) AS descricao_produto,
+            prod.B1_ZDGEREN AS descricao_gerencial,
+            prod.B1_ZMAPING AS descricao_mapping_actividad,
+            TRY_CAST(prod.B1_ZCICLOS AS INTEGER) AS ciclos,
+            TRY_CAST(v.L2_QUANT AS DOUBLE) AS quantidade,
+            TRY_CAST(v.L2_VRUNIT AS DOUBLE) AS valor_unitario,
+            TRY_CAST(v.L2_VLRITEM AS DOUBLE) AS valor_mercadoria,
+            COALESCE(
+                CASE WHEN TRY_CAST(v.L2_VALDESC AS DOUBLE) > 0 THEN TRY_CAST(v.L2_VALDESC AS DOUBLE) ELSE NULL END,
+                CASE WHEN TRY_CAST(v.L2_DESC AS DOUBLE) != 0 
+                     THEN (TRY_CAST(v.L2_VRUNIT AS DOUBLE) * TRY_CAST(v.L2_QUANT AS DOUBLE)) * (ABS(TRY_CAST(v.L2_DESC AS DOUBLE)) / 100.0)
+                     ELSE 0.0 
+                END,
+                0.0
+            ) AS valor_desconto,
+            COALESCE(TRY_CAST(v.L2_CUSTO1 AS DOUBLE), 0.0) AS valor_custo,
+            COALESCE(TRY_CAST(v.L2_CUSTO2 AS DOUBLE), 0.0) AS valor_custo_unit,
+            COALESCE(TRY_CAST(v.L2_VALISS AS DOUBLE), 0.0) AS valor_iss,
+            0.0 AS valor_comissao,
+            TRY_CAST(v.L2_VLRITEM AS DOUBLE) AS valor_total,
+            v.L1_FORMPG AS forma_pagamento,
+            v.L1_CONDPG AS condicao_pagamento,
+            v.L1_OPERADO AS operador,
+            v.extraction_timestamp AS extraction_timestamp
+        FROM silver.venda_direta v
+        LEFT JOIN silver.clientes c_cli
+            ON v.L1_CLIENTE = c_cli.A1_COD AND v.L1_LOJA = c_cli.A1_LOJA
+        LEFT JOIN silver.clientes c_pac
+            ON v.L1_PACIENT = c_pac.A1_COD AND c_pac.A1_LOJA = '01'
+        LEFT JOIN silver.produtos prod
+            ON v.L2_PRODUTO = prod.B1_COD
+        LEFT JOIN silver.vendedores vend
+            ON v.L1_VEND = vend.A3_COD
+        WHERE v.is_deleted = FALSE
+          AND v.L1_EMISSAO BETWEEN (SELECT start_date FROM common_window) AND (SELECT end_date FROM common_window)
+    ),
+    pedidos_rows AS (
+        SELECT 
+            'PEDIDO_A_FATURAR' AS origem,
+            p."Grp" AS grp,
+            CASE
+                WHEN p."Grp" = '1' AND p."Filial" IN (10101, 10150) THEN 'Ibirapuera'
+                WHEN p."Grp" = '1' AND p."Filial" IN (10155, 10104, 10106) THEN 'Vila Mariana'
+                WHEN p."Grp" = '3' AND p."Filial" = 30101 THEN 'Campinas'
+                WHEN p."Grp" = '6' AND p."Filial" = 60101 THEN 'Pro Fiv'
+                WHEN p."Grp" = '5' AND p."Filial" = 101 THEN 'Belo Horizonte'
+                WHEN p."Grp" = '7' AND p."Filial" IN (10101, 20101) THEN 'Salvador - Cenafert'
+                WHEN p."Grp" = '7' AND p."Filial" IN (30101) THEN 'FIV Brasilia'
+                WHEN p."Grp" = '7' AND p."Filial" IN (40101, 40102) THEN 'Rio de Janeiro'
+                ELSE 'Unknown Unit (' || COALESCE(p."Grp", '') || ', ' || COALESCE(CAST(p."Filial" AS VARCHAR), '') || ')'
+            END AS unidade,
+            p."Filial" AS filial,
+            p."Pedido" AS pedido,
+            p."Orcamento" AS orcamento,
+            p."Cliente" AS cliente_id,
+            p."Nome" AS nome_cliente,
+            p."CPF" AS cpf,
+            p.prontuario AS prontuario,
+            p."Paciente" AS paciente_id,
+            p."Nome Paciente" AS nome_paciente,
+            p."Medico" AS medico_id,
+            p."Nome Medico" AS nome_medico,
+            p."Emissao" AS dt_emissao,
+            MONTH(p."Emissao") AS mes,
+            YEAR(p."Emissao") AS ano,
+            p."Numero" AS num_nota,
+            p."NFSe" AS serie_nota,
+            p."Produt" AS produto_id,
+            p."Grupo" AS grupo_produto,
+            p."Descricao" AS descricao_produto,
+            prod.B1_ZDGEREN AS descricao_gerencial,
+            prod.B1_ZMAPING AS descricao_mapping_actividad,
+            TRY_CAST(prod.B1_ZCICLOS AS INTEGER) AS ciclos,
+            p."Quantidade" AS quantidade,
+            p."Vlr.Unit" AS valor_unitario,
+            p."Vlr.Mercadoria" AS valor_mercadoria,
+            COALESCE(p."Vlr.Desconto", 0.0) AS valor_desconto,
+            COALESCE(p."Vlr.Custo", 0.0) AS valor_custo,
+            COALESCE(p."Vlr.Custo Unit", 0.0) AS valor_custo_unit,
+            COALESCE(p."Vlr.ISS", 0.0) AS valor_iss,
+            COALESCE(p."Vlr.Comissao", 0.0) AS valor_comissao,
+            p."Total" AS valor_total,
+            CAST(NULL AS VARCHAR) AS forma_pagamento,
+            CAST(NULL AS VARCHAR) AS condicao_pagamento,
+            CAST(NULL AS VARCHAR) AS operador,
+            CURRENT_TIMESTAMP::VARCHAR AS extraction_timestamp
+        FROM gold.protheus_pedidos_a_faturar p
+        LEFT JOIN silver.produtos prod
+            ON p."Produt" = prod.B1_COD
+        WHERE CAST(p."Emissao" AS DATE) BETWEEN (SELECT start_date FROM common_window) AND (SELECT end_date FROM common_window)
+    ),
+    unioned AS (
+        SELECT * FROM venda_direta_rows
+        UNION ALL
+        SELECT * FROM pedidos_rows
+    )
+    SELECT 
+        ROW_NUMBER() OVER (ORDER BY dt_emissao DESC, filial ASC, orcamento DESC, pedido DESC) AS line_number,
+        *
+    FROM unioned;
+    """
+
+    con.execute(query)
+    count = con.execute("SELECT COUNT(*) FROM gold.protheus_vendas_consolidadas").fetchone()[0]
+    logger.info(f"Created gold.protheus_vendas_consolidadas with {count:,} rows")
+
+
+def update_prontuario_column_vendas_consolidadas(con):
+    logger.info("Updating prontuario column in gold.protheus_vendas_consolidadas using Strategy L matching (Paciente & Cliente)...")
+
+    # 1. First run: Paciente
+    logger.info("Run 1 (vendas_consolidadas): Matching via paciente columns...")
+    find_prontuarios(
+        source_con=con,
+        clinisys_db_path=CLINISYS_DB_PATH,
+        source_schema='gold',
+        source_table='protheus_vendas_consolidadas',
+        id_col='paciente_id',
+        name_col='nome_paciente',
+        birthdate_col=None,
+        cpf_col=None,
+        label='vendas_consolidadas_paciente',
+        suffix='',
+    )
+
+    # 2. Second run: Cliente (matching remaining unmatched)
+    logger.info("Run 2 (vendas_consolidadas): Matching via cliente columns...")
+    find_prontuarios(
+        source_con=con,
+        clinisys_db_path=CLINISYS_DB_PATH,
+        source_schema='gold',
+        source_table='protheus_vendas_consolidadas',
+        id_col='cliente_id',
+        name_col='nome_cliente',
+        birthdate_col=None,
+        cpf_col='cpf',
+        label='vendas_consolidadas_cliente',
+        suffix='',
+    )
+
+    # Log final statistics for vendas_consolidadas
+    stats = con.execute("""
+        SELECT 
+            COUNT(*) as total,
+            COUNT(CASE WHEN prontuario IS NOT NULL AND prontuario != -1 THEN 1 END) as matched,
+            COUNT(CASE WHEN prontuario IS NULL OR prontuario = -1 THEN 1 END) as unmatched
+        FROM gold.protheus_vendas_consolidadas
+    """).fetchone()
+    rate = stats[1] / stats[0] * 100 if stats[0] else 0.0
+    logger.info(f"Final prontuario matching stats (gold.protheus_vendas_consolidadas): Total={stats[0]:,}, Matched={stats[1]:,}, Unmatched={stats[2]:,}, Rate={rate:.2f}%")
+
+
 def main():
     logger.info("=== PROTHEUS SILVER TO GOLD CONSOLIDATION STARTED ===")
     logger.info(f"Target Database: {DUCKDB_PATH}")
@@ -381,6 +591,8 @@ def main():
             update_prontuario_column(con)
             create_gold_pedidos_a_faturar_table(con)
             update_prontuario_column_pedidos(con)
+            create_gold_vendas_consolidadas_table(con)
+            update_prontuario_column_vendas_consolidadas(con)
             logger.info("=== PROTHEUS SILVER TO GOLD CONSOLIDATION FINISHED SUCCESSFUL ===")
     except Exception as e:
         logger.error(f"Gold Consolidation Failed: {e}", exc_info=True)
@@ -389,3 +601,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+

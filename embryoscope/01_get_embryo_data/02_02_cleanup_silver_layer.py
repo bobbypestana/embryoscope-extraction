@@ -40,10 +40,10 @@ def setup_logging():
     return logger
 
 def find_database_files(database_dir):
-    """Find all embryoscope database files."""
+    """Find all active embryoscope database files (excluding Vila Mariana and disabled clinics)."""
     database_path = Path(database_dir)
     db_files = list(database_path.glob("embryoscope_*.db"))
-    return [str(f) for f in db_files]
+    return [str(f) for f in db_files if 'vila_mariana' not in f.name.lower() and 'test' not in f.name.lower()]
 
 def get_discarded_patient_ids(conn, logger):
     """

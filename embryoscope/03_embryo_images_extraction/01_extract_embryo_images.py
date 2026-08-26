@@ -288,12 +288,14 @@ def main():
     try:
         # Connect to database to check for embryos
         logger.info("Connecting to database...")
-        conn = duckdb.connect(DB_PATH)
+        conn = duckdb.connect(DB_PATH, read_only=True)
         
         try:
-            # Initialize metadata table
-            logger.info("Initializing metadata table...")
-            utils.initialize_metadata_table(DB_PATH)
+            # Initialize metadata table if possible
+            try:
+                utils.initialize_metadata_table(DB_PATH)
+            except Exception as e:
+                logger.debug(f"Metadata table init skipped: {e}")
             
             # Query embryos to extract (now filtered in SQL to exclude successes)
             logger.info(f"Querying embryos from gold.data_ploidia (limit {limit}, mode {args.mode}, retry={args.retry})...")
@@ -365,7 +367,7 @@ def main():
                 embryo_description_id = embryo.get('embryo_description_id')
                 
                 # Connect briefly to check already extracted planes for THIS specific embryo
-                with duckdb.connect(DB_PATH) as plane_conn:
+                with duckdb.connect(DB_PATH, read_only=True) as plane_conn:
                     extracted_planes = utils.get_extracted_planes(plane_conn, embryo_id)
                 
                 planes_to_extract = [p for p in FOCAL_PLANES if p not in extracted_planes]

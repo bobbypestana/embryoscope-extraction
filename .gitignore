@@ -129,6 +129,9 @@ files/
 # Scratch files and directories
 scratch/
 
+# Power BI binary files
+*.pbix
+
 # Protheus test results
 protheus/00_test_api/resultados/
 
