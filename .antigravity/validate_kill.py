@@ -8,19 +8,33 @@ SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 REGISTRY_FILE = os.path.join(SCRIPT_DIR, "project_pids.json")
 
 def extract_command_line(input_data):
-    """Extract command line string from various possible tool_input structures."""
+    """Extract command line string from various possible structures (tool_input or toolCall)."""
+    # 1. Check tool_input
     tool_input = input_data.get("tool_input", {})
     if isinstance(tool_input, str):
         return tool_input
     
-    # Check common fields in tool_input
-    for key in ["CommandLine", "content", "command", "cmd", "args", "TaskId"]:
-        val = tool_input.get(key)
-        if val:
-            if isinstance(val, list):
-                return " ".join(str(v) for v in val)
-            return str(val)
-    return str(tool_input)
+    # 2. Check toolCall args
+    tool_call = input_data.get("toolCall", {})
+    tool_call_args = tool_call.get("args", {}) if isinstance(tool_call, dict) else {}
+    
+    # Combined search dictionary
+    search_dicts = []
+    if isinstance(tool_input, dict):
+        search_dicts.append(tool_input)
+    if isinstance(tool_call_args, dict):
+        search_dicts.append(tool_call_args)
+    
+    # Check common fields
+    for sd in search_dicts:
+        for key in ["CommandLine", "content", "command", "cmd", "args", "TaskId", "CodeContent", "ReplacementContent"]:
+            val = sd.get(key)
+            if val:
+                if isinstance(val, list):
+                    return " ".join(str(v) for v in val)
+                return str(val)
+                
+    return str(input_data)
 
 def main():
     try:

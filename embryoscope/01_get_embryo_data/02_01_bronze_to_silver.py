@@ -285,6 +285,18 @@ def process_treatments_database(db_path):
             treatments_df, 'treatments', db_name, null_rate_threshold=90.0
         )
 
+        # Filter out empty or whitespace-only TreatmentName
+        if 'TreatmentName' in treatments_df.columns:
+            before_cnt = len(treatments_df)
+            treatments_df = treatments_df[
+                treatments_df['TreatmentName'].notna() &
+                (treatments_df['TreatmentName'].str.strip() != '') &
+                (~treatments_df['TreatmentName'].str.strip().str.lower().isin(['none', 'nan', 'null']))
+            ]
+            dropped_cnt = before_cnt - len(treatments_df)
+            if dropped_cnt > 0:
+                logger.info(f"[{db_name}] Dropped {dropped_cnt} treatment records with blank/invalid TreatmentName.")
+
         if treatments_df.empty:
             logger.warning(f"[{db_name}] No treatment records remain after cleaning")
             con.close()

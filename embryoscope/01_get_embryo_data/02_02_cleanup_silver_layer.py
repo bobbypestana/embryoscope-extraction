@@ -137,8 +137,17 @@ def cleanup_orphaned_records(conn, discarded_patients, logger):
         except Exception as e:
             logger.debug(f"Could not clean idascore (may not have PatientIDx column): {e}")
         
+        # Clean up blank / invalid treatments
+        logger.info("Cleaning up blank or invalid treatment names...")
+        invalid_treatments_deleted = conn.execute("""
+            DELETE FROM silver.treatments 
+            WHERE "TreatmentName" IS NULL 
+               OR TRIM(CAST("TreatmentName" AS VARCHAR)) IN ('', 'None', 'nan', 'null', 'NULL')
+        """).rowcount
+        logger.info(f"Deleted {invalid_treatments_deleted} blank/invalid treatment records")
+
         return {
-            'treatments_deleted': treatments_deleted,
+            'treatments_deleted': treatments_deleted + invalid_treatments_deleted,
             'embryo_deleted': embryo_deleted
         }
         
@@ -178,9 +187,20 @@ def process_database(db_path, logger):
         initial_counts = get_table_counts(conn, logger)
         logger.info(f"Initial counts: {initial_counts}")
         
+        # Clean up blank / invalid treatments in silver.treatments
+        try:
+            invalid_treatments_deleted = conn.execute("""
+                DELETE FROM silver.treatments 
+                WHERE "TreatmentName" IS NULL 
+                   OR TRIM(CAST("TreatmentName" AS VARCHAR)) IN ('', 'None', 'nan', 'null', 'NULL')
+            """).rowcount
+            if invalid_treatments_deleted > 0:
+                logger.info(f"Deleted {invalid_treatments_deleted} blank/invalid treatment records from {db_name}")
+        except Exception as e:
+            logger.debug(f"Could not clean invalid treatments for {db_name}: {e}")
         # Get discarded patient IDs
         discarded_patients = get_discarded_patient_ids(conn, logger)
-        
+
         if discarded_patients:
             # Clean up orphaned records
             cleanup_results = cleanup_orphaned_records(conn, discarded_patients, logger)
@@ -196,7 +216,10 @@ def process_database(db_path, logger):
                 logger.info(f"  - Treatments deleted: {cleanup_results['treatments_deleted']}")
                 logger.info(f"  - Embryo data deleted: {cleanup_results['embryo_deleted']}")
         else:
-            logger.info("No cleanup needed - no discarded patients found")
+            logger.info("No discarded patients found")
+            if invalid_treatments_deleted > 0:
+                final_counts = get_table_counts(conn, logger)
+                logger.info(f"Final counts: {final_counts}")
         
         conn.close()
         logger.info(f"Finished processing: {db_path}")

@@ -371,7 +371,7 @@ def update_prontuario_column_pedidos(con):
 
 
 def create_gold_vendas_consolidadas_table(con):
-    logger.info("Combining silver.venda_direta and gold.protheus_pedidos_a_faturar into gold.protheus_vendas_consolidadas...")
+    logger.info("Combining silver.venda_direta and gold.protheus_pedidos_a_faturar into gold.protheus_vendas_consolidadas (with deduplication)...")
 
     con.execute("DROP TABLE IF EXISTS gold.protheus_vendas_consolidadas")
 
@@ -388,9 +388,36 @@ def create_gold_vendas_consolidadas_table(con):
                 (SELECT MAX(CAST("Emissao" AS DATE)) FROM gold.protheus_pedidos_a_faturar)
             ) AS end_date
     ),
+    invoiced_pedidos AS (
+        SELECT DISTINCT 
+            company_id, C5_FILIAL, C5_NUM 
+        FROM silver.pedidos 
+        WHERE is_deleted = FALSE 
+          AND (
+              (C5_NOTA IS NOT NULL AND TRIM(C5_NOTA) != '') 
+              OR (C6_NOTA IS NOT NULL AND TRIM(C6_NOTA) != '')
+          )
+    ),
     venda_direta_rows AS (
         SELECT 
             'VENDA_DIRETA' AS origem,
+            CASE 
+                WHEN (v.L1_DOC IS NOT NULL AND TRIM(v.L1_DOC) != '') 
+                  OR (v.L2_DOC IS NOT NULL AND TRIM(v.L2_DOC) != '') 
+                THEN 'FATURADO_DIRETO'
+                
+                WHEN (v.L1_PEDRES IS NOT NULL AND TRIM(v.L1_PEDRES) != '') 
+                 AND inv.C5_NUM IS NOT NULL 
+                THEN 'FATURADO_VIA_PEDIDO'
+                
+                WHEN (v.L1_PEDRES IS NOT NULL AND TRIM(v.L1_PEDRES) != '') 
+                THEN 'PEDIDO_A_FATURAR'
+                
+                WHEN v.L1_SITUA = 'FR' 
+                THEN 'ORCAMENTO_ABERTO'
+                
+                ELSE 'ORCAMENTO_AVULSO'
+            END AS status_fluxo,
             CASE
                 WHEN v.company_id = '01' THEN '1'
                 WHEN v.company_id = '03' THEN '3'
@@ -453,6 +480,10 @@ def create_gold_vendas_consolidadas_table(con):
             v.L1_OPERADO AS operador,
             v.extraction_timestamp AS extraction_timestamp
         FROM silver.venda_direta v
+        LEFT JOIN invoiced_pedidos inv 
+          ON v.company_id = inv.company_id 
+         AND v.L1_FILIAL = inv.C5_FILIAL 
+         AND v.L1_PEDRES = inv.C5_NUM
         LEFT JOIN silver.clientes c_cli
             ON v.L1_CLIENTE = c_cli.A1_COD AND v.L1_LOJA = c_cli.A1_LOJA
         LEFT JOIN silver.clientes c_pac
@@ -464,9 +495,13 @@ def create_gold_vendas_consolidadas_table(con):
         WHERE v.is_deleted = FALSE
           AND v.L1_EMISSAO BETWEEN (SELECT start_date FROM common_window) AND (SELECT end_date FROM common_window)
     ),
-    pedidos_rows AS (
+    pedidos_direct_rows AS (
         SELECT 
-            'PEDIDO_A_FATURAR' AS origem,
+            'PEDIDO_DIRETO' AS origem,
+            CASE 
+                WHEN p."Numero" IS NOT NULL THEN 'FATURADO_VIA_PEDIDO'
+                ELSE 'PEDIDO_A_FATURAR'
+            END AS status_fluxo,
             p."Grp" AS grp,
             CASE
                 WHEN p."Grp" = '1' AND p."Filial" IN (10101, 10150) THEN 'Ibirapuera'
@@ -517,12 +552,20 @@ def create_gold_vendas_consolidadas_table(con):
         FROM gold.protheus_pedidos_a_faturar p
         LEFT JOIN silver.produtos prod
             ON p."Produt" = prod.B1_COD
+        LEFT JOIN (
+            SELECT DISTINCT TRY_CAST(L1_FILIAL AS INTEGER) as filial, TRY_CAST(L1_PEDRES AS INTEGER) as pedido, TRY_CAST(L1_NUM AS INTEGER) as orcamento
+            FROM silver.venda_direta 
+            WHERE is_deleted = FALSE
+        ) vd_exists
+          ON p."Filial" = vd_exists.filial 
+         AND (p."Pedido" = vd_exists.pedido OR (p."Orcamento" = vd_exists.orcamento AND vd_exists.orcamento IS NOT NULL))
         WHERE CAST(p."Emissao" AS DATE) BETWEEN (SELECT start_date FROM common_window) AND (SELECT end_date FROM common_window)
+          AND vd_exists.filial IS NULL
     ),
     unioned AS (
         SELECT * FROM venda_direta_rows
         UNION ALL
-        SELECT * FROM pedidos_rows
+        SELECT * FROM pedidos_direct_rows
     )
     SELECT 
         ROW_NUMBER() OVER (ORDER BY dt_emissao DESC, filial ASC, orcamento DESC, pedido DESC) AS line_number,

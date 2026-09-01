@@ -465,6 +465,28 @@ def create_leads_funil(con):
     logger.info(f"    Leads with qualifying consulta: {_count(con, 'tmp_consultas'):,}")
 
     # -----------------------------------------------------------------------
+    # 8b. Financial sales aggregation (post-lead, within attribution window)
+    # -----------------------------------------------------------------------
+    logger.info("Step 8b — Financial sales join (Protheus)")
+    con.execute("DROP TABLE IF EXISTS tmp_vendas")
+    _step(con, "tmp_vendas", """
+        CREATE TEMP TABLE tmp_vendas AS
+        SELECT
+            l.lead_id,
+            COALESCE(SUM(p.valor_total), 0.0) AS total_gasto_pos_lead,
+            COUNT(*)                          AS qtd_itens_vendidos_pos_lead,
+            COUNT(DISTINCT p.pedido)          AS qtd_pedidos_pos_lead,
+            MIN(p.dt_emissao)                 AS primeira_venda_data
+        FROM tmp_leads_matched l
+        JOIN gold.protheus_vendas_consolidadas p
+          ON l.prontuario = p.prontuario
+         AND p.dt_emissao >= l.lead_date
+         AND (l.next_lead_date IS NULL OR p.dt_emissao < l.next_lead_date)
+        GROUP BY l.lead_id
+    """)
+    logger.info(f"    Leads with post-lead sales: {_count(con, 'tmp_vendas'):,}")
+
+    # -----------------------------------------------------------------------
     # 9. Build final gold table
     # -----------------------------------------------------------------------
     logger.info("Step 9 — Write gold.leads_funil")
@@ -489,26 +511,35 @@ def create_leads_funil(con):
             END AS match_category,
             c.consulta_type,
             c.consulta_date,
-            c.consulta_status
+            c.consulta_status,
+            COALESCE(v.total_gasto_pos_lead, 0.0) AS total_gasto_pos_lead,
+            COALESCE(v.qtd_itens_vendidos_pos_lead, 0) AS qtd_itens_vendidos_pos_lead,
+            COALESCE(v.qtd_pedidos_pos_lead, 0) AS qtd_pedidos_pos_lead,
+            v.primeira_venda_data
         FROM tmp_leads_matched l
         LEFT JOIN tmp_consultas c ON l.lead_id = c.lead_id
+        LEFT JOIN tmp_vendas v    ON l.lead_id = v.lead_id
     """)
 
     # -----------------------------------------------------------------------
     # 10. Audit log
     # -----------------------------------------------------------------------
-    total      = _count(con, 'gold.leads_funil')
-    matched    = con.execute("SELECT COUNT(*) FROM gold.leads_funil WHERE prontuario IS NOT NULL").fetchone()[0]
-    typos      = con.execute("SELECT COUNT(*) FROM gold.leads_funil WHERE matched_flag LIKE '%typo%'").fetchone()[0]
-    consultas  = con.execute("SELECT COUNT(*) FROM gold.leads_funil WHERE consulta_date IS NOT NULL").fetchone()[0]
-    unmatched  = total - matched
+    total       = _count(con, 'gold.leads_funil')
+    matched     = con.execute("SELECT COUNT(*) FROM gold.leads_funil WHERE prontuario IS NOT NULL").fetchone()[0]
+    typos       = con.execute("SELECT COUNT(*) FROM gold.leads_funil WHERE matched_flag LIKE '%typo%'").fetchone()[0]
+    consultas   = con.execute("SELECT COUNT(*) FROM gold.leads_funil WHERE consulta_date IS NOT NULL").fetchone()[0]
+    with_vendas = con.execute("SELECT COUNT(*) FROM gold.leads_funil WHERE total_gasto_pos_lead > 0").fetchone()[0]
+    total_val   = con.execute("SELECT COALESCE(SUM(total_gasto_pos_lead), 0.0) FROM gold.leads_funil").fetchone()[0]
+    unmatched   = total - matched
 
     logger.info("=== AUDIT ===")
-    logger.info(f"  Total deals     : {total:,}")
-    logger.info(f"  Matched         : {matched:,} ({matched/total*100:.1f}%)" if total else "  Matched: 0")
-    logger.info(f"  Typos resolved  : {typos:,}")
-    logger.info(f"  Unmatched       : {unmatched:,} ({unmatched/total*100:.1f}%)" if total else "  Unmatched: 0")
-    logger.info(f"  With consulta   : {consultas:,} ({consultas/matched*100:.1f}% of matched)" if matched else "  With consulta: 0")
+    logger.info(f"  Total deals      : {total:,}")
+    logger.info(f"  Matched          : {matched:,} ({matched/total*100:.1f}%)" if total else "  Matched: 0")
+    logger.info(f"  Typos resolved   : {typos:,}")
+    logger.info(f"  Unmatched        : {unmatched:,} ({unmatched/total*100:.1f}%)" if total else "  Unmatched: 0")
+    logger.info(f"  With consulta    : {consultas:,} ({consultas/matched*100:.1f}% of matched)" if matched else "  With consulta: 0")
+    logger.info(f"  With sales (>0)  : {with_vendas:,} ({with_vendas/matched*100:.1f}% of matched)" if matched else "  With sales: 0")
+    logger.info(f"  Total revenue    : R$ {total_val:,.2f}")
 
     # -----------------------------------------------------------------------
     # Cleanup temp tables
@@ -516,7 +547,8 @@ def create_leads_funil(con):
     for t in [
         "tmp_rd_deals", "tmp_rd_emails", "tmp_rd_phones",
         "tmp_clin", "tmp_matches_exact", "tmp_unmatched_emails",
-        "tmp_matches_typo", "tmp_best_match", "tmp_leads_matched", "tmp_consultas"
+        "tmp_matches_typo", "tmp_best_match", "tmp_leads_matched", "tmp_consultas",
+        "tmp_vendas"
     ]:
         con.execute(f"DROP TABLE IF EXISTS {t}")
 
