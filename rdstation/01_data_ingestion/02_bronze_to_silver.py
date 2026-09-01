@@ -213,6 +213,10 @@ def promote_deals(con):
                ) AS rn
         FROM bronze.deals
         WHERE COALESCE(is_deleted, 'FALSE') = 'FALSE'
+          AND lower(name) NOT LIKE '%teste%'
+          AND lower(name) NOT LIKE '%test%'
+          AND lower(name) NOT LIKE '%[csys]%'
+          AND lower(name) NOT LIKE '%gtmtest%'
     )
     WHERE rn = 1;
     """
@@ -248,10 +252,33 @@ def promote_contacts(con):
         SELECT *,
                ROW_NUMBER() OVER (
                    PARTITION BY id
-                   ORDER BY extraction_timestamp DESC
+                   ORDER BY 
+                       -- Prioritize records with non-empty emails and phones
+                       CASE 
+                           WHEN json_extract_string(emails, '$[0].email') IS NOT NULL 
+                            AND json_extract_string(emails, '$[0].email') != '' 
+                            AND json_extract_string(phones, '$[0].phone') IS NOT NULL 
+                            AND json_extract_string(phones, '$[0].phone') != '' THEN 1
+                           WHEN json_extract_string(emails, '$[0].email') IS NOT NULL 
+                            AND json_extract_string(emails, '$[0].email') != '' THEN 2
+                           WHEN json_extract_string(phones, '$[0].phone') IS NOT NULL 
+                            AND json_extract_string(phones, '$[0].phone') != '' THEN 3
+                           ELSE 4
+                       END ASC,
+                       extraction_timestamp DESC
                ) AS rn
         FROM bronze.contacts
         WHERE COALESCE(is_deleted, 'FALSE') = 'FALSE'
+          AND lower(name) NOT LIKE '%teste%'
+          AND (
+              json_extract_string(emails, '$[0].email') IS NULL 
+              OR (
+                  lower(json_extract_string(emails, '$[0].email')) NOT LIKE '%teste%'
+                  AND lower(json_extract_string(emails, '$[0].email')) NOT LIKE '%@huntington.com.br%'
+                  AND lower(json_extract_string(emails, '$[0].email')) NOT LIKE '%@naopossui%'
+                  AND lower(json_extract_string(emails, '$[0].email')) != '123@gmail.com'
+              )
+          )
     )
     WHERE rn = 1;
     """

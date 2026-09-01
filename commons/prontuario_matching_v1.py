@@ -91,8 +91,8 @@ def find_prontuarios(
             raise
 
     # 1b. Detect original prontuario column for tie-breaker
-    cols_df = source_con.execute(f"PRAGMA table_info('{source_schema}.\"{source_table}\"')").df()
-    col_names = {c.lower() for c in cols_df["name"]}
+    cols_df = source_con.execute(f"DESCRIBE {source_schema}.{source_table}").df()
+    col_names = {c.lower() for c in cols_df["column_name"]}
 
     if "prontuario_old" in col_names:
         orig_pront_col = "prontuario_old"

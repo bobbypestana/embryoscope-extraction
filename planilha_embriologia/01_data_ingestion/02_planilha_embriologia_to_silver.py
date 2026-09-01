@@ -44,13 +44,15 @@ logger = logging.getLogger(__name__)
 # Configuration
 DUCKDB_PATH = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), 'database', 'huntington_data_lake.duckdb')
 BRONZE_PATTERN = 'planilha_%'  # Pattern to match all Planilha tables
-SHEET_TYPES = ['fresh', 'fet']  # Process each sheet type separately
+SHEET_TYPES = ['fresh', 'fet', 'recep', 'fot']  # Process 4 independent sheet types
 
 # Refinement Configuration (All available years 2021-2026)
 YEARS_TO_PROCESS = ['2021', '2022', '2023', '2024', '2025', '2026']
 REFERENCE_TABLES = {
     'fresh': 'planilha_2024_ibira_fresh',
-    'fet': 'planilha_2024_ibira_fet'
+    'fet': 'planilha_2024_ibira_fet',
+    'recep': 'planilha_2024_ibira_recep',
+    'fot': 'planilha_2024_ibira_fot'
 }
 
 # Column Whitelist (normalized names as snake_case)
@@ -78,7 +80,19 @@ WHITELIST = {
         'no_biopsiados',
         'qtd_analisados',
         'qtd_normais',
-        'dia_cryo'
+        'dia_cryo',
+        'data_da_fet',
+        'result',
+        'tipo_do_resultado',
+        'gravidez_clinica',
+        'gravidez_bioquimica',
+        'no_nascidos',
+        'dia_et',
+        'no_et',
+        'houve_transferencia',
+        'data_parto',
+        'tipo_de_parto',
+        'peso_1'
     ],
     'fet': [
         'pin',
@@ -103,19 +117,86 @@ WHITELIST = {
         'no_et',
         'gravidez_bioquimica',
         'gravidez_clinica',
+        'houve_transferencia',
+        'data_parto',
+        'tipo_de_parto',
+        'peso_1',
+        'peso_2',
         'obs'
+    ],
+    'recep': [
+        'pin',
+        'nome_da_paciente',
+        'data_de_nasc',
+        'data_da_fet',
+        'data_do_procedimento',
+        'pin_doadora',
+        'data_crio',
+        'result',
+        'tipo_do_resultado',
+        'no_nascidos',
+        'tipo_1',
+        'tipo_de_tratamento',
+        'tipo_de_fet',
+        'tipo_biopsia',
+        'tipo_da_doacao',
+        'idade_mulher',
+        'idade_do_cong_de_embriao',
+        'preparo_para_transferencia',
+        'dia_cryo',
+        'no_da_transfer_1a_2a_3a',
+        'dia_et',
+        'no_et',
+        'gravidez_bioquimica',
+        'gravidez_clinica',
+        'houve_transferencia',
+        'data_parto',
+        'tipo_de_parto',
+        'peso_1',
+        'obs'
+    ],
+    'fot': [
+        'pin',
+        'nome_da_paciente',
+        'data_de_nasc',
+        'data_da_puncao',
+        'data_do_procedimento',
+        'data_crio',
+        'data_da_fet',
+        'result',
+        'tipo_do_resultado',
+        'gravidez_clinica',
+        'gravidez_bioquimica',
+        'no_nascidos',
+        'fator_1',
+        'incubadora',
+        'tipo_1',
+        'tipo_de_inseminacao',
+        'tipo_biopsia',
+        'total_de_mii',
+        'qtd_blasto',
+        'dia_cryo',
+        'houve_transferencia',
+        'data_parto',
+        'tipo_de_parto'
     ]
 }
 
 # Values for TIPO 1 filtering (used as prefixes for shared tables)
 TIPO_FILTERS = {
-    'fresh': ['FIC/ICSI', 'FIV/ICSI', 'FOT', 'FOT OR', 'OR', 'FRESH', 'ICSI', 'FIV', 'CONG'],
-    'fet': ['FET', 'FET/OR', 'FET/ER', 'RECEPTORA', 'RECEP', 'TEC', 'DESCONG']
+    'fresh': ['FIC/ICSI', 'FIV/ICSI', 'FRESH', 'ICSI', 'FIV', 'CONG', 'OR', 'PUNÇÃO', 'PUNCAO'],
+    'fet': ['FET', 'FET/OR', 'FET/ER', 'TEC', 'DESCONG EMBRIAO', 'DESCONG EMBRIÃO'],
+    'recep': ['RECEPTORA', 'RECEP', 'DOAÇÃO', 'DOACAO', 'RECEPT'],
+    'fot': ['FOT', 'FOT OR', 'DESCONG OVO', 'DESCONG OVULO', 'DESCONG ÓVULO']
 }
 
 # Explicit Synonyms (Global heuristics)
 SYNONYMS = {
     'resultado': 'result',
+    'tipo_resultado': 'tipo_do_resultado',
+    'tipo_de_resultado': 'tipo_do_resultado',
+    'houve_transferencia': 'houve_transferencia',
+    'houve_transf': 'houve_transferencia',
     'n_nascidos': 'no_nascidos',
     'num_nascidos': 'no_nascidos',
     'no_nascidos': 'no_nascidos',
@@ -149,8 +230,9 @@ SYNONYMS = {
     'tipo_sptz': 'tipo',
     'origem_do_espermatozoide': 'origem',
     'tipo_do_espermatozoide': 'tipo',
-    'data_do_fot': 'data_da_puncao',
-    'data_do_procedimento': 'data_da_puncao',
+    'data_do_fot': 'data_do_procedimento',
+    'data_do_procedimento': 'data_do_procedimento',
+    'data_procedimento': 'data_do_procedimento',
     'data_da_coleta': 'data_da_puncao',
     'data_transferencia': 'data_da_fet',
     'data_da_transferencia': 'data_da_fet',
@@ -166,6 +248,11 @@ SYNONYMS = {
     'tipo_de_inseminacao_ou_icsi': 'tipo_de_inseminacao',
     'tipo_inseminacao': 'tipo_de_inseminacao',
     'tipo_da_doacao_recepcao': 'tipo_da_doacao',
+    'data_parto': 'data_parto',
+    'tipo_parto': 'tipo_de_parto',
+    'tipo_de_parto': 'tipo_de_parto',
+    'peso_1': 'peso_1',
+    'peso_2': 'peso_2',
 }
 
 # ==============================================================================
@@ -1084,13 +1171,15 @@ def normalize_column_name(col_name):
 def get_bronze_tables(con, sheet_type=None):
     """Get all bronze tables matching the pattern, optionally filtered by sheet type, including shared tables."""
     try:
-        # Search for bronze tables for this sheet type
-        # Fresh matches: _fresh, _fot, _fiv, plus shared historical tables
-        # FET matches: _fet, _recep, _tec, plus shared historical tables
+        shared_condition = "(table_name LIKE '%_total%' OR table_name LIKE '%_geral%' OR table_name LIKE '%_anual%' OR table_name LIKE '%_2022' OR table_name LIKE '%_sheet1')"
         if sheet_type == 'fresh':
-            condition = "(table_name LIKE '%_fresh' OR table_name LIKE '%_fot' OR table_name LIKE '%_fiv' OR table_name LIKE '%_total%' OR table_name LIKE '%_geral%' OR table_name LIKE '%_anual%' OR table_name LIKE '%_2022' OR table_name LIKE '%_sheet1')"
+            condition = f"(table_name LIKE '%_fresh' OR table_name LIKE '%_fiv' OR {shared_condition})"
         elif sheet_type == 'fet':
-            condition = "(table_name LIKE '%_fet' OR table_name LIKE '%_recep' OR table_name LIKE '%_tec' OR table_name LIKE '%_total%' OR table_name LIKE '%_geral%' OR table_name LIKE '%_anual%' OR table_name LIKE '%_2022')"
+            condition = f"(table_name LIKE '%_fet' OR table_name LIKE '%_tec' OR {shared_condition})"
+        elif sheet_type == 'recep':
+            condition = f"(table_name LIKE '%_recep' OR {shared_condition})"
+        elif sheet_type == 'fot':
+            condition = f"(table_name LIKE '%_fot' OR {shared_condition})"
         else:
             condition = "1=1"
 
@@ -1370,10 +1459,10 @@ def clean_data(df, sheet_type):
     pin_col = next((col for col in df.columns if normalize_column_name(col) == 'pin'), 'pin')
     
     # Determine procedure date column based on sheet type
-    if sheet_type.upper() == 'FRESH':
-        date_col = next((col for col in df.columns if normalize_column_name(col) in ['data_da_puncao', 'data_crio', 'dia_cryo', 'dia']), 'data_da_puncao')
-    else:  # FET
-        date_col = next((col for col in df.columns if normalize_column_name(col) in ['data_da_fet', 'data_crio', 'dia_cryo', 'dia']), 'data_da_fet')
+    if sheet_type.upper() in ['FRESH', 'FOT']:
+        date_col = next((col for col in df.columns if normalize_column_name(col) in ['data_da_puncao', 'data_do_procedimento', 'data_crio', 'dia_cryo', 'dia']), 'data_da_puncao')
+    else:  # FET, RECEP
+        date_col = next((col for col in df.columns if normalize_column_name(col) in ['data_da_fet', 'data_da_transferencia', 'data_do_procedimento', 'data_crio', 'dia_cryo', 'dia']), 'data_da_fet')
     
     if pin_col in df.columns and date_col in df.columns:
         # A row is kept if either PIN or date is NOT blank
@@ -1572,6 +1661,13 @@ def process_bronze_to_silver(con, sheet_type):
             if table_config:
                 if sheet_type in table_config:
                     type_config = table_config[sheet_type]
+                elif sheet_type in ['recep', 'fot']:
+                    base_type = 'fet' if sheet_type == 'recep' else 'fresh'
+                    if base_type in table_config:
+                        type_config = {
+                            'mapping': table_config[base_type].get('mapping', {}),
+                            'filters': TIPO_FILTERS.get(sheet_type, [])
+                        }
                 elif 'mapping' in table_config:
                     # Fallback for old structure or shared mapping
                     type_config = table_config

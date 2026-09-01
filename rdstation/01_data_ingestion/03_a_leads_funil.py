@@ -138,29 +138,61 @@ def create_leads_funil(con):
     """)
 
     # -----------------------------------------------------------------------
-    # 1. Materialise RD deals (with window for next_lead_date)
+    # 1. Materialise RD deals (with 1:1 contact prioritization & lead_from / lead_to window)
     # -----------------------------------------------------------------------
-    logger.info("Step 1 — Materialise RD deals base")
+    logger.info("Step 1 — Materialise RD deals base (prioritizing contacts with email/phone)")
     con.execute("DROP TABLE IF EXISTS tmp_rd_deals")
     _step(con, "tmp_rd_deals", """
         CREATE TEMP TABLE tmp_rd_deals AS
+        WITH best_contact_per_deal AS (
+            SELECT 
+                dc."Deal ID",
+                c."Contact ID",
+                c."Nome Contato",
+                c."E-mail",
+                c."Telefone",
+                ROW_NUMBER() OVER (
+                    PARTITION BY dc."Deal ID"
+                    ORDER BY 
+                        CASE 
+                            WHEN (c."E-mail" IS NOT NULL AND c."E-mail" != '') AND (c."Telefone" IS NOT NULL AND c."Telefone" != '') THEN 1
+                            WHEN (c."E-mail" IS NOT NULL AND c."E-mail" != '') THEN 2
+                            WHEN (c."Telefone" IS NOT NULL AND c."Telefone" != '') THEN 3
+                            ELSE 4
+                        END ASC,
+                        c."Data Atualização Contato" DESC NULLS LAST,
+                        c."Data Criação Contato" DESC NULLS LAST
+                ) AS rn
+            FROM gold.rdstation_deal_contacts dc
+            JOIN gold.rdstation_contacts c ON dc."Contact ID" = c."Contact ID"
+        )
         SELECT
             d."Deal ID"                                                          AS lead_id,
+            d."Negócio"                                                          AS deal_name,
+            d."Status"                                                           AS deal_status,
+            d."Fonte"                                                            AS fonte,
+            d."Campanha ID"                                                      AS campanha_id,
+            d."Unidade"                                                          AS unidade,
+            d."Funil"                                                            AS funil,
             d."Data Criação"                                                     AS lead_date,
-            c."Contact ID"                                                       AS contact_id,
-            c."E-mail"                                                           AS lead_email,
-            CASE WHEN is_valid_phone(clean_phone_sql(c."Telefone"))
-                 THEN clean_phone_sql(c."Telefone")
+            d."Data Criação"                                                     AS lead_from,
+            bc."Contact ID"                                                      AS contact_id,
+            bc."E-mail"                                                          AS lead_email,
+            CASE WHEN is_valid_phone(clean_phone_sql(bc."Telefone"))
+                 THEN clean_phone_sql(bc."Telefone")
                  ELSE NULL
             END                                                                  AS clean_phone,
-            -- Next deal date for same contact — defines attribution window upper bound
+            -- Next deal date for same contact — defines attribution window upper bound (lead_to)
             LEAD(d."Data Criação") OVER (
-                PARTITION BY c."Contact ID"
+                PARTITION BY bc."Contact ID"
+                ORDER BY d."Data Criação" ASC
+            )                                                                    AS lead_to,
+            LEAD(d."Data Criação") OVER (
+                PARTITION BY bc."Contact ID"
                 ORDER BY d."Data Criação" ASC
             )                                                                    AS next_lead_date
         FROM gold.rdstation_deals d
-        LEFT JOIN gold.rdstation_deal_contacts dc ON d."Deal ID" = dc."Deal ID"
-        LEFT JOIN gold.rdstation_contacts       c  ON dc."Contact ID" = c."Contact ID"
+        LEFT JOIN best_contact_per_deal bc ON d."Deal ID" = bc."Deal ID" AND bc.rn = 1
     """)
     logger.info(f"    RD deals: {_count(con, 'tmp_rd_deals'):,}")
 
@@ -406,22 +438,72 @@ def create_leads_funil(con):
     logger.info(f"    Leads with at least one match: {_count(con, 'tmp_best_match'):,}")
 
     # -----------------------------------------------------------------------
-    # 7. Join matches back to all deals
+    # 7. Join matches back to all deals & compute patient-level attribution window
     # -----------------------------------------------------------------------
-    logger.info("Step 7 — Join matches back to all deals")
+    logger.info("Step 7 — Join matches back to all deals & compute attribution window")
     con.execute("DROP TABLE IF EXISTS tmp_leads_matched")
     _step(con, "tmp_leads_matched", """
         CREATE TEMP TABLE tmp_leads_matched AS
+        WITH matched_base AS (
+            SELECT
+                d.lead_id,
+                d.deal_name,
+                d.deal_status,
+                d.fonte,
+                d.campanha_id,
+                d.unidade,
+                d.funil,
+                d.lead_date,
+                d.lead_from,
+                d.contact_id,
+                d.lead_email,
+                m.prontuario,
+                m.matched_email,
+                COALESCE(m.matched_flag, 'unmatched') AS matched_flag
+            FROM tmp_rd_deals d
+            LEFT JOIN tmp_best_match m ON d.lead_id = m.lead_id
+        )
         SELECT
-            d.lead_id,
-            d.lead_date,
-            d.next_lead_date,
-            d.lead_email,
-            m.prontuario,
-            m.matched_email,
-            COALESCE(m.matched_flag, 'unmatched') AS matched_flag
-        FROM tmp_rd_deals d
-        LEFT JOIN tmp_best_match m ON d.lead_id = m.lead_id
+            b.lead_id,
+            b.deal_name,
+            b.deal_status,
+            b.fonte,
+            b.campanha_id,
+            b.unidade,
+            b.funil,
+            b.lead_date,
+            b.lead_from,
+            -- Next deal date: partitioned by prontuario if matched (to avoid couple/partner overlap),
+            -- otherwise partitioned by contact_id
+            CASE 
+                WHEN b.prontuario IS NOT NULL THEN
+                    LEAD(b.lead_from) OVER (
+                        PARTITION BY b.prontuario 
+                        ORDER BY b.lead_from ASC, b.lead_id ASC
+                    )
+                ELSE
+                    LEAD(b.lead_from) OVER (
+                        PARTITION BY b.contact_id 
+                        ORDER BY b.lead_from ASC, b.lead_id ASC
+                    )
+            END AS lead_to,
+            CASE 
+                WHEN b.prontuario IS NOT NULL THEN
+                    LEAD(b.lead_from) OVER (
+                        PARTITION BY b.prontuario 
+                        ORDER BY b.lead_from ASC, b.lead_id ASC
+                    )
+                ELSE
+                    LEAD(b.lead_from) OVER (
+                        PARTITION BY b.contact_id 
+                        ORDER BY b.lead_from ASC, b.lead_id ASC
+                    )
+            END AS next_lead_date,
+            b.lead_email,
+            b.prontuario,
+            b.matched_email,
+            b.matched_flag
+        FROM matched_base b
     """)
 
     # -----------------------------------------------------------------------
@@ -450,8 +532,8 @@ def create_leads_funil(con):
             FROM tmp_leads_matched l
             JOIN gold.extrato_atendimento_central c
               ON l.prontuario = c.paciente_codigo
-             AND c.data >= l.lead_date
-             AND (l.next_lead_date IS NULL OR c.data < l.next_lead_date)
+             AND c.data >= l.lead_from
+             AND (l.lead_to IS NULL OR c.data < l.lead_to)
              -- SIMILAR TO replaced: two LIKE checks are index-friendlier
              AND (
                  lower(strip_accents(c.procedimento_nome)) LIKE '%consulta%reprodu%'
@@ -475,13 +557,13 @@ def create_leads_funil(con):
             l.lead_id,
             COALESCE(SUM(p.valor_total), 0.0) AS total_gasto_pos_lead,
             COUNT(*)                          AS qtd_itens_vendidos_pos_lead,
-            COUNT(DISTINCT p.pedido)          AS qtd_pedidos_pos_lead,
+            COUNT(DISTINCT p.num_nota)        AS qtd_pedidos_pos_lead,
             MIN(p.dt_emissao)                 AS primeira_venda_data
         FROM tmp_leads_matched l
         JOIN gold.protheus_vendas_consolidadas p
           ON l.prontuario = p.prontuario
-         AND p.dt_emissao >= l.lead_date
-         AND (l.next_lead_date IS NULL OR p.dt_emissao < l.next_lead_date)
+         AND p.dt_emissao >= l.lead_from
+         AND (l.lead_to IS NULL OR p.dt_emissao < l.lead_to)
         GROUP BY l.lead_id
     """)
     logger.info(f"    Leads with post-lead sales: {_count(con, 'tmp_vendas'):,}")
@@ -495,7 +577,15 @@ def create_leads_funil(con):
         CREATE TABLE gold.leads_funil AS
         SELECT
             l.lead_id,
+            l.deal_name,
+            l.deal_status,
+            COALESCE(l.fonte, 'Não informada') AS fonte,
+            l.campanha_id,
+            COALESCE(l.unidade, 'Não informada') AS unidade,
+            l.funil,
             l.lead_date,
+            l.lead_from,
+            l.lead_to,
             l.lead_email,
             l.prontuario,
             l.matched_email,
@@ -512,10 +602,12 @@ def create_leads_funil(con):
             c.consulta_type,
             c.consulta_date,
             c.consulta_status,
+            date_diff('day', l.lead_from, c.consulta_date) AS dias_ate_primeira_consulta,
             COALESCE(v.total_gasto_pos_lead, 0.0) AS total_gasto_pos_lead,
             COALESCE(v.qtd_itens_vendidos_pos_lead, 0) AS qtd_itens_vendidos_pos_lead,
             COALESCE(v.qtd_pedidos_pos_lead, 0) AS qtd_pedidos_pos_lead,
-            v.primeira_venda_data
+            v.primeira_venda_data,
+            date_diff('day', l.lead_from, v.primeira_venda_data) AS dias_ate_primeira_venda
         FROM tmp_leads_matched l
         LEFT JOIN tmp_consultas c ON l.lead_id = c.lead_id
         LEFT JOIN tmp_vendas v    ON l.lead_id = v.lead_id

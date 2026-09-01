@@ -9,24 +9,24 @@ cd /d "%~dp0"
 cd ..
 set PROJECT_ROOT=%CD%
 
-@REM REM ========================================
-@REM REM VPN CONFIGURATION (Sophos Connect)
-@REM REM ========================================
-@REM set "VPN_NAME=189.108.75.147"
-@REM set "SOPHOS_CLI=C:\Program Files (x86)\Sophos\Connect\sccli.exe"
+REM ========================================
+REM VPN CONFIGURATION (Sophos Connect)
+REM ========================================
+set "VPN_NAME=189.108.75.147"
+set "SOPHOS_CLI=C:\Program Files (x86)\Sophos\Connect\sccli.exe"
 
-@REM if "%VPN_NAME%" neq "" (
-@REM     echo.
-@REM     echo Connecting to Sophos VPN: %VPN_NAME%...
-@REM     if exist "%SOPHOS_CLI%" (
-@REM         "%SOPHOS_CLI%" enable -n "%VPN_NAME%"
-@REM         echo Waiting 10 seconds for VPN to establish...
-@REM         timeout /t 10 >nul
-@REM     ) else (
-@REM         echo WARNING: Sophos Connect CLI not found at "%SOPHOS_CLI%"
-@REM         echo Please check your SOPHOS_CLI path configuration.
-@REM     )
-@REM )
+if "%VPN_NAME%" neq "" (
+    echo.
+    echo Connecting to Sophos VPN: %VPN_NAME%...
+    if exist "%SOPHOS_CLI%" (
+        "%SOPHOS_CLI%" enable -n "%VPN_NAME%"
+        echo Waiting 10 seconds for VPN to establish...
+        timeout /t 10 >nul
+    ) else (
+        echo WARNING: Sophos Connect CLI not found at "%SOPHOS_CLI%"
+        echo Please check your SOPHOS_CLI path configuration.
+    )
+)
 
 REM Initialize tracking variable for failed steps
 set "FAILED_STEPS="
@@ -333,15 +333,15 @@ echo DATAFLOW RUN COMPLETE
 echo ========================================
 echo.
 
-@REM REM ========================================
-@REM REM VPN DISCONNECTION
-@REM REM ========================================
-@REM if "%VPN_NAME%" neq "" (
-@REM     echo Disconnecting from Sophos VPN: %VPN_NAME%...
-@REM     if exist "%SOPHOS_CLI%" (
-@REM         "%SOPHOS_CLI%" disable -n "%VPN_NAME%"
-@REM     )
-@REM )
+REM ========================================
+REM VPN DISCONNECTION
+REM ========================================
+if "%VPN_NAME%" neq "" (
+    echo Disconnecting from Sophos VPN: %VPN_NAME%...
+    if exist "%SOPHOS_CLI%" (
+        "%SOPHOS_CLI%" disable -n "%VPN_NAME%"
+    )
+)
 
 if defined FAILED_STEPS (
     echo WARNING: The complete dataflow finished with errors.
