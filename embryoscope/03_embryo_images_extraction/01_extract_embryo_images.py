@@ -2,7 +2,7 @@
 Main script for extracting embryo images from the Embryoscope API.
 
 This script:
-1. Queries embryos from gold.data_ploidia (first 3 distinct Slide IDs)
+1. Queries embryos from gold.pesquisa_dados_para_ia (first 3 distinct Slide IDs)
 2. Maps embryos to clinic locations
 3. Checks if images already exist
 4. Extracts images as ZIP files using the API
@@ -298,7 +298,7 @@ def main():
                 logger.debug(f"Metadata table init skipped: {e}")
             
             # Query embryos to extract (now filtered in SQL to exclude successes)
-            logger.info(f"Querying embryos from gold.data_ploidia (limit {limit}, mode {args.mode}, retry={args.retry})...")
+            logger.info(f"Querying embryos from gold.pesquisa_dados_para_ia (limit {limit}, mode {args.mode}, retry={args.retry})...")
             # We only look for embryos that are missing ANY of the requested FOCAL_PLANES
             embryos = utils.get_embryos_to_extract(conn, limit=limit, planes=FOCAL_PLANES, mode=args.mode, retry=args.retry)
             

@@ -36,12 +36,20 @@ logger = logging.getLogger(__name__)
 # Configuration
 DUCKDB_PATH = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), 'database', 'huntington_data_lake.duckdb')
 DATA_INPUT_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'data_input')
-SHEETS_TO_LOAD = ['FRESH', 'FET', 'FOT', 'RECEP']
+CLINICAL_SHEETS_ADDITIONAL = [
+    'DOADORAS',
+    'FP (cong ovulos e tecidos)',
+    'FP (cong ovulos e tecido)',
+    'FP',
+    'FP (cong de Semen)',
+    'IIU'
+]
+SHEETS_TO_LOAD = ['FRESH', 'FET', 'FOT', 'RECEP'] + CLINICAL_SHEETS_ADDITIONAL
 
 # Year-specific configurations
 YEAR_CONFIGS = {
     'DEFAULT': {
-        'sheets': ['FRESH', 'FET', 'FOT', 'RECEP'],
+        'sheets': ['FRESH', 'FET', 'FOT', 'RECEP'] + CLINICAL_SHEETS_ADDITIONAL,
         'header': 1
     },
     '2021': {
@@ -49,23 +57,23 @@ YEAR_CONFIGS = {
         'header': 1
     },
     '2022': {
-        'sheets': ['TOTAL', 'TOTAL 2022', '2022', 'FRESH', 'FET', 'FOT', 'RECEP', 'FIV', 'TEC'],
+        'sheets': ['TOTAL', 'TOTAL 2022', '2022', 'FRESH', 'FET', 'FOT', 'RECEP', 'FIV', 'TEC', 'IIU'],
         'header': 1
     },
     '2023': {
-        'sheets': ['FRESH', 'FET', 'FOT', 'RECEP', 'TOTAL 2023', 'Total 2023 Nova ', 'Total 2023 Nova', 'GERAL 2023', 'FIV', 'TEC'],
+        'sheets': ['FRESH', 'FET', 'FOT', 'RECEP', 'TOTAL 2023', 'Total 2023 Nova ', 'Total 2023 Nova', 'GERAL 2023', 'FIV', 'TEC'] + CLINICAL_SHEETS_ADDITIONAL,
         'header': 1
     },
     '2024': {
-        'sheets': ['FRESH', 'FET', 'FOT', 'RECEP'],
+        'sheets': ['FRESH', 'FET', 'FOT', 'RECEP'] + CLINICAL_SHEETS_ADDITIONAL,
         'header': 1
     },
     '2025': {
-        'sheets': ['FRESH', 'FET', 'FOT', 'RECEP'],
+        'sheets': ['FRESH', 'FET', 'FOT', 'RECEP'] + CLINICAL_SHEETS_ADDITIONAL,
         'header': 1
     },
     '2026': {
-        'sheets': ['FRESH', 'FET', 'FOT', 'RECEP'],
+        'sheets': ['FRESH', 'FET', 'FOT', 'RECEP'] + CLINICAL_SHEETS_ADDITIONAL,
         'header': 1
     }
 }
@@ -257,6 +265,16 @@ def process_ssa_2022_file(file_path, con):
             df_tec = pd.concat(tec_dfs, ignore_index=True)
             table_name = "planilha_2022_ssa_tec"
             total_loaded += insert_dataframe_to_bronze(con, df_tec, table_name, file_name, "TEC_MONTHLY_CONSOLIDATED")
+            
+        # 3. IIU sheet
+        if 'IIU' in sheets:
+            header_row = detect_header_row(file_path, 'IIU', max_rows=15)
+            if header_row is None:
+                header_row = 5
+            logger.info(f"Loading IIU sheet for {file_name} with header row {header_row}...")
+            df_iiu = pd.read_excel(file_path, sheet_name='IIU', header=header_row, dtype=str, engine='openpyxl')
+            table_name = "planilha_2022_ssa_iiu"
+            total_loaded += insert_dataframe_to_bronze(con, df_iiu, table_name, file_name, "IIU")
             
     except Exception as e:
         logger.error(f"Error processing SSA 2022 monthly consolidation: {e}")

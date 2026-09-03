@@ -57,18 +57,18 @@ def add_columns_if_missing(conn):
     logger.info("Checking for new columns...")
     
     # Describe table
-    cols = conn.execute("DESCRIBE gold.data_ploidia").fetchall()
+    cols = conn.execute("DESCRIBE gold.pesquisa_dados_para_ia").fetchall()
     col_names = [c[0] for c in cols]
     
     if "api_response_code" not in col_names:
         logger.info("Adding column api_response_code (INTEGER)...")
-        conn.execute("ALTER TABLE gold.data_ploidia ADD COLUMN api_response_code INTEGER")
+        conn.execute("ALTER TABLE gold.pesquisa_dados_para_ia ADD COLUMN api_response_code INTEGER")
     else:
         logger.info("Column api_response_code already exists.")
         
     if "api_error_message" not in col_names:
         logger.info("Adding column api_error_message (VARCHAR)...")
-        conn.execute("ALTER TABLE gold.data_ploidia ADD COLUMN api_error_message VARCHAR")
+        conn.execute("ALTER TABLE gold.pesquisa_dados_para_ia ADD COLUMN api_error_message VARCHAR")
     else:
         logger.info("Column api_error_message already exists.")
 
@@ -79,16 +79,16 @@ def update_image_availability(conn):
     logger.info("=" * 80)
     
     query = """
-    UPDATE gold.data_ploidia
+    UPDATE gold.pesquisa_dados_para_ia
     SET 
         api_response_code = s.api_response_code,
         api_error_message = s.error_message
     FROM silver.embryo_image_availability_latest s
-    WHERE gold.data_ploidia."Slide ID" = s."embryo_EmbryoID"
+    WHERE gold.pesquisa_dados_para_ia."Slide ID" = s."embryo_EmbryoID"
     """
     
     # Get count before
-    count_query = "SELECT COUNT(*) FROM gold.data_ploidia WHERE api_response_code IS NOT NULL"
+    count_query = "SELECT COUNT(*) FROM gold.pesquisa_dados_para_ia WHERE api_response_code IS NOT NULL"
     before = conn.execute(count_query).fetchone()[0]
     
     logger.info("Executing UPDATE...")
@@ -108,10 +108,10 @@ def log_join_metrics(conn):
     logger.info("=" * 80)
     
     # Total rows in table
-    total_rows = conn.execute("SELECT COUNT(*) FROM gold.data_ploidia").fetchone()[0]
+    total_rows = conn.execute("SELECT COUNT(*) FROM gold.pesquisa_dados_para_ia").fetchone()[0]
     
     # Rows with data
-    matched_rows = conn.execute("SELECT COUNT(*) FROM gold.data_ploidia WHERE api_response_code IS NOT NULL").fetchone()[0]
+    matched_rows = conn.execute("SELECT COUNT(*) FROM gold.pesquisa_dados_para_ia WHERE api_response_code IS NOT NULL").fetchone()[0]
     
     match_rate = (matched_rows / total_rows * 100) if total_rows > 0 else 0
     
@@ -128,8 +128,8 @@ def log_join_metrics(conn):
     SELECT 
         COALESCE(CAST(api_response_code AS VARCHAR), 'NULL') as code,
         COUNT(*) as count,
-        CAST(COUNT(*) * 100.0 / (SELECT COUNT(*) FROM gold.data_ploidia) AS DECIMAL(5,2)) as pct
-    FROM gold.data_ploidia
+        CAST(COUNT(*) * 100.0 / (SELECT COUNT(*) FROM gold.pesquisa_dados_para_ia) AS DECIMAL(5,2)) as pct
+    FROM gold.pesquisa_dados_para_ia
     GROUP BY api_response_code
     ORDER BY count DESC
     """
@@ -162,6 +162,19 @@ def main():
         update_image_availability(conn)
         
         log_join_metrics(conn)
+        
+        # Create backward-compatible VIEWs
+        for obj_name in ["gold.data_ploidia", "gold.data_ploidia_metrics_enriched", "gold.data_ploidia_initial_mapping", "gold.pesquisa_dados_para_ia_initial_mapping"]:
+            for obj_type in ['VIEW', 'TABLE']:
+                try:
+                    conn.execute(f"DROP {obj_type} IF EXISTS {obj_name};")
+                except Exception:
+                    pass
+        conn.execute("CREATE VIEW gold.data_ploidia AS SELECT * FROM gold.pesquisa_dados_para_ia;")
+        conn.execute("CREATE VIEW gold.data_ploidia_metrics_enriched AS SELECT * FROM gold.pesquisa_dados_para_ia;")
+        conn.execute("CREATE VIEW gold.data_ploidia_initial_mapping AS SELECT * FROM gold.pesquisa_dados_para_ia;")
+        conn.execute("CREATE VIEW gold.pesquisa_dados_para_ia_initial_mapping AS SELECT * FROM gold.pesquisa_dados_para_ia;")
+        logger.info("Created backward-compatible VIEWs for all data_ploidia and initial_mapping aliases")
         
         logger.info("")
         logger.info("SUCCESS")

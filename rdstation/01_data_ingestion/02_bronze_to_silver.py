@@ -162,6 +162,37 @@ def promote_sources(con):
     count = con.execute("SELECT COUNT(*) FROM silver.sources").fetchone()[0]
     logger.info(f"Successfully promoted 'sources' to Silver. Rows: {count}")
 
+def promote_campaigns(con):
+    logger.info("Promoting table 'campaigns' from Bronze to Silver...")
+    exists = con.execute("""
+        SELECT COUNT(*) FROM information_schema.tables
+        WHERE table_schema = 'bronze' AND table_name = 'campaigns'
+    """).fetchone()[0]
+    if not exists:
+        logger.warning("Bronze table 'bronze.campaigns' not found. Skipping promotion.")
+        return
+
+    query = """
+    CREATE OR REPLACE TABLE silver.campaigns AS
+    SELECT * REPLACE (
+        CAST(try_strptime(substring(created_at, 1, 19), '%Y-%m-%dT%H:%M:%S') AS TIMESTAMP) AS created_at,
+        CAST(try_strptime(substring(updated_at, 1, 19), '%Y-%m-%dT%H:%M:%S') AS TIMESTAMP) AS updated_at
+    )
+    FROM (
+        SELECT *,
+               ROW_NUMBER() OVER (
+                   PARTITION BY id
+                   ORDER BY extraction_timestamp DESC
+               ) AS rn
+        FROM bronze.campaigns
+        WHERE COALESCE(is_deleted, 'FALSE') = 'FALSE'
+    )
+    WHERE rn = 1;
+    """
+    con.execute(query)
+    count = con.execute("SELECT COUNT(*) FROM silver.campaigns").fetchone()[0]
+    logger.info(f"Successfully promoted 'campaigns' to Silver. Rows: {count}")
+
 def promote_deals(con):
     logger.info("Promoting table 'deals' from Bronze to Silver...")
     exists = con.execute("""
@@ -298,6 +329,7 @@ def main():
             promote_stages(con)
             promote_users(con)
             promote_sources(con)
+            promote_campaigns(con)
             promote_deals(con)
             promote_contacts(con)
             

@@ -1,0 +1,1607 @@
+{
+  "FRESH": {
+    "local_table": "planilha_embriologia_fresh",
+    "athena_table": "new_planilha_embriologia_fresh",
+    "local_count": 19755,
+    "athena_count": 15515,
+    "diff": 4240,
+    "pct_diff": 27.32839187882694,
+    "local_pins": 12146,
+    "athena_pins": 11470,
+    "overlap_pins": 6195,
+    "local_only_pins": 5951,
+    "athena_only_pins": 5275,
+    "local_prontuarios": 11241,
+    "athena_prontuarios": 10266,
+    "local_matched_rate": 96.65401164262212,
+    "athena_matched_rate": 96.02964872703835,
+    "local_years": [
+      {
+        "yr": "2021",
+        "n": 3062
+      },
+      {
+        "yr": "2022",
+        "n": 4584
+      },
+      {
+        "yr": "2023",
+        "n": 5172
+      },
+      {
+        "yr": "2024",
+        "n": 2617
+      },
+      {
+        "yr": "2025",
+        "n": 2736
+      },
+      {
+        "yr": "2026",
+        "n": 1584
+      }
+    ],
+    "athena_years": [
+      {
+        "year": 2021,
+        "n": 2565
+      },
+      {
+        "year": 2022,
+        "n": 3097
+      },
+      {
+        "year": 2023,
+        "n": 2912
+      },
+      {
+        "year": 2024,
+        "n": 2621
+      },
+      {
+        "year": 2025,
+        "n": 2736
+      },
+      {
+        "year": 2026,
+        "n": 1584
+      }
+    ],
+    "outcomes": {
+      "result": {
+        "local_col": "result",
+        "local_non_null": 7349,
+        "local_dist": {
+          "type": "string",
+          "top": [
+            {
+              "result": null,
+              "n": 12406
+            },
+            {
+              "result": "NO EMBRYO TRANSFER",
+              "n": 4590
+            },
+            {
+              "result": "EMBRYO VITRI",
+              "n": 1983
+            },
+            {
+              "result": "NO ET",
+              "n": 542
+            },
+            {
+              "result": "EMBRYO TRANSFER",
+              "n": 98
+            }
+          ]
+        },
+        "athena_col": "result",
+        "athena_non_null": 13251,
+        "athena_dist": {
+          "type": "string",
+          "top": [
+            {
+              "val": "NO EMBRYO TRANSFER",
+              "n": 5865
+            },
+            {
+              "val": "EMBRYO VITRI",
+              "n": 4887
+            },
+            {
+              "val": "None",
+              "n": 2264
+            },
+            {
+              "val": "NO ET ",
+              "n": 721
+            },
+            {
+              "val": "NO ET",
+              "n": 603
+            }
+          ]
+        }
+      },
+      "no_nascidos": {
+        "local_col": "no_nascidos",
+        "local_non_null": 15,
+        "local_dist": {
+          "type": "numeric",
+          "sum": 16
+        },
+        "athena_col": "no_nascidos",
+        "athena_non_null": 19,
+        "athena_dist": {
+          "type": "string",
+          "top": [
+            {
+              "val": "None",
+              "n": 15496
+            },
+            {
+              "val": "1",
+              "n": 17
+            },
+            {
+              "val": "2",
+              "n": 2
+            }
+          ]
+        }
+      },
+      "gravidez_clinica": {
+        "local_col": "gravidez_clinica",
+        "local_non_null": 1930,
+        "local_dist": {
+          "type": "string",
+          "top": [
+            {
+              "gravidez_clinica": null,
+              "n": 17825
+            },
+            {
+              "gravidez_clinica": "X",
+              "n": 1815
+            },
+            {
+              "gravidez_clinica": "0",
+              "n": 66
+            },
+            {
+              "gravidez_clinica": "1",
+              "n": 49
+            }
+          ]
+        },
+        "athena_col": "gravidez_clinica",
+        "athena_non_null": 3382,
+        "athena_dist": {
+          "type": "string",
+          "top": [
+            {
+              "val": "None",
+              "n": 12133
+            },
+            {
+              "val": "X",
+              "n": 2538
+            },
+            {
+              "val": "x",
+              "n": 703
+            },
+            {
+              "val": "0",
+              "n": 52
+            },
+            {
+              "val": "0.0",
+              "n": 32
+            }
+          ]
+        }
+      },
+      "gravidez_bioquimica": {
+        "local_col": "gravidez_bioquimica",
+        "local_non_null": 1931,
+        "local_dist": {
+          "type": "string",
+          "top": [
+            {
+              "gravidez_bioquimica": null,
+              "n": 17824
+            },
+            {
+              "gravidez_bioquimica": "X",
+              "n": 1816
+            },
+            {
+              "gravidez_bioquimica": "0",
+              "n": 60
+            },
+            {
+              "gravidez_bioquimica": "1",
+              "n": 55
+            }
+          ]
+        },
+        "athena_col": "gravidez_bioquimica",
+        "athena_non_null": 3384,
+        "athena_dist": {
+          "type": "string",
+          "top": [
+            {
+              "val": "None",
+              "n": 12131
+            },
+            {
+              "val": "X",
+              "n": 2541
+            },
+            {
+              "val": "x",
+              "n": 702
+            },
+            {
+              "val": "0",
+              "n": 47
+            },
+            {
+              "val": "1.0",
+              "n": 33
+            }
+          ]
+        }
+      },
+      "opu": {
+        "local_col": "opu",
+        "local_non_null": 17820,
+        "local_dist": {
+          "type": "numeric",
+          "sum": 164948
+        },
+        "athena_col": "opu",
+        "athena_non_null": 14846,
+        "athena_dist": {
+          "type": "string",
+          "top": [
+            {
+              "val": "5",
+              "n": 1105
+            },
+            {
+              "val": "3",
+              "n": 1061
+            },
+            {
+              "val": "4",
+              "n": 1057
+            },
+            {
+              "val": "7",
+              "n": 1011
+            },
+            {
+              "val": "6",
+              "n": 1001
+            }
+          ]
+        }
+      },
+      "total_de_mii": {
+        "local_col": "total_de_mii",
+        "local_non_null": 16760,
+        "local_dist": {
+          "type": "numeric",
+          "sum": 127965
+        },
+        "athena_col": "total_de_mii",
+        "athena_non_null": 15187,
+        "athena_dist": {
+          "type": "string",
+          "top": [
+            {
+              "val": "5",
+              "n": 1342
+            },
+            {
+              "val": "3",
+              "n": 1341
+            },
+            {
+              "val": "4",
+              "n": 1302
+            },
+            {
+              "val": "2",
+              "n": 1270
+            },
+            {
+              "val": "6",
+              "n": 1143
+            }
+          ]
+        }
+      },
+      "qtd_blasto": {
+        "local_col": "qtd_blasto",
+        "local_non_null": 18168,
+        "local_dist": {
+          "type": "numeric",
+          "sum": 57011
+        },
+        "athena_col": "qtd_blasto",
+        "athena_non_null": 14277,
+        "athena_dist": {
+          "type": "string",
+          "top": [
+            {
+              "val": "1",
+              "n": 2877
+            },
+            {
+              "val": "2",
+              "n": 2509
+            },
+            {
+              "val": "0",
+              "n": 2068
+            },
+            {
+              "val": "3",
+              "n": 1903
+            },
+            {
+              "val": "4",
+              "n": 1392
+            }
+          ]
+        }
+      }
+    }
+  },
+  "FET": {
+    "local_table": "planilha_embriologia_fet",
+    "athena_table": "new_planilha_embriologia_fet",
+    "local_count": 18149,
+    "athena_count": 15669,
+    "diff": 2480,
+    "pct_diff": 15.82742995724041,
+    "local_pins": 10785,
+    "athena_pins": 11533,
+    "overlap_pins": 5771,
+    "local_only_pins": 5014,
+    "athena_only_pins": 5762,
+    "local_prontuarios": 9853,
+    "athena_prontuarios": 9856,
+    "local_matched_rate": 97.0962587470384,
+    "athena_matched_rate": 96.83451400855192,
+    "local_years": [
+      {
+        "yr": "2021",
+        "n": 2068
+      },
+      {
+        "yr": "2022",
+        "n": 3689
+      },
+      {
+        "yr": "2023",
+        "n": 4656
+      },
+      {
+        "yr": "2024",
+        "n": 2827
+      },
+      {
+        "yr": "2025",
+        "n": 3034
+      },
+      {
+        "yr": "2026",
+        "n": 1875
+      }
+    ],
+    "athena_years": [
+      {
+        "year": 2021,
+        "n": 2068
+      },
+      {
+        "year": 2022,
+        "n": 2921
+      },
+      {
+        "year": 2023,
+        "n": 2944
+      },
+      {
+        "year": 2024,
+        "n": 2827
+      },
+      {
+        "year": 2025,
+        "n": 3034
+      },
+      {
+        "year": 2026,
+        "n": 1875
+      }
+    ],
+    "outcomes": {
+      "result": {
+        "local_col": "result",
+        "local_non_null": 18039,
+        "local_dist": {
+          "type": "string",
+          "top": [
+            {
+              "result": "EMBRYO TRANSFER",
+              "n": 8487
+            },
+            {
+              "result": "POSITIVO",
+              "n": 4626
+            },
+            {
+              "result": "NEGATIVO",
+              "n": 3304
+            },
+            {
+              "result": "EMBRYO VITRI",
+              "n": 478
+            },
+            {
+              "result": "REVITRI",
+              "n": 384
+            }
+          ]
+        },
+        "athena_col": "result",
+        "athena_non_null": 15559,
+        "athena_dist": {
+          "type": "string",
+          "top": [
+            {
+              "val": "EMBRYO TRANSFER",
+              "n": 8487
+            },
+            {
+              "val": "POSITIVO",
+              "n": 3194
+            },
+            {
+              "val": "NEGATIVO",
+              "n": 2427
+            },
+            {
+              "val": "REVITRI",
+              "n": 384
+            },
+            {
+              "val": "EMBRYO VITRI",
+              "n": 332
+            }
+          ]
+        }
+      },
+      "no_nascidos": {
+        "local_col": "no_nascidos",
+        "local_non_null": 319,
+        "local_dist": {
+          "type": "numeric",
+          "sum": 345
+        },
+        "athena_col": "no_nascidos",
+        "athena_non_null": 414,
+        "athena_dist": {
+          "type": "string",
+          "top": [
+            {
+              "val": "None",
+              "n": 15255
+            },
+            {
+              "val": "1",
+              "n": 364
+            },
+            {
+              "val": "2",
+              "n": 43
+            },
+            {
+              "val": "0",
+              "n": 7
+            }
+          ]
+        }
+      },
+      "gravidez_clinica": {
+        "local_col": "gravidez_clinica",
+        "local_non_null": 7311,
+        "local_dist": {
+          "type": "string",
+          "top": [
+            {
+              "gravidez_clinica": null,
+              "n": 10838
+            },
+            {
+              "gravidez_clinica": "1",
+              "n": 3798
+            },
+            {
+              "gravidez_clinica": "0",
+              "n": 3253
+            },
+            {
+              "gravidez_clinica": "X",
+              "n": 229
+            },
+            {
+              "gravidez_clinica": "2",
+              "n": 29
+            }
+          ]
+        },
+        "athena_col": "gravidez_clinica",
+        "athena_non_null": 7746,
+        "athena_dist": {
+          "type": "string",
+          "top": [
+            {
+              "val": "None",
+              "n": 7923
+            },
+            {
+              "val": "1",
+              "n": 2088
+            },
+            {
+              "val": "0",
+              "n": 1897
+            },
+            {
+              "val": "1.0",
+              "n": 1783
+            },
+            {
+              "val": "0.0",
+              "n": 1740
+            }
+          ]
+        }
+      },
+      "gravidez_bioquimica": {
+        "local_col": "gravidez_bioquimica",
+        "local_non_null": 7693,
+        "local_dist": {
+          "type": "string",
+          "top": [
+            {
+              "gravidez_bioquimica": null,
+              "n": 10456
+            },
+            {
+              "gravidez_bioquimica": "1",
+              "n": 4205
+            },
+            {
+              "gravidez_bioquimica": "0",
+              "n": 2673
+            },
+            {
+              "gravidez_bioquimica": "NEG",
+              "n": 261
+            },
+            {
+              "gravidez_bioquimica": "X",
+              "n": 227
+            }
+          ]
+        },
+        "athena_col": "gravidez_bioquimica",
+        "athena_non_null": 7784,
+        "athena_dist": {
+          "type": "string",
+          "top": [
+            {
+              "val": "None",
+              "n": 7885
+            },
+            {
+              "val": "1",
+              "n": 2493
+            },
+            {
+              "val": "1.0",
+              "n": 2011
+            },
+            {
+              "val": "0",
+              "n": 1676
+            },
+            {
+              "val": "0.0",
+              "n": 1367
+            }
+          ]
+        }
+      },
+      "no_et": {
+        "local_col": "no_et",
+        "local_non_null": 16961,
+        "local_dist": {
+          "type": "numeric",
+          "sum": 21174
+        },
+        "athena_col": "no_et",
+        "athena_non_null": 14074,
+        "athena_dist": {
+          "type": "string",
+          "top": [
+            {
+              "val": "1",
+              "n": 10661
+            },
+            {
+              "val": "2",
+              "n": 3280
+            },
+            {
+              "val": "None",
+              "n": 1595
+            },
+            {
+              "val": "0",
+              "n": 73
+            },
+            {
+              "val": "3",
+              "n": 47
+            }
+          ]
+        }
+      }
+    }
+  },
+  "RECEP": {
+    "local_table": "planilha_embriologia_recep",
+    "athena_table": "new_planilha_embriologia_recep",
+    "local_count": 1639,
+    "athena_count": 2846,
+    "diff": -1207,
+    "pct_diff": -42.41040056219255,
+    "local_pins": 1440,
+    "athena_pins": 2257,
+    "overlap_pins": 512,
+    "local_only_pins": 928,
+    "athena_only_pins": 1745,
+    "local_prontuarios": 1407,
+    "athena_prontuarios": 2084,
+    "local_matched_rate": 97.7425259304454,
+    "athena_matched_rate": 98.17287420941673,
+    "local_years": [
+      {
+        "yr": "2023",
+        "n": 121
+      },
+      {
+        "yr": "2024",
+        "n": 583
+      },
+      {
+        "yr": "2025",
+        "n": 587
+      },
+      {
+        "yr": "2026",
+        "n": 348
+      }
+    ],
+    "athena_years": [
+      {
+        "year": 2021,
+        "n": 334
+      },
+      {
+        "year": 2022,
+        "n": 465
+      },
+      {
+        "year": 2023,
+        "n": 529
+      },
+      {
+        "year": 2024,
+        "n": 583
+      },
+      {
+        "year": 2025,
+        "n": 587
+      },
+      {
+        "year": 2026,
+        "n": 348
+      }
+    ],
+    "outcomes": {
+      "result": {
+        "local_col": "result",
+        "local_non_null": 0,
+        "local_dist": null,
+        "athena_col": null,
+        "athena_non_null": 0,
+        "athena_dist": null
+      },
+      "no_nascidos": {
+        "local_col": "no_nascidos",
+        "local_non_null": 29,
+        "local_dist": {
+          "type": "numeric",
+          "sum": 30
+        },
+        "athena_col": "no_nascidos",
+        "athena_non_null": 41,
+        "athena_dist": {
+          "type": "string",
+          "top": [
+            {
+              "val": "None",
+              "n": 2805
+            },
+            {
+              "val": "1",
+              "n": 35
+            },
+            {
+              "val": "2",
+              "n": 5
+            },
+            {
+              "val": "0",
+              "n": 1
+            }
+          ]
+        }
+      },
+      "gravidez_clinica": {
+        "local_col": "gravidez_clinica",
+        "local_non_null": 883,
+        "local_dist": {
+          "type": "string",
+          "top": [
+            {
+              "gravidez_clinica": null,
+              "n": 756
+            },
+            {
+              "gravidez_clinica": "1",
+              "n": 430
+            },
+            {
+              "gravidez_clinica": "0",
+              "n": 289
+            },
+            {
+              "gravidez_clinica": "X",
+              "n": 164
+            }
+          ]
+        },
+        "athena_col": "gravidez_clinica",
+        "athena_non_null": 978,
+        "athena_dist": {
+          "type": "string",
+          "top": [
+            {
+              "val": "None",
+              "n": 1868
+            },
+            {
+              "val": "1.0",
+              "n": 309
+            },
+            {
+              "val": "0.0",
+              "n": 184
+            },
+            {
+              "val": "X",
+              "n": 158
+            },
+            {
+              "val": "1",
+              "n": 143
+            }
+          ]
+        }
+      },
+      "gravidez_bioquimica": {
+        "local_col": "gravidez_bioquimica",
+        "local_non_null": 895,
+        "local_dist": {
+          "type": "string",
+          "top": [
+            {
+              "gravidez_bioquimica": null,
+              "n": 744
+            },
+            {
+              "gravidez_bioquimica": "1",
+              "n": 492
+            },
+            {
+              "gravidez_bioquimica": "0",
+              "n": 239
+            },
+            {
+              "gravidez_bioquimica": "X",
+              "n": 164
+            }
+          ]
+        },
+        "athena_col": "gravidez_bioquimica",
+        "athena_non_null": 991,
+        "athena_dist": {
+          "type": "string",
+          "top": [
+            {
+              "val": "None",
+              "n": 1855
+            },
+            {
+              "val": "1.0",
+              "n": 357
+            },
+            {
+              "val": "1",
+              "n": 160
+            },
+            {
+              "val": "X",
+              "n": 158
+            },
+            {
+              "val": "0.0",
+              "n": 148
+            }
+          ]
+        }
+      },
+      "pin_doadora": {
+        "local_col": "pin_doadora",
+        "local_non_null": 1566,
+        "local_dist": {
+          "type": "numeric",
+          "sum": 1090412723
+        },
+        "athena_col": "pin_doadora",
+        "athena_non_null": 1855,
+        "athena_dist": {
+          "type": "string",
+          "top": [
+            {
+              "val": "None",
+              "n": 991
+            },
+            {
+              "val": "\\",
+              "n": 225
+            },
+            {
+              "val": "754020.0",
+              "n": 11
+            },
+            {
+              "val": "798131.0",
+              "n": 11
+            },
+            {
+              "val": "804671.0",
+              "n": 10
+            }
+          ]
+        }
+      }
+    }
+  },
+  "FOT": {
+    "local_table": "planilha_embriologia_fot",
+    "athena_table": "new_planilha_embriologia_fot",
+    "local_count": 2868,
+    "athena_count": 2304,
+    "diff": 564,
+    "pct_diff": 24.479166666666664,
+    "local_pins": 2079,
+    "athena_pins": 2098,
+    "overlap_pins": 1467,
+    "local_only_pins": 612,
+    "athena_only_pins": 631,
+    "local_prontuarios": 2000,
+    "athena_prontuarios": 2001,
+    "local_matched_rate": 98.36122733612274,
+    "athena_matched_rate": 98.26388888888889,
+    "local_years": [
+      {
+        "yr": "2021",
+        "n": 497
+      },
+      {
+        "yr": "2022",
+        "n": 754
+      },
+      {
+        "yr": "2023",
+        "n": 925
+      },
+      {
+        "yr": "2024",
+        "n": 253
+      },
+      {
+        "yr": "2025",
+        "n": 262
+      },
+      {
+        "yr": "2026",
+        "n": 177
+      }
+    ],
+    "athena_years": [
+      {
+        "year": 2021,
+        "n": 497
+      },
+      {
+        "year": 2022,
+        "n": 562
+      },
+      {
+        "year": 2023,
+        "n": 553
+      },
+      {
+        "year": 2024,
+        "n": 253
+      },
+      {
+        "year": 2025,
+        "n": 262
+      },
+      {
+        "year": 2026,
+        "n": 177
+      }
+    ],
+    "outcomes": {
+      "result": {
+        "local_col": "result",
+        "local_non_null": 1262,
+        "local_dist": {
+          "type": "string",
+          "top": [
+            {
+              "result": null,
+              "n": 1606
+            },
+            {
+              "result": "NO EMBRYO TRANSFER",
+              "n": 553
+            },
+            {
+              "result": "EMBRYO VITRI",
+              "n": 188
+            },
+            {
+              "result": "POSITIVO",
+              "n": 172
+            },
+            {
+              "result": "EMBRYO TRANSFER",
+              "n": 127
+            }
+          ]
+        },
+        "athena_col": "result",
+        "athena_non_null": 2285,
+        "athena_dist": {
+          "type": "string",
+          "top": [
+            {
+              "val": "EMBRYO VITRI",
+              "n": 562
+            },
+            {
+              "val": "NO EMBRYO TRANSFER",
+              "n": 562
+            },
+            {
+              "val": "POSITIVO",
+              "n": 488
+            },
+            {
+              "val": "NEGATIVO",
+              "n": 255
+            },
+            {
+              "val": "EMBRYO TRANSFER",
+              "n": 139
+            }
+          ]
+        }
+      },
+      "no_nascidos": {
+        "local_col": "no_nascidos",
+        "local_non_null": 6,
+        "local_dist": {
+          "type": "numeric",
+          "sum": 7
+        },
+        "athena_col": "no_nascidos",
+        "athena_non_null": 10,
+        "athena_dist": {
+          "type": "string",
+          "top": [
+            {
+              "val": "None",
+              "n": 2294
+            },
+            {
+              "val": "1",
+              "n": 8
+            },
+            {
+              "val": "2",
+              "n": 2
+            }
+          ]
+        }
+      },
+      "gravidez_clinica": {
+        "local_col": "gravidez_clinica",
+        "local_non_null": 411,
+        "local_dist": {
+          "type": "string",
+          "top": [
+            {
+              "gravidez_clinica": null,
+              "n": 2457
+            },
+            {
+              "gravidez_clinica": "X",
+              "n": 275
+            },
+            {
+              "gravidez_clinica": "0",
+              "n": 89
+            },
+            {
+              "gravidez_clinica": "1",
+              "n": 47
+            }
+          ]
+        },
+        "athena_col": "gravidez_clinica",
+        "athena_non_null": 432,
+        "athena_dist": {
+          "type": "string",
+          "top": [
+            {
+              "val": "None",
+              "n": 1872
+            },
+            {
+              "val": "X",
+              "n": 273
+            },
+            {
+              "val": "0.0",
+              "n": 70
+            },
+            {
+              "val": "1",
+              "n": 30
+            },
+            {
+              "val": "1.0",
+              "n": 25
+            }
+          ]
+        }
+      },
+      "gravidez_bioquimica": {
+        "local_col": "gravidez_bioquimica",
+        "local_non_null": 411,
+        "local_dist": {
+          "type": "string",
+          "top": [
+            {
+              "gravidez_bioquimica": null,
+              "n": 2457
+            },
+            {
+              "gravidez_bioquimica": "X",
+              "n": 275
+            },
+            {
+              "gravidez_bioquimica": "0",
+              "n": 75
+            },
+            {
+              "gravidez_bioquimica": "1",
+              "n": 61
+            }
+          ]
+        },
+        "athena_col": "gravidez_bioquimica",
+        "athena_non_null": 432,
+        "athena_dist": {
+          "type": "string",
+          "top": [
+            {
+              "val": "None",
+              "n": 1872
+            },
+            {
+              "val": "X",
+              "n": 273
+            },
+            {
+              "val": "0.0",
+              "n": 61
+            },
+            {
+              "val": "1",
+              "n": 35
+            },
+            {
+              "val": "1.0",
+              "n": 34
+            }
+          ]
+        }
+      },
+      "total_de_mii": {
+        "local_col": "total_de_mii",
+        "local_non_null": 1573,
+        "local_dist": {
+          "type": "numeric",
+          "sum": 14131
+        },
+        "athena_col": "total_de_mii",
+        "athena_non_null": 1573,
+        "athena_dist": {
+          "type": "string",
+          "top": [
+            {
+              "val": "None",
+              "n": 731
+            },
+            {
+              "val": "8",
+              "n": 344
+            },
+            {
+              "val": "7",
+              "n": 208
+            },
+            {
+              "val": "12",
+              "n": 165
+            },
+            {
+              "val": "9",
+              "n": 164
+            }
+          ]
+        }
+      },
+      "qtd_blasto": {
+        "local_col": "qtd_blasto",
+        "local_non_null": 2667,
+        "local_dist": {
+          "type": "numeric",
+          "sum": 8360
+        },
+        "athena_col": "qtd_blasto",
+        "athena_non_null": 2147,
+        "athena_dist": {
+          "type": "string",
+          "top": [
+            {
+              "val": "2",
+              "n": 424
+            },
+            {
+              "val": "1",
+              "n": 344
+            },
+            {
+              "val": "3",
+              "n": 343
+            },
+            {
+              "val": "4",
+              "n": 282
+            },
+            {
+              "val": "0",
+              "n": 218
+            }
+          ]
+        }
+      }
+    }
+  },
+  "EGG_FREEZING / FP_OVULOS": {
+    "local_table": "planilha_embriologia_fp_ovulos",
+    "athena_table": "new_planilha_embriologia_egg_freezing",
+    "local_count": 2873,
+    "athena_count": 2141,
+    "diff": 732,
+    "pct_diff": 34.189631013545075,
+    "local_pins": 2314,
+    "athena_pins": 1768,
+    "overlap_pins": 68,
+    "local_only_pins": 2246,
+    "athena_only_pins": 1700,
+    "local_prontuarios": 2281,
+    "athena_prontuarios": 1701,
+    "local_matched_rate": 98.81656804733728,
+    "athena_matched_rate": 98.50537132181223,
+    "local_years": [
+      {
+        "yr": "2023",
+        "n": 167
+      },
+      {
+        "yr": "2024",
+        "n": 976
+      },
+      {
+        "yr": "2025",
+        "n": 1109
+      },
+      {
+        "yr": "2026",
+        "n": 621
+      }
+    ],
+    "athena_years": [
+      {
+        "year": 2021,
+        "n": 865
+      },
+      {
+        "year": 2022,
+        "n": 628
+      },
+      {
+        "year": 2023,
+        "n": 648
+      }
+    ],
+    "outcomes": {
+      "opu": {
+        "local_col": "opu",
+        "local_non_null": 2863,
+        "local_dist": {
+          "type": "numeric",
+          "sum": 33519
+        },
+        "athena_col": "opu",
+        "athena_non_null": 2127,
+        "athena_dist": {
+          "type": "string",
+          "top": [
+            {
+              "val": "5",
+              "n": 163
+            },
+            {
+              "val": "8",
+              "n": 152
+            },
+            {
+              "val": "4",
+              "n": 143
+            },
+            {
+              "val": "6",
+              "n": 138
+            },
+            {
+              "val": "3",
+              "n": 134
+            }
+          ]
+        }
+      },
+      "mii_crio": {
+        "local_col": "mii_crio",
+        "local_non_null": 2849,
+        "local_dist": {
+          "type": "numeric",
+          "sum": 24969
+        },
+        "athena_col": "total_de_mii",
+        "athena_non_null": 2092,
+        "athena_dist": {
+          "type": "string",
+          "top": [
+            {
+              "val": "4",
+              "n": 188
+            },
+            {
+              "val": "3",
+              "n": 184
+            },
+            {
+              "val": "2",
+              "n": 178
+            },
+            {
+              "val": "5",
+              "n": 173
+            },
+            {
+              "val": "6",
+              "n": 170
+            }
+          ]
+        }
+      },
+      "total_de_mii": {
+        "local_col": "total_de_mii",
+        "local_non_null": 0,
+        "local_dist": null,
+        "athena_col": "total_de_mii",
+        "athena_non_null": 2092,
+        "athena_dist": {
+          "type": "string",
+          "top": [
+            {
+              "val": "4",
+              "n": 188
+            },
+            {
+              "val": "3",
+              "n": 184
+            },
+            {
+              "val": "2",
+              "n": 178
+            },
+            {
+              "val": "5",
+              "n": 173
+            },
+            {
+              "val": "6",
+              "n": 170
+            }
+          ]
+        }
+      }
+    }
+  },
+  "IIU / IUI": {
+    "local_table": "planilha_embriologia_iiu",
+    "athena_table": "new_planilha_embriologia_iui",
+    "local_count": 179,
+    "athena_count": 138,
+    "diff": 41,
+    "pct_diff": 29.71014492753623,
+    "local_pins": 152,
+    "athena_pins": 123,
+    "overlap_pins": 3,
+    "local_only_pins": 149,
+    "athena_only_pins": 120,
+    "local_prontuarios": 147,
+    "athena_prontuarios": 120,
+    "local_matched_rate": 97.20670391061452,
+    "athena_matched_rate": 98.55072463768117,
+    "local_years": [
+      {
+        "yr": "2023",
+        "n": 23
+      },
+      {
+        "yr": "2024",
+        "n": 62
+      },
+      {
+        "yr": "2025",
+        "n": 62
+      },
+      {
+        "yr": "2026",
+        "n": 32
+      }
+    ],
+    "athena_years": [
+      {
+        "year": 2021,
+        "n": 41
+      },
+      {
+        "year": 2022,
+        "n": 58
+      },
+      {
+        "year": 2023,
+        "n": 39
+      }
+    ],
+    "outcomes": {
+      "result": {
+        "local_col": "result",
+        "local_non_null": 175,
+        "local_dist": {
+          "type": "string",
+          "top": [
+            {
+              "result": "N\u00c3O ENGRAVIDOU",
+              "n": 137
+            },
+            {
+              "result": "POSITIVO",
+              "n": 28
+            },
+            {
+              "result": null,
+              "n": 4
+            },
+            {
+              "result": "BIOQUIMICA",
+              "n": 3
+            },
+            {
+              "result": "NASCIMENTO",
+              "n": 3
+            }
+          ]
+        },
+        "athena_col": "result",
+        "athena_non_null": 138,
+        "athena_dist": {
+          "type": "string",
+          "top": [
+            {
+              "val": "NEGATIVO",
+              "n": 72
+            },
+            {
+              "val": "IIU",
+              "n": 33
+            },
+            {
+              "val": "POSITIVO",
+              "n": 32
+            },
+            {
+              "val": "NO ET ",
+              "n": 1
+            }
+          ]
+        }
+      },
+      "no_nascidos": {
+        "local_col": "no_nascidos",
+        "local_non_null": 8,
+        "local_dist": {
+          "type": "numeric",
+          "sum": 10
+        },
+        "athena_col": "no_nascidos",
+        "athena_non_null": 32,
+        "athena_dist": {
+          "type": "string",
+          "top": [
+            {
+              "val": "None",
+              "n": 106
+            },
+            {
+              "val": "0",
+              "n": 29
+            },
+            {
+              "val": "1",
+              "n": 3
+            }
+          ]
+        }
+      },
+      "gravidez_clinica": {
+        "local_col": "gravidez_clinica",
+        "local_non_null": 0,
+        "local_dist": null,
+        "athena_col": "gravidez_clinica",
+        "athena_non_null": 33,
+        "athena_dist": {
+          "type": "string",
+          "top": [
+            {
+              "val": "None",
+              "n": 105
+            },
+            {
+              "val": "0",
+              "n": 29
+            },
+            {
+              "val": "1",
+              "n": 4
+            }
+          ]
+        }
+      },
+      "gravidez_bioquimica": {
+        "local_col": "gravidez_bioquimica",
+        "local_non_null": 0,
+        "local_dist": null,
+        "athena_col": "gravidez_bioquimica",
+        "athena_non_null": 33,
+        "athena_dist": {
+          "type": "string",
+          "top": [
+            {
+              "val": "None",
+              "n": 105
+            },
+            {
+              "val": "0",
+              "n": 28
+            },
+            {
+              "val": "1",
+              "n": 5
+            }
+          ]
+        }
+      },
+      "no_sg": {
+        "local_col": "no_sg",
+        "local_non_null": 27,
+        "local_dist": {
+          "type": "numeric",
+          "sum": 31
+        },
+        "athena_col": null,
+        "athena_non_null": 0,
+        "athena_dist": null
+      }
+    }
+  },
+  "DOADORAS": {
+    "local_table": "planilha_embriologia_doadoras",
+    "athena_table": "None (Not Ingested in Athena Prod)",
+    "local_count": 971,
+    "athena_count": 0,
+    "diff": 971,
+    "pct_diff": 100.0,
+    "local_pins": 556,
+    "athena_pins": 0,
+    "local_prontuarios": 548,
+    "athena_prontuarios": 0,
+    "note": "This dedicated clinical sheet exists in 2023-2026 workbooks but was never ingested into Athena silver_embriologia_staging."
+  },
+  "FP_SEMEN": {
+    "local_table": "planilha_embriologia_fp_semen",
+    "athena_table": "None (Not Ingested in Athena Prod)",
+    "local_count": 1030,
+    "athena_count": 0,
+    "diff": 1030,
+    "pct_diff": 100.0,
+    "local_pins": 691,
+    "athena_pins": 0,
+    "local_prontuarios": 683,
+    "athena_prontuarios": 0,
+    "note": "This dedicated clinical sheet exists in 2023-2026 workbooks but was never ingested into Athena silver_embriologia_staging."
+  }
+}

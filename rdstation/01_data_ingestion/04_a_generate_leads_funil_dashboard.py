@@ -55,6 +55,10 @@ def fetch_data():
             COALESCE(deal_status, '')                                 AS deal_status,
             COALESCE(fonte, 'Não informada')                          AS fonte,
             COALESCE(campanha_id, 'Orgânico / Direto')                AS campanha_id,
+            COALESCE(campanha_nome, 'Não informada')                  AS campanha_nome,
+            COALESCE(campanha_status, 'Sem Campanha')                 AS campanha_status,
+            COALESCE(strftime(campanha_data_inicio, '%Y-%m-%d'), '')  AS campanha_data_inicio,
+            COALESCE(strftime(campanha_data_fim, '%Y-%m-%d'), '')     AS campanha_data_fim,
             COALESCE(unidade, 'Não informada')                        AS unidade,
             COALESCE(funil, '')                                       AS funil,
             strftime(lead_from, '%Y-%m-%d')                          AS lead_from,
@@ -73,7 +77,7 @@ def fetch_data():
             qtd_pedidos_pos_lead,
             COALESCE(strftime(primeira_venda_data, '%Y-%m-%d'), '')   AS primeira_venda_data,
             dias_ate_primeira_venda
-        FROM gold.leads_funil
+        FROM gold.rd_station_leads_funil
         ORDER BY lead_from DESC
     """).df()
 

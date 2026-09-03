@@ -624,7 +624,7 @@ def find_prontuarios(
     source_con.register("__df_l_temp", df_matched)
 
     where_clause = f"""
-        WHERE target."{id_col}" = m.source_id
+        WHERE CAST(target."{id_col}" AS VARCHAR) = CAST(m.source_id AS VARCHAR)
           AND target."{name_col if name_col else 'id'}" IS NOT DISTINCT FROM m.patient_name
     """
     if pront_col_exists:

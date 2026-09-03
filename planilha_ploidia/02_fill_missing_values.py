@@ -54,7 +54,7 @@ def log_all_null_counts(conn, label=""):
     
     # Get column names
     try:
-        columns = conn.execute("DESCRIBE huntington.gold.data_ploidia").df()['column_name'].tolist()
+        columns = conn.execute("DESCRIBE huntington.gold.pesquisa_dados_para_ia").df()['column_name'].tolist()
     except Exception as e:
         logger.error(f"Error describing table: {e}")
         return
@@ -65,7 +65,7 @@ def log_all_null_counts(conn, label=""):
     for col in columns:
         sum_parts.append(f'SUM(CASE WHEN "{col}" IS NULL OR CAST("{col}" AS VARCHAR) = \'\' THEN 1 ELSE 0 END) as "{col}"')
     
-    query = f"SELECT COUNT(*) as total_rows, {', '.join(sum_parts)} FROM huntington.gold.data_ploidia"
+    query = f"SELECT COUNT(*) as total_rows, {', '.join(sum_parts)} FROM huntington.gold.pesquisa_dados_para_ia"
     result_df = conn.execute(query).df()
     total_rows = result_df['total_rows'].iloc[0]
     
@@ -101,98 +101,76 @@ def log_all_null_counts(conn, label=""):
 def fill_bmi_values(conn):
     """Fill NULL BMI values using most frequent weight/height from view_tratamentos per patient"""
     logger.info("=" * 80)
-    logger.info("FILLING BMI VALUES")
+    logger.info("FILLING BMI VALUES (BULK UPDATE)")
     logger.info("=" * 80)
     
-    # Get most frequent weight and height per patient from view_tratamentos
     query = """
-    WITH patient_bmi AS (
-        SELECT 
-            prontuario,
-            peso_paciente,
-            altura_paciente,
-            ROUND(peso_paciente / POWER(altura_paciente, 2), 2) as calculated_bmi,
-            COUNT(*) as frequency,
-            ROW_NUMBER() OVER (
-                PARTITION BY prontuario 
-                ORDER BY COUNT(*) DESC, peso_paciente DESC
-            ) as rn
-        FROM silver.view_tratamentos
-        WHERE peso_paciente IS NOT NULL 
-          AND altura_paciente IS NOT NULL
-          AND altura_paciente > 0
-        GROUP BY prontuario, peso_paciente, altura_paciente
-    )
-    SELECT 
-        prontuario,
-        calculated_bmi
-    FROM patient_bmi
-    WHERE rn = 1
+    UPDATE huntington.gold.pesquisa_dados_para_ia
+    SET "BMI" = b.calculated_bmi
+    FROM (
+        WITH patient_bmi AS (
+            SELECT 
+                prontuario,
+                peso_paciente,
+                altura_paciente,
+                ROUND(peso_paciente / POWER(altura_paciente, 2), 2) as calculated_bmi,
+                COUNT(*) as frequency,
+                ROW_NUMBER() OVER (
+                    PARTITION BY prontuario 
+                    ORDER BY COUNT(*) DESC, peso_paciente DESC
+                ) as rn
+            FROM silver.view_tratamentos
+            WHERE peso_paciente IS NOT NULL 
+              AND altura_paciente IS NOT NULL
+              AND altura_paciente > 0
+            GROUP BY prontuario, peso_paciente, altura_paciente
+        )
+        SELECT prontuario, calculated_bmi
+        FROM patient_bmi
+        WHERE rn = 1
+    ) b
+    WHERE huntington.gold.pesquisa_dados_para_ia."Patient ID" = b.prontuario
+      AND huntington.gold.pesquisa_dados_para_ia."BMI" IS NULL;
     """
     
-    bmi_values = conn.execute(query).df()
-    logger.info(f"Found BMI values for {len(bmi_values)} patients")
-    
-    # Update data_ploidia with BMI values
-    updates = 0
-    for _, row in bmi_values.iterrows():
-        result = conn.execute(f"""
-            UPDATE huntington.gold.data_ploidia
-            SET "BMI" = {row['calculated_bmi']}
-            WHERE "Patient ID" = {row['prontuario']}
-              AND "BMI" IS NULL
-        """)
-        updates += result.fetchone()[0] if result else 0
-    
-    logger.info(f"Updated {updates} rows with BMI values")
-    return updates
+    conn.execute(query)
+    logger.info("Bulk updated BMI values successfully")
+    return 1
 
 def fill_diagnosis_values(conn):
     """Fill NULL Diagnosis values using most frequent diagnosis from view_tratamentos per patient"""
     logger.info("=" * 80)
-    logger.info("FILLING DIAGNOSIS VALUES")
+    logger.info("FILLING DIAGNOSIS VALUES (BULK UPDATE)")
     logger.info("=" * 80)
     
-    # Get most frequent diagnosis per patient
     query = """
-    WITH patient_diagnosis AS (
-        SELECT 
-            prontuario,
-            fator_infertilidade1 as diagnosis,
-            COUNT(*) as frequency,
-            ROW_NUMBER() OVER (
-                PARTITION BY prontuario 
-                ORDER BY COUNT(*) DESC
-            ) as rn
-        FROM silver.view_tratamentos
-        WHERE fator_infertilidade1 IS NOT NULL
-        GROUP BY prontuario, fator_infertilidade1
-    )
-    SELECT 
-        prontuario,
-        diagnosis
-    FROM patient_diagnosis
-    WHERE rn = 1
+    UPDATE huntington.gold.pesquisa_dados_para_ia
+    SET "Diagnosis" = d.diagnosis
+    FROM (
+        WITH patient_diagnosis AS (
+            SELECT 
+                prontuario,
+                fator_infertilidade1 as diagnosis,
+                COUNT(*) as frequency,
+                ROW_NUMBER() OVER (
+                    PARTITION BY prontuario 
+                    ORDER BY COUNT(*) DESC
+                ) as rn
+            FROM silver.view_tratamentos
+            WHERE fator_infertilidade1 IS NOT NULL
+            GROUP BY prontuario, fator_infertilidade1
+        )
+        SELECT prontuario, diagnosis
+        FROM patient_diagnosis
+        WHERE rn = 1
+    ) d
+    WHERE huntington.gold.pesquisa_dados_para_ia."Patient ID" = d.prontuario
+      AND huntington.gold.pesquisa_dados_para_ia."Diagnosis" IS NULL;
     """
     
-    diagnosis_values = conn.execute(query).df()
-    logger.info(f"Found Diagnosis values for {len(diagnosis_values)} patients")
-    
-    # Update data_ploidia with Diagnosis values
-    updates = 0
-    for _, row in diagnosis_values.iterrows():
-        # Escape single quotes in diagnosis
-        diagnosis_escaped = str(row['diagnosis']).replace("'", "''")
-        result = conn.execute(f"""
-            UPDATE huntington.gold.data_ploidia
-            SET "Diagnosis" = '{diagnosis_escaped}'
-            WHERE "Patient ID" = {row['prontuario']}
-              AND "Diagnosis" IS NULL
-        """)
-        updates += result.fetchone()[0] if result else 0
-    
-    logger.info(f"Updated {updates} rows with Diagnosis values")
-    return updates
+    conn.execute(query)
+    logger.info("Bulk updated Diagnosis values successfully")
+    return 1
 
 def fill_oocyte_source_values(conn):
     """Fill NULL Oocyte Source values using most frequent source from view_tratamentos per patient"""
@@ -231,7 +209,7 @@ def fill_oocyte_source_values(conn):
         # Escape single quotes in oocyte source
         source_escaped = str(row['oocyte_source']).replace("'", "''")
         result = conn.execute(f"""
-            UPDATE huntington.gold.data_ploidia
+            UPDATE huntington.gold.pesquisa_dados_para_ia
             SET "Oocyte Source" = '{source_escaped}'
             WHERE "Patient ID" = {row['prontuario']}
               AND "Oocyte Source" IS NULL
@@ -252,6 +230,9 @@ def main():
     try:
         # Connect to database
         conn = get_database_connection(read_only=False)
+        
+        # Update gold.pesquisa_dados_para_ia in place
+        logger.info("Operating on gold.pesquisa_dados_para_ia...")
         
         # Get NULL counts before filling
         before_counts = log_all_null_counts(conn, "(BEFORE FILLING)")

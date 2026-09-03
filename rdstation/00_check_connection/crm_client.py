@@ -1,41 +1,99 @@
 import os
 import json
+import time
 import requests
+import boto3
 
 class RDStationCRMClient:
-    def __init__(self, tokens_filepath=None):
+    def __init__(self, tokens_filepath=None, use_aws=True, secret_name="rdstation-api-prod", region_name="sa-east-1"):
         if not tokens_filepath:
             tokens_filepath = os.path.join(os.path.dirname(__file__), "tokens.json")
             
         self.tokens_filepath = tokens_filepath
+        self.use_aws = use_aws
+        self.secret_name = secret_name
+        self.region_name = region_name
+        self.token_expires_at = None
+        self.sm_client = None
+
+        if self.use_aws:
+            try:
+                self.sm_client = boto3.client('secretsmanager', region_name=self.region_name)
+            except Exception as e:
+                print(f"[!] Could not initialize boto3 SecretsManager: {e}. Using local file fallback.")
+                self.use_aws = False
+
         self.load_tokens()
         self.base_url = "https://api.rd.services/crm/v2"
 
     def load_tokens(self):
-        """Loads client credentials and tokens from the JSON storage."""
+        """Loads client credentials and tokens from AWS Secrets Manager or JSON storage."""
+        if self.use_aws and self.sm_client:
+            try:
+                print(f"[*] Loading tokens from AWS Secrets Manager ({self.secret_name})...")
+                res = self.sm_client.get_secret_value(SecretId=self.secret_name)
+                data = json.loads(res.get("SecretString", "{}"))
+                self.client_id = data.get("RDSTATION_CLIENT_ID") or data.get("client_id")
+                self.client_secret = data.get("RDSTATION_CLIENT_SECRET") or data.get("client_secret")
+                self.access_token = data.get("ACCESS_TOKEN") or data.get("access_token")
+                self.refresh_token = data.get("REFRESH_TOKEN") or data.get("refresh_token")
+                self.token_expires_at = data.get("TOKEN_EXPIRES_AT") or data.get("expires_at")
+                print("[+] Loaded tokens from AWS Secrets Manager.")
+                self._save_to_local_file()
+                return
+            except Exception as e:
+                print(f"[!] Could not load from AWS Secrets Manager: {e}. Falling back to local file.")
+
         if not os.path.exists(self.tokens_filepath):
             raise FileNotFoundError(
                 f"Token file not found at '{self.tokens_filepath}'. "
-                "You must perform the initial OAuth bootstrap process once using auth_test.py."
+                "Ensure AWS secret exists or auth bootstrap has run."
             )
             
         with open(self.tokens_filepath, "r", encoding="utf-8") as f:
             data = json.load(f)
             
-        self.client_id = data.get("client_id")
-        self.client_secret = data.get("client_secret")
-        self.access_token = data.get("access_token")
-        self.refresh_token = data.get("refresh_token")
+        self.client_id = data.get("RDSTATION_CLIENT_ID") or data.get("client_id")
+        self.client_secret = data.get("RDSTATION_CLIENT_SECRET") or data.get("client_secret")
+        self.access_token = data.get("ACCESS_TOKEN") or data.get("access_token")
+        self.refresh_token = data.get("REFRESH_TOKEN") or data.get("refresh_token")
+        self.token_expires_at = data.get("TOKEN_EXPIRES_AT") or data.get("expires_at")
+
+    def _save_to_local_file(self):
+        """Saves current credentials and tokens back to the local JSON storage."""
+        try:
+            with open(self.tokens_filepath, "w", encoding="utf-8") as f:
+                json.dump({
+                    "client_id": self.client_id,
+                    "client_secret": self.client_secret,
+                    "access_token": self.access_token,
+                    "refresh_token": self.refresh_token,
+                    "token_expires_at": str(self.token_expires_at) if self.token_expires_at else ""
+                }, f, indent=4)
+        except Exception as e:
+            print(f"[!] Warning: Could not write local token file: {e}")
 
     def save_tokens(self):
-        """Saves current credentials and tokens back to the JSON storage."""
-        with open(self.tokens_filepath, "w", encoding="utf-8") as f:
-            json.dump({
-                "client_id": self.client_id,
-                "client_secret": self.client_secret,
-                "access_token": self.access_token,
-                "refresh_token": self.refresh_token
-            }, f, indent=4)
+        """Saves current credentials and tokens to AWS Secrets Manager and local backup file."""
+        if self.use_aws and self.sm_client:
+            try:
+                secret_payload = {
+                    "RDSTATION_CLIENT_ID": self.client_id or "",
+                    "RDSTATION_CLIENT_SECRET": self.client_secret or "",
+                    "ACCESS_TOKEN": self.access_token or "",
+                    "REFRESH_TOKEN": self.refresh_token or "",
+                    "TOKEN_EXPIRES_AT": str(self.token_expires_at) if self.token_expires_at else ""
+                }
+                self.sm_client.put_secret_value(
+                    SecretId=self.secret_name,
+                    SecretString=json.dumps(secret_payload)
+                )
+                print(f"[+] Saved updated tokens to AWS Secrets Manager ({self.secret_name}).")
+            except Exception as e:
+                print(f"[!] Failed to update AWS Secrets Manager: {e}")
+                raise
+
+        self._save_to_local_file()
 
     def refresh_access_token(self):
         """
@@ -45,7 +103,6 @@ class RDStationCRMClient:
         print("[*] Refreshing CRM v2 access token in the background...")
         url = "https://api.rd.services/oauth2/token"
         
-        # CRM v2 requires x-www-form-urlencoded
         headers = {
             "Content-Type": "application/x-www-form-urlencoded",
             "Accept": "application/json"
@@ -62,9 +119,10 @@ class RDStationCRMClient:
         if response.status_code == 200:
             data = response.json()
             self.access_token = data.get("access_token")
-            # Rolling refresh token: update refresh_token if a new one is returned
             if "refresh_token" in data:
                 self.refresh_token = data.get("refresh_token")
+            expires_in = data.get("expires_in", 86400)
+            self.token_expires_at = str(time.time() + expires_in)
             self.save_tokens()
             print("[+] CRM v2 access token successfully refreshed and saved.")
         else:

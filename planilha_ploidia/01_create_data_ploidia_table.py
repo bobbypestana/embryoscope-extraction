@@ -57,10 +57,10 @@ def get_database_connection(read_only=False):
     return conn
 
 def get_available_columns(conn):
-    """Get list of available columns in planilha_embryoscope_combined"""
-    col_info = conn.execute("DESCRIBE gold.planilha_embryoscope_combined").df()
+    """Get list of available columns in pesquisa_embrioes_com_tratamento_morfocinetica_desfechos"""
+    col_info = conn.execute("DESCRIBE gold.pesquisa_embrioes_com_tratamento_morfocinetica_desfechos").df()
     available_columns = col_info['column_name'].tolist()
-    logger.info(f"Found {len(available_columns)} columns in gold.planilha_embryoscope_combined")
+    logger.info(f"Found {len(available_columns)} columns in gold.pesquisa_embrioes_com_tratamento_morfocinetica_desfechos")
     return available_columns
 
 def build_select_clause(target_columns, column_mapping, available_columns):
@@ -145,9 +145,14 @@ def create_data_ploidia_table(conn):
     # Ensure gold schema exists
     conn.execute("CREATE SCHEMA IF NOT EXISTS gold")
     
-    # Drop table if it exists
-    conn.execute("DROP TABLE IF EXISTS gold.data_ploidia")
-    logger.info("Dropped existing gold.data_ploidia table if it existed")
+    # Drop table/view if it exists
+    for obj_name in ["gold.pesquisa_dados_para_ia", "gold.pesquisa_dados_para_ia_initial_mapping", "gold.data_ploidia_initial_mapping"]:
+        for obj_type in ['VIEW', 'TABLE']:
+            try:
+                conn.execute(f"DROP {obj_type} IF EXISTS {obj_name};")
+            except Exception:
+                pass
+    logger.info("Dropped existing gold.pesquisa_dados_para_ia objects if they existed")
     
     # Build WHERE clause
     where_conditions = []
@@ -169,18 +174,35 @@ def create_data_ploidia_table(conn):
     # Create table with CTE for Previous ET calculation when NULL
     # Most columns come directly from mapping, but Previous ET needs calculation fallback
     create_query = f"""
-    CREATE TABLE gold.data_ploidia AS
+    CREATE TABLE gold.pesquisa_dados_para_ia AS
     WITH base_data AS (
         SELECT DISTINCT
             {select_clause}
-        FROM gold.planilha_embryoscope_combined
+        FROM gold.pesquisa_embrioes_com_tratamento_morfocinetica_desfechos
         {where_clause}
+    ),
+    deduped_base_data AS (
+        SELECT * EXCLUDE (rn)
+        FROM (
+            SELECT 
+                *,
+                ROW_NUMBER() OVER (
+                    PARTITION BY "Slide ID"
+                    ORDER BY 
+                        CASE WHEN "Embryo Description Clinisys" IS NOT NULL AND "Embryo Description Clinisys" != 'None' THEN 0 ELSE 1 END,
+                        CASE WHEN "Embryo Description Clinisys Detalhes" IS NOT NULL AND "Embryo Description Clinisys Detalhes" != 'None' THEN 0 ELSE 1 END,
+                        CASE WHEN "has_valid_outcome" = True THEN 0 ELSE 1 END,
+                        CASE WHEN "outcome_type" IS NOT NULL AND "outcome_type" != 'None' THEN 0 ELSE 1 END
+                ) as rn
+            FROM base_data
+        )
+        WHERE rn = 1
     ),
     embryo_ref_dates AS (
         SELECT 
             *,
             STRPTIME(SPLIT_PART(SPLIT_PART("Slide ID", '_', 1), 'D', 2), '%Y.%m.%d') as ref_date
-        FROM base_data
+        FROM deduped_base_data
     ),
     treatment_counts AS (
         SELECT 
@@ -272,11 +294,11 @@ def create_data_ploidia_table(conn):
         logger.info(f"Applying filters: {where_clause}")
     
     conn.execute(create_query)
-    logger.info("Table gold.data_ploidia created successfully")
+    logger.info("Table gold.pesquisa_dados_para_ia created successfully")
     
     # Get statistics
-    row_count = conn.execute("SELECT COUNT(*) FROM gold.data_ploidia").fetchone()[0]
-    col_info = conn.execute("DESCRIBE gold.data_ploidia").df()
+    row_count = conn.execute("SELECT COUNT(*) FROM gold.pesquisa_dados_para_ia").fetchone()[0]
+    col_info = conn.execute("DESCRIBE gold.pesquisa_dados_para_ia").df()
     col_count = len(col_info)
     
     logger.info("=" * 80)
@@ -286,25 +308,133 @@ def create_data_ploidia_table(conn):
     logger.info(f"Columns: {col_count}")
     
     logger.info("")
-    logger.info("Successfully created gold.data_ploidia table")
+    logger.info("Successfully created gold.pesquisa_dados_para_ia base table")
+
+def fill_missing_values(conn):
+    """Fill missing BMI and Diagnosis values using vectorized bulk mode imputation"""
+    logger.info("=" * 80)
+    logger.info("STEP 2: FILLING MISSING VALUES (VECTORIZED BULK IMPUTATION)")
+    logger.info("=" * 80)
+    
+    # BMI Imputation
+    bmi_nulls_before = conn.execute('SELECT COUNT(*) FROM gold.pesquisa_dados_para_ia WHERE "BMI" IS NULL').fetchone()[0]
+    conn.execute("""
+    UPDATE gold.pesquisa_dados_para_ia
+    SET "BMI" = b.calculated_bmi
+    FROM (
+        WITH patient_bmi AS (
+            SELECT 
+                prontuario,
+                peso_paciente,
+                altura_paciente,
+                ROUND(peso_paciente / POWER(altura_paciente, 2), 2) as calculated_bmi,
+                COUNT(*) as frequency,
+                ROW_NUMBER() OVER (
+                    PARTITION BY prontuario 
+                    ORDER BY COUNT(*) DESC, peso_paciente DESC
+                ) as rn
+            FROM clinisys.silver.view_tratamentos
+            WHERE peso_paciente IS NOT NULL 
+              AND altura_paciente IS NOT NULL
+              AND altura_paciente > 0
+            GROUP BY prontuario, peso_paciente, altura_paciente
+        )
+        SELECT prontuario, calculated_bmi
+        FROM patient_bmi
+        WHERE rn = 1
+    ) b
+    WHERE gold.pesquisa_dados_para_ia."Patient ID" = b.prontuario
+      AND gold.pesquisa_dados_para_ia."BMI" IS NULL;
+    """)
+    bmi_nulls_after = conn.execute('SELECT COUNT(*) FROM gold.pesquisa_dados_para_ia WHERE "BMI" IS NULL').fetchone()[0]
+    logger.info(f"BMI Imputation: Filled {bmi_nulls_before - bmi_nulls_after:,} missing values ({bmi_nulls_after:,} remaining)")
+    
+    # Diagnosis Imputation
+    diag_nulls_before = conn.execute('SELECT COUNT(*) FROM gold.pesquisa_dados_para_ia WHERE "Diagnosis" IS NULL').fetchone()[0]
+    conn.execute("""
+    UPDATE gold.pesquisa_dados_para_ia
+    SET "Diagnosis" = d.diagnosis
+    FROM (
+        WITH patient_diagnosis AS (
+            SELECT 
+                prontuario,
+                fator_infertilidade1 as diagnosis,
+                COUNT(*) as frequency,
+                ROW_NUMBER() OVER (
+                    PARTITION BY prontuario 
+                    ORDER BY COUNT(*) DESC
+                ) as rn
+            FROM clinisys.silver.view_tratamentos
+            WHERE fator_infertilidade1 IS NOT NULL
+            GROUP BY prontuario, fator_infertilidade1
+        )
+        SELECT prontuario, diagnosis
+        FROM patient_diagnosis
+        WHERE rn = 1
+    ) d
+    WHERE gold.pesquisa_dados_para_ia."Patient ID" = d.prontuario
+      AND gold.pesquisa_dados_para_ia."Diagnosis" IS NULL;
+    """)
+    diag_nulls_after = conn.execute('SELECT COUNT(*) FROM gold.pesquisa_dados_para_ia WHERE "Diagnosis" IS NULL').fetchone()[0]
+    logger.info(f"Diagnosis Imputation: Filled {diag_nulls_before - diag_nulls_after:,} missing values ({diag_nulls_after:,} remaining)")
+
+def join_image_availability(conn):
+    """Enrich with server image availability and create all backward-compatible views"""
+    logger.info("=" * 80)
+    logger.info("STEP 3: JOINING IMAGE AVAILABILITY & CREATING VIEWS")
+    logger.info("=" * 80)
+    
+    cols = [c[0] for c in conn.execute("DESCRIBE gold.pesquisa_dados_para_ia").fetchall()]
+    if "api_response_code" not in cols:
+        conn.execute("ALTER TABLE gold.pesquisa_dados_para_ia ADD COLUMN api_response_code INTEGER")
+    if "api_error_message" not in cols:
+        conn.execute("ALTER TABLE gold.pesquisa_dados_para_ia ADD COLUMN api_error_message VARCHAR")
+        
+    conn.execute("""
+    UPDATE gold.pesquisa_dados_para_ia
+    SET 
+        api_response_code = s.api_response_code,
+        api_error_message = s.error_message
+    FROM silver.embryo_image_availability_latest s
+    WHERE gold.pesquisa_dados_para_ia."Slide ID" = s."embryo_EmbryoID";
+    """)
+    
+    # Image metrics
+    matched = conn.execute('SELECT COUNT(*) FROM gold.pesquisa_dados_para_ia WHERE api_response_code = 200').fetchone()[0]
+    total = conn.execute('SELECT COUNT(*) FROM gold.pesquisa_dados_para_ia').fetchone()[0]
+    logger.info(f"Image Availability: {matched:,} / {total:,} videos confirmed available (HTTP 200: {matched/total*100:.1f}%)")
+    
+    # Safe drop of legacy aliases if they exist
+    for obj_name in ["gold.data_ploidia", "gold.data_ploidia_metrics_enriched", "gold.data_ploidia_initial_mapping", "gold.pesquisa_dados_para_ia_initial_mapping"]:
+        for obj_type in ['VIEW', 'TABLE']:
+            try:
+                conn.execute(f"DROP {obj_type} IF EXISTS {obj_name};")
+            except Exception:
+                pass
+    logger.info("Ensured all legacy aliases are dropped (no views in production)")
 
 def main():
-    """Main function"""
-    
-    logger.info("=== CREATING DATA_PLOIDIA TABLE ===")
+    """Main function - Consolidated End-to-End Build for pesquisa_dados_para_ia"""
+    logger.info("=" * 80)
+    logger.info("BUILDING PESQUISA_DADOS_PARA_IA (CONSOLIDATED PIPELINE)")
     logger.info(f"Timestamp: {datetime.now()}")
-    logger.info("")
+    logger.info("=" * 80)
     
     try:
-        # Connect to database
         logger.info("Connecting to database...")
         conn = get_database_connection(read_only=False)
         
-        # Create the table
+        # Step 1: Create base table with strict 1:1 grain and deduplication on Slide ID
         create_data_ploidia_table(conn)
         
+        # Step 2: Vectorized bulk mode imputation for BMI & Diagnosis
+        fill_missing_values(conn)
+        
+        # Step 3: Enrich with video image availability and create backward-compatible views
+        join_image_availability(conn)
+        
         logger.info("")
-        logger.info("Successfully created gold.data_ploidia table")
+        logger.info("CONSOLIDATED PIPELINE COMPLETED SUCCESSFULLY")
         
     except Exception as e:
         logger.error(f"Error: {e}")

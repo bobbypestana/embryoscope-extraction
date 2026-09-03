@@ -42,7 +42,7 @@ CREATE INDEX IF NOT EXISTS idx_embryo_images_extraction_timestamp ON gold.embryo
 
 def get_embryos_to_extract(conn: duckdb.DuckDBPyConnection, limit: int = 3, planes: List[int] = [0], mode: str = "all", retry: bool = True) -> List[Dict[str, str]]:
     """
-    Query distinct Slide IDs with their clinic locations from gold.data_ploidia.
+    Query distinct Slide IDs with their clinic locations from gold.pesquisa_dados_para_ia.
     
     Args:
         conn: DuckDB connection
@@ -82,7 +82,7 @@ def get_embryos_to_extract(conn: duckdb.DuckDBPyConnection, limit: int = 3, plan
             ee.patient_unit_huntington as location,
             dp."Patient ID" as prontuario,
             ee.embryo_EmbryoDescriptionID as embryo_description_id
-        FROM gold.data_ploidia dp
+        FROM gold.pesquisa_dados_para_ia dp
         JOIN gold.embryoscope_embrioes ee
             ON dp."Slide ID" = ee.embryo_EmbryoID
         JOIN silver.embryo_image_availability_latest l

@@ -108,12 +108,12 @@ def create_long_table(conn):
 
     # ── 1. Row count before/after filter ─────────────────────────────────────
     total_source = conn.execute(
-        "SELECT COUNT(*) FROM gold.planilha_embryoscope_combined"
+        "SELECT COUNT(*) FROM gold.pesquisa_embrioes_com_tratamento_morfocinetica_desfechos"
     ).fetchone()[0]
 
     filtered_count, filtered_oocito_ids = conn.execute(f"""
         SELECT COUNT(*), COUNT(DISTINCT oocito_id)
-        FROM gold.planilha_embryoscope_combined e
+        FROM gold.pesquisa_embrioes_com_tratamento_morfocinetica_desfechos e
         WHERE {filter_sql}
     """).fetchone()
 
@@ -126,20 +126,25 @@ def create_long_table(conn):
     logger.info("=" * 60)
 
     # ── 2. Build the long table ───────────────────────────────────────────────
-    logger.info("Building gold.embryos_with_prescription_long ...")
+    logger.info("Building gold.pesquisa_embrioes_com_tratamento_morfocinetica_desfechos_medicamentos_long ...")
 
     conn.execute("CREATE SCHEMA IF NOT EXISTS gold")
-    conn.execute("DROP TABLE IF EXISTS gold.embryos_with_prescription_long")
+    for obj_type in ['VIEW', 'TABLE']:
+        try:
+            conn.execute(f"DROP {obj_type} IF EXISTS gold.embryos_with_prescription_long;")
+            conn.execute(f"DROP {obj_type} IF EXISTS gold.pesquisa_embrioes_com_tratamento_morfocinetica_desfechos_medicamentos_long;")
+        except Exception:
+            pass
 
     query = f"""
-    CREATE TABLE gold.embryos_with_prescription_long AS
+    CREATE TABLE gold.pesquisa_embrioes_com_tratamento_morfocinetica_desfechos_medicamentos_long AS
     SELECT
         e.*,
         -- Prescription columns (prefixed with presc_)
         {presc_cols_sql}
     FROM (
         SELECT *
-        FROM gold.planilha_embryoscope_combined e
+        FROM gold.pesquisa_embrioes_com_tratamento_morfocinetica_desfechos e
         WHERE {filter_sql}
     ) e
     JOIN clinisys.silver.view_medicamentos_prescricoes p
@@ -147,6 +152,7 @@ def create_long_table(conn):
     """
 
     conn.execute(query)
+    logger.info("Table gold.pesquisa_embrioes_com_tratamento_morfocinetica_desfechos_medicamentos_long created successfully.")
 
     # ── 3. Join metrics Split by External/Internal ───────────────────────────
     stats_df = conn.execute("""
@@ -156,7 +162,7 @@ def create_long_table(conn):
             COUNT(DISTINCT CASE WHEN presc_id IS NOT NULL THEN oocito_id END) AS matched_embryos,
             COUNT(*)                              AS total_rows,
             COUNT(CASE WHEN presc_id IS NOT NULL THEN 1 END) AS matched_rows
-        FROM gold.embryos_with_prescription_long
+        FROM gold.pesquisa_embrioes_com_tratamento_morfocinetica_desfechos_medicamentos_long
         GROUP BY 1
         ORDER BY 1
     """).df()

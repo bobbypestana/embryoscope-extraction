@@ -19,6 +19,9 @@ import random
 import argparse
 from datetime import datetime
 
+import boto3
+import botocore.exceptions
+
 # Setup logging standard
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 LOGS_DIR = os.path.join(SCRIPT_DIR, 'logs')
@@ -45,39 +48,102 @@ with open(PARAMS_PATH, 'r') as f:
 DUCKDB_PATH = config['duckdb_path']
 TOKENS_PATH = os.path.join(SCRIPT_DIR, config.get('tokens_path', 'tokens.json'))
 BACKFILL_START = config.get('backfill_start_date', '2020-01-01')
+USE_AWS_SECRETS = config.get('use_aws_secrets', True)
+AWS_SECRET_NAME = config.get('aws_secret_name', 'rdstation-api-prod')
+AWS_REGION = config.get('aws_region', 'sa-east-1')
 
 class RDStationCRMClient:
-    def __init__(self, tokens_filepath):
-        self.tokens_filepath = tokens_filepath
+    def __init__(self, tokens_filepath=None, use_aws=USE_AWS_SECRETS, secret_name=AWS_SECRET_NAME, region_name=AWS_REGION):
+        self.tokens_filepath = tokens_filepath or TOKENS_PATH
+        self.use_aws = use_aws
+        self.secret_name = secret_name
+        self.region_name = region_name
+        self.token_expires_at = None
+        self.sm_client = None
+
+        if self.use_aws:
+            try:
+                self.sm_client = boto3.client('secretsmanager', region_name=self.region_name)
+            except Exception as e:
+                logger.warning(f"Could not initialize boto3 SecretsManager client: {e}. Falling back to local file.")
+                self.use_aws = False
+
         self.load_tokens()
         self.base_url = "https://api.rd.services/crm/v2"
         self.session = requests.Session()
 
     def load_tokens(self):
-        """Loads client credentials and tokens from the JSON storage."""
+        """Loads client credentials and tokens from AWS Secrets Manager or JSON storage."""
+        if self.use_aws and self.sm_client:
+            try:
+                logger.info(f"[*] Loading tokens from AWS Secrets Manager ({self.secret_name} in {self.region_name})...")
+                res = self.sm_client.get_secret_value(SecretId=self.secret_name)
+                data = json.loads(res.get("SecretString", "{}"))
+                
+                self.client_id = data.get("RDSTATION_CLIENT_ID") or data.get("client_id")
+                self.client_secret = data.get("RDSTATION_CLIENT_SECRET") or data.get("client_secret")
+                self.access_token = data.get("ACCESS_TOKEN") or data.get("access_token")
+                self.refresh_token = data.get("REFRESH_TOKEN") or data.get("refresh_token")
+                self.token_expires_at = data.get("TOKEN_EXPIRES_AT") or data.get("expires_at")
+                
+                logger.info("[+] Successfully loaded credentials and tokens from AWS Secrets Manager.")
+                
+                # Keep local file in sync as backup
+                self._save_to_local_file()
+                return
+            except Exception as e:
+                logger.warning(f"[!] Failed to load tokens from AWS Secrets Manager: {e}. Attempting local file fallback.")
+
         if not os.path.exists(self.tokens_filepath):
             raise FileNotFoundError(
                 f"Token file not found at '{self.tokens_filepath}'. "
-                "Ensure auth bootstrap has run."
+                "Ensure AWS secret exists or auth bootstrap has run."
             )
             
         with open(self.tokens_filepath, "r", encoding="utf-8") as f:
             data = json.load(f)
             
-        self.client_id = data.get("client_id")
-        self.client_secret = data.get("client_secret")
-        self.access_token = data.get("access_token")
-        self.refresh_token = data.get("refresh_token")
+        self.client_id = data.get("RDSTATION_CLIENT_ID") or data.get("client_id")
+        self.client_secret = data.get("RDSTATION_CLIENT_SECRET") or data.get("client_secret")
+        self.access_token = data.get("ACCESS_TOKEN") or data.get("access_token")
+        self.refresh_token = data.get("REFRESH_TOKEN") or data.get("refresh_token")
+        self.token_expires_at = data.get("TOKEN_EXPIRES_AT") or data.get("expires_at")
+
+    def _save_to_local_file(self):
+        """Saves current credentials and tokens back to the local JSON storage."""
+        try:
+            with open(self.tokens_filepath, "w", encoding="utf-8") as f:
+                json.dump({
+                    "client_id": self.client_id,
+                    "client_secret": self.client_secret,
+                    "access_token": self.access_token,
+                    "refresh_token": self.refresh_token,
+                    "token_expires_at": str(self.token_expires_at) if self.token_expires_at else ""
+                }, f, indent=4)
+        except Exception as e:
+            logger.warning(f"Could not save local token snapshot: {e}")
 
     def save_tokens(self):
-        """Saves current credentials and tokens back to the JSON storage."""
-        with open(self.tokens_filepath, "w", encoding="utf-8") as f:
-            json.dump({
-                "client_id": self.client_id,
-                "client_secret": self.client_secret,
-                "access_token": self.access_token,
-                "refresh_token": self.refresh_token
-            }, f, indent=4)
+        """Saves current credentials and tokens to AWS Secrets Manager and local backup file."""
+        if self.use_aws and self.sm_client:
+            try:
+                secret_payload = {
+                    "RDSTATION_CLIENT_ID": self.client_id or "",
+                    "RDSTATION_CLIENT_SECRET": self.client_secret or "",
+                    "ACCESS_TOKEN": self.access_token or "",
+                    "REFRESH_TOKEN": self.refresh_token or "",
+                    "TOKEN_EXPIRES_AT": str(self.token_expires_at) if self.token_expires_at else ""
+                }
+                self.sm_client.put_secret_value(
+                    SecretId=self.secret_name,
+                    SecretString=json.dumps(secret_payload)
+                )
+                logger.info(f"[+] Saved updated tokens to AWS Secrets Manager ({self.secret_name}).")
+            except Exception as e:
+                logger.error(f"[!] Failed to update AWS Secrets Manager: {e}")
+                raise
+
+        self._save_to_local_file()
 
     def refresh_access_token(self):
         """Refreshes the access token using the refresh token."""
@@ -100,6 +166,8 @@ class RDStationCRMClient:
             self.access_token = data.get("access_token")
             if "refresh_token" in data:
                 self.refresh_token = data.get("refresh_token")
+            expires_in = data.get("expires_in", 86400)
+            self.token_expires_at = str(time.time() + expires_in)
             self.save_tokens()
             logger.info("[+] CRM v2 access token successfully refreshed and saved.")
         else:
@@ -154,7 +222,8 @@ TABLE_PKS = {
     "pipelines": ["id"],
     "stages": ["pipeline_id", "id"],
     "users": ["id"],
-    "sources": ["id"]
+    "sources": ["id"],
+    "campaigns": ["id"]
 }
 
 def get_existing_hashes(table_name):
@@ -614,13 +683,15 @@ def main():
         logger.warning(f"Failed to create schema directly on target database: {e}")
 
     try:
-        client = RDStationCRMClient(TOKENS_PATH)
+        logger.info(f"Using AWS Secrets Manager: {USE_AWS_SECRETS} (Secret: {AWS_SECRET_NAME}, Region: {AWS_REGION})")
+        client = RDStationCRMClient(TOKENS_PATH, use_aws=USE_AWS_SECRETS, secret_name=AWS_SECRET_NAME, region_name=AWS_REGION)
         
         # 1. Ingest metadata/full-load tables
         ingest_full_table(client, "pipelines", "pipelines")
         ingest_stages(client)
         ingest_full_table(client, "users", "users")
         ingest_full_table(client, "sources", "sources")
+        ingest_full_table(client, "campaigns", "campaigns")
         
         # 2. Ingest transaction/incremental tables
         ingest_incremental_table(client, "deals", "deals", force_backfill=args.force_backfill)

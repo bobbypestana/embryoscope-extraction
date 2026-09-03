@@ -140,6 +140,10 @@ tokens.json
 stderr.txt
 dashboard.html
 
+# Embryoscope exported images
+export_images_excluded/
+export_images/
+
 # Agent-generated auxiliary folders and backups
 .agents/
 brain/

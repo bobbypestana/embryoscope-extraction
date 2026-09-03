@@ -23,7 +23,7 @@ call conda activate try_request
 
 echo.
 echo ========================================
-echo STEP %PARENT_STEP%.1: Merging Clinisys and Embryoscope Data
+echo STEP %PARENT_STEP%.1: Merging Clinisys and Embryoscope Data (Morfocinetica)
 echo ========================================
 python 01_merge_clinisys_embryoscope.py
 if %errorlevel% neq 0 (
@@ -34,9 +34,9 @@ if %errorlevel% neq 0 (
 
 echo.
 echo ========================================
-echo STEP %PARENT_STEP%.2: Combining Redlara and Planilha Data
+echo STEP %PARENT_STEP%.2: Creating Gold Clinisys Embryos Outcomes
 echo ========================================
-python 02_combine_redlara_planilha.py
+python 05_create_gold_clinisys_embrioes_outcomes.py
 if %errorlevel% neq 0 (
     echo ERROR: Step %PARENT_STEP%.2 failed
     @REM pause (removed for automated execution)
@@ -45,7 +45,7 @@ if %errorlevel% neq 0 (
 
 echo.
 echo ========================================
-echo STEP %PARENT_STEP%.3: Combining Embryoscope and Planilha Data
+echo STEP %PARENT_STEP%.3: Combining Embryoscope and Outcomes Data (Desfechos)
 echo ========================================
 python 03_combine_embryoscope_planilha.py
 if %errorlevel% neq 0 (

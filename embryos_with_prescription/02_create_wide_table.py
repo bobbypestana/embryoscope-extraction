@@ -4,11 +4,15 @@ import logging
 from datetime import datetime
 
 # Configure logging
+LOGS_DIR = os.path.join(os.path.dirname(__file__), 'logs')
+os.makedirs(LOGS_DIR, exist_ok=True)
+log_file = os.path.join(LOGS_DIR, f"02_create_wide_table_{datetime.now().strftime('%Y%m%d_%H%M%S')}.log")
+
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s %(levelname)s %(message)s',
     handlers=[
-        logging.FileHandler(f"logs/02_create_wide_table_{datetime.now().strftime('%Y%m%d_%H%M%S')}.log"),
+        logging.FileHandler(log_file),
         logging.StreamHandler()
     ]
 )
@@ -28,7 +32,7 @@ def main():
         # 1. Get unique medication groups to ensure clean column names
         groups_df = conn.execute("""
             SELECT DISTINCT presc_grupo_medicamento 
-            FROM gold.embryos_with_prescription_long 
+            FROM gold.pesquisa_embrioes_com_tratamento_morfocinetica_desfechos_medicamentos_long 
             WHERE presc_grupo_medicamento IS NOT NULL
         """).df()
         
@@ -41,8 +45,15 @@ def main():
         
         logger.info("Executing Pivot and Join metadata...")
         
+        for obj_type in ['VIEW', 'TABLE']:
+            try:
+                conn.execute(f"DROP {obj_type} IF EXISTS gold.embryos_with_prescription_wide;")
+                conn.execute(f"DROP {obj_type} IF EXISTS gold.pesquisa_embrioes_com_tratamento_morfocinetica_desfechos_medicamentos_wide;")
+            except Exception:
+                pass
+        
         pivot_query = """
-        CREATE OR REPLACE TABLE gold.embryos_with_prescription_wide AS
+        CREATE TABLE gold.pesquisa_embrioes_com_tratamento_morfocinetica_desfechos_medicamentos_wide AS
         WITH aggregated_long AS (
             SELECT 
                 oocito_id,
@@ -53,7 +64,7 @@ def main():
                 max(presc_data_final) as end_date,
                 FIRST(presc_unidade_padronizada) as unit,
                 FIRST(presc_intervalo) as interval
-            FROM gold.embryos_with_prescription_long
+            FROM gold.pesquisa_embrioes_com_tratamento_morfocinetica_desfechos_medicamentos_long
             WHERE presc_grupo_medicamento IS NOT NULL
             GROUP BY 1, 2
         ),
@@ -85,7 +96,7 @@ def main():
                 presc_dose_total,
                 presc_grupo_medicamento
             )
-            FROM gold.embryos_with_prescription_long
+            FROM gold.pesquisa_embrioes_com_tratamento_morfocinetica_desfechos_medicamentos_long
         )
         SELECT 
             m.*,
@@ -96,17 +107,17 @@ def main():
         """
         
         conn.execute(pivot_query)
-        logger.info("Table gold.embryos_with_prescription_wide created successfully.")
+        logger.info("Table gold.pesquisa_embrioes_com_tratamento_morfocinetica_desfechos_medicamentos_wide created successfully.")
 
         # 3. Statistics
-        total_embryos = conn.execute("SELECT COUNT(*) FROM gold.embryos_with_prescription_wide").fetchone()[0]
+        total_embryos = conn.execute("SELECT COUNT(*) FROM gold.pesquisa_embrioes_com_tratamento_morfocinetica_desfechos_medicamentos_wide").fetchone()[0]
         with_any_presc = conn.execute("""
-            SELECT COUNT(*) FROM gold.embryos_with_prescription_wide 
-            WHERE oocito_id IN (SELECT DISTINCT oocito_id FROM gold.embryos_with_prescription_long WHERE presc_id IS NOT NULL)
+            SELECT COUNT(*) FROM gold.pesquisa_embrioes_com_tratamento_morfocinetica_desfechos_medicamentos_wide 
+            WHERE oocito_id IN (SELECT DISTINCT oocito_id FROM gold.pesquisa_embrioes_com_tratamento_morfocinetica_desfechos_medicamentos_long WHERE presc_id IS NOT NULL)
         """).fetchone()[0]
         
         logger.info(f"Total embryos in wide table: {total_embryos:,}")
-        logger.info(f"Embryos with ≥1 prescription: {with_any_presc:,} ({with_any_presc/total_embryos:.1%})")
+        logger.info(f"Embryos with >=1 prescription: {with_any_presc:,} ({with_any_presc/total_embryos:.1%})")
 
         # 4. Detailed Group Report
         logger.info("=" * 60)
@@ -114,7 +125,7 @@ def main():
         logger.info("=" * 60)
         group_stats = conn.execute("""
             SELECT presc_grupo_medicamento, COUNT(DISTINCT oocito_id) as embryo_count
-            FROM gold.embryos_with_prescription_long
+            FROM gold.pesquisa_embrioes_com_tratamento_morfocinetica_desfechos_medicamentos_long
             WHERE presc_grupo_medicamento IS NOT NULL
             GROUP BY 1
             ORDER BY 2 DESC

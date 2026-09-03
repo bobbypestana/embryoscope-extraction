@@ -103,7 +103,7 @@ def main():
                 
                 if success_ids:
                     ids_str = "', '".join(success_ids)
-                    clinical_query = f'SELECT * FROM gold.data_ploidia WHERE "Slide ID" IN (\'{ids_str}\')'
+                    clinical_query = f'SELECT * FROM gold.pesquisa_dados_para_ia WHERE "Slide ID" IN (\'{ids_str}\')'
                     clinical_df = conn.execute(clinical_query).df()
                     
                     if not clinical_df.empty:

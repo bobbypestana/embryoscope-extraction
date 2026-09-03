@@ -44,7 +44,7 @@ logger = logging.getLogger(__name__)
 # Configuration
 DUCKDB_PATH = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), 'database', 'huntington_data_lake.duckdb')
 BRONZE_PATTERN = 'planilha_%'  # Pattern to match all Planilha tables
-SHEET_TYPES = ['fresh', 'fet', 'recep', 'fot']  # Process 4 independent sheet types
+SHEET_TYPES = ['fresh', 'fet', 'recep', 'fot', 'doadoras', 'fp_ovulos', 'fp_semen', 'iiu']  # Process 8 independent sheet types
 
 # Refinement Configuration (All available years 2021-2026)
 YEARS_TO_PROCESS = ['2021', '2022', '2023', '2024', '2025', '2026']
@@ -52,7 +52,11 @@ REFERENCE_TABLES = {
     'fresh': 'planilha_2024_ibira_fresh',
     'fet': 'planilha_2024_ibira_fet',
     'recep': 'planilha_2024_ibira_recep',
-    'fot': 'planilha_2024_ibira_fot'
+    'fot': 'planilha_2024_ibira_fot',
+    'doadoras': 'planilha_2024_ibira_doadoras',
+    'fp_ovulos': 'planilha_2024_ibira_fp_cong_ovulos_e_tecidos',
+    'fp_semen': 'planilha_2024_ibira_fp_cong_de_semen',
+    'iiu': 'planilha_2024_ibira_iiu'
 }
 
 # Column Whitelist (normalized names as snake_case)
@@ -179,6 +183,124 @@ WHITELIST = {
         'houve_transferencia',
         'data_parto',
         'tipo_de_parto'
+    ],
+    'doadoras': [
+        'pin',
+        'nome_da_paciente',
+        'data_de_nasc',
+        'idade',
+        'grupo_de_idade',
+        'altura',
+        'peso',
+        'medico',
+        'unidade',
+        'tipo_de_tratamento',
+        'tipo_da_doacao',
+        'data_inicio_inducao',
+        'data_do_procedimento',
+        'protocolo',
+        'gnrh_bloqueio',
+        'fsh',
+        'dose_total_fsh',
+        'lh',
+        'dose_total_lh',
+        'medicamento_maturacao_ovulacao',
+        'end_espessura',
+        'n_fol_14',
+        'resp_crio',
+        'opu',
+        'mii_total',
+        'mii_doados_fresco',
+        'mii_doados_crio'
+    ],
+    'fp_ovulos': [
+        'pin',
+        'nome_da_paciente',
+        'data_de_nasc',
+        'idade',
+        'grupo_de_idade',
+        'altura',
+        'peso',
+        'medico',
+        'unidade',
+        'tipo_de_tratamento',
+        'motivo_do_congelamento',
+        'tipo_cancer',
+        'data_inicio_inducao',
+        'data_do_procedimento',
+        'protocolo',
+        'gnrh_bloqueio',
+        'fsh',
+        'dose_total_fsh',
+        'lh',
+        'dose_total_lh',
+        'medicamento_maturacao_ovulacao',
+        'end_espessura',
+        'n_fol_14',
+        'resp_crio',
+        'opu',
+        'mii_crio',
+        'mi_crio',
+        'data_da_cirurgia',
+        'tipo_da_cirurgia',
+        'amostra_do_tecido',
+        'numero_de_fragmentos_crio',
+        'ohss',
+        'hemorragia',
+        'infeccao'
+    ],
+    'fp_semen': [
+        'pin',
+        'nome_da_paciente',
+        'data_de_nasc',
+        'idade',
+        'altura',
+        'peso',
+        'medico',
+        'unidade',
+        'tipo_de_tratamento',
+        'motivo_do_congelamento',
+        'tipo_cancer',
+        'data_do_procedimento',
+        'origem',
+        'tipo',
+        'concentr',
+        'motilid',
+        'morfo',
+        'preparo',
+        'no_de_palhetas_vials_crio',
+        'concentracao_por_palheta_vials',
+        'metodo_crio'
+    ],
+    'iiu': [
+        'pin',
+        'nome_da_paciente',
+        'data_de_nasc',
+        'idade',
+        'grupo_idade',
+        'altura',
+        'peso',
+        'medico',
+        'unidade',
+        'tipo_de_tratamento',
+        'data_inicial_da_inducao',
+        'data_do_procedimento',
+        'conjuge',
+        'indicacao_clinica',
+        'medicamento_indutor',
+        'fsh',
+        'lh',
+        'responsavel_pelo_preparo',
+        'tecnica_de_preparo',
+        'total_sptz_amostra_final',
+        'result',
+        'tipo_do_resultado',
+        'gravidez_clinica',
+        'gravidez_bioquimica',
+        'no_sg',
+        'no_nascidos',
+        'data_parto',
+        'tipo_de_parto'
     ]
 }
 
@@ -187,7 +309,11 @@ TIPO_FILTERS = {
     'fresh': ['FIC/ICSI', 'FIV/ICSI', 'FRESH', 'ICSI', 'FIV', 'CONG', 'OR', 'PUNÇÃO', 'PUNCAO'],
     'fet': ['FET', 'FET/OR', 'FET/ER', 'TEC', 'DESCONG EMBRIAO', 'DESCONG EMBRIÃO'],
     'recep': ['RECEPTORA', 'RECEP', 'DOAÇÃO', 'DOACAO', 'RECEPT'],
-    'fot': ['FOT', 'FOT OR', 'DESCONG OVO', 'DESCONG OVULO', 'DESCONG ÓVULO']
+    'fot': ['FOT', 'FOT OR', 'DESCONG OVO', 'DESCONG OVULO', 'DESCONG ÓVULO'],
+    'doadoras': ['DOADORA', 'DOADORAS'],
+    'fp_ovulos': ['CRIO DE ÓVULOS', 'CRIO DE OVULOS', 'CRIO OVULOS', 'FP', 'CRIO TECIDO'],
+    'fp_semen': ['CRIO DE SPTZ', 'CRIO SPTZ', 'CONG SEMEN', 'CONGELAMENTO DE SEMEN'],
+    'iiu': ['IIU', 'INSEMINAÇÃO', 'INSEMINACAO']
 }
 
 # Explicit Synonyms (Global heuristics)
@@ -253,6 +379,20 @@ SYNONYMS = {
     'tipo_de_parto': 'tipo_de_parto',
     'peso_1': 'peso_1',
     'peso_2': 'peso_2',
+    'nome_do_paciente': 'nome_da_paciente',
+    'total_dose_fsh': 'dose_total_fsh',
+    'total_dose_lh': 'dose_total_lh',
+    'n_sg': 'no_sg',
+    'num_sg': 'no_sg',
+    'n_de_nascidos': 'no_nascidos',
+    'n_de_palhetas_vials_crio': 'no_de_palhetas_vials_crio',
+    'num_de_palhetas_vials_crio': 'no_de_palhetas_vials_crio',
+    'motivo_cancer': 'tipo_cancer',
+    'resp__crio': 'resp_crio',
+    'gnrh__bloqueio': 'gnrh_bloqueio',
+    'end__espessura': 'end_espessura',
+    'n_fol__14': 'n_fol_14',
+    'altura__cm': 'altura',
 }
 
 # ==============================================================================
@@ -1180,6 +1320,14 @@ def get_bronze_tables(con, sheet_type=None):
             condition = f"(table_name LIKE '%_recep' OR {shared_condition})"
         elif sheet_type == 'fot':
             condition = f"(table_name LIKE '%_fot' OR {shared_condition})"
+        elif sheet_type == 'doadoras':
+            condition = "(table_name LIKE '%_doadoras')"
+        elif sheet_type == 'fp_ovulos':
+            condition = "((table_name LIKE '%_fp_cong_ovulos%' OR table_name LIKE '%_fp') AND table_name NOT LIKE '%_semen%')"
+        elif sheet_type == 'fp_semen':
+            condition = "(table_name LIKE '%_fp_cong_de_semen%' OR table_name LIKE '%_semen%')"
+        elif sheet_type == 'iiu':
+            condition = "(table_name LIKE '%_iiu')"
         else:
             condition = "1=1"
 
@@ -1285,12 +1433,27 @@ def detect_column_types(df, sample_size=1000):
         'tipo', 'origem', 'obs', 'result', 'tipo_do_resultado', 'tipo_biopsia',
         'tipo_de_inseminacao', 'tipo_de_fet', 'tipo_de_tratamento', 'tipo_da_doacao',
         'preparo_para_transferencia', 'gravidez_bioquimica', 'gravidez_clinica',
-        'dia_cryo', 'dia_et', 'file_name', 'sheet_name'
+        'dia_cryo', 'dia_et', 'file_name', 'sheet_name',
+        'motivo_do_congelamento', 'tipo_cancer', 'protocolo', 'gnrh_bloqueio',
+        'fsh', 'lh', 'medicamento_maturacao_ovulacao', 'tipo_da_cirurgia',
+        'amostra_do_tecido', 'preparo', 'metodo_crio', 'conjuge',
+        'indicacao_clinica', 'medicamento_indutor', 'responsavel_pelo_preparo',
+        'tecnica_de_preparo', 'tipo_de_parto', 'ohss', 'hemorragia', 'infeccao'
+    }
+
+    COUNT_COLS = {
+        'opu', 'mii_total', 'mii_doados_fresco', 'mii_doados_crio', 'mii_crio', 'mi_crio',
+        'numero_de_fragmentos_crio', 'no_de_palhetas_vials_crio', 'no_sg', 'no_nascidos',
+        'qtd_blasto', 'qtd_blasto_tq_a_e_b', 'no_biopsiados', 'qtd_analisados', 'qtd_normais', 'no_et'
     }
     
     for col in data_columns:
-        if col.lower() in ALWAYS_TEXT_COLS:
+        col_norm = col.lower()
+        if col_norm in ALWAYS_TEXT_COLS:
             column_types[col] = 'VARCHAR'
+            continue
+        if col_norm in COUNT_COLS:
+            column_types[col] = 'INTEGER'
             continue
             
         # Get non-null values
@@ -1459,8 +1622,12 @@ def clean_data(df, sheet_type):
     pin_col = next((col for col in df.columns if normalize_column_name(col) == 'pin'), 'pin')
     
     # Determine procedure date column based on sheet type
-    if sheet_type.upper() in ['FRESH', 'FOT']:
-        date_col = next((col for col in df.columns if normalize_column_name(col) in ['data_da_puncao', 'data_do_procedimento', 'data_crio', 'dia_cryo', 'dia']), 'data_da_puncao')
+    if sheet_type.upper() in ['FRESH', 'FOT', 'DOADORAS', 'FP_OVULOS']:
+        date_col = next((col for col in df.columns if normalize_column_name(col) in ['data_da_puncao', 'data_do_procedimento', 'data_inicio_inducao', 'data_crio', 'dia_cryo', 'dia', 'data_da_cirurgia']), 'data_da_puncao')
+    elif sheet_type.upper() in ['IIU']:
+        date_col = next((col for col in df.columns if normalize_column_name(col) in ['data_do_procedimento', 'data_inicial_da_inducao', 'data']), 'data_do_procedimento')
+    elif sheet_type.upper() in ['FP_SEMEN']:
+        date_col = next((col for col in df.columns if normalize_column_name(col) in ['data_do_procedimento', 'data']), 'data_do_procedimento')
     else:  # FET, RECEP
         date_col = next((col for col in df.columns if normalize_column_name(col) in ['data_da_fet', 'data_da_transferencia', 'data_do_procedimento', 'data_crio', 'dia_cryo', 'dia']), 'data_da_fet')
     
@@ -1520,7 +1687,11 @@ def transform_data_types(df, column_types):
             df_transformed[col] = pd.to_numeric(df_transformed[col], errors='coerce')
             logger.debug(f"  Converted {col} to DOUBLE")
         
-        # VARCHAR columns remain as strings (no conversion needed)
+        else:
+            # Clean VARCHAR columns: strip whitespace and uppercase standard outcome fields
+            if col in ['result', 'tipo_do_resultado', 'gravidez_clinica', 'gravidez_bioquimica', 'ohss', 'hemorragia', 'infeccao']:
+                df_transformed[col] = df_transformed[col].astype(str).str.strip().str.upper()
+                df_transformed[col] = df_transformed[col].replace({'NAN': None, 'NONE': None, '<NA>': None, '': None})
     
     logger.info("Data type transformation completed")
     return df_transformed

@@ -13,7 +13,7 @@ query = '''
             ee.patient_PatientID as prontuario,
             ee.embryo_EmbryoDescriptionID as embryo_description_id,
             ROW_NUMBER() OVER (PARTITION BY ee.patient_PatientID ORDER BY dp."Slide ID") as rn
-        FROM gold.data_ploidia dp
+        FROM gold.pesquisa_dados_para_ia dp
         LEFT JOIN gold.embryoscope_embrioes ee 
             ON dp."Slide ID" = ee.embryo_EmbryoID
         LEFT JOIN gold.embryo_images_metadata eim
@@ -44,7 +44,7 @@ else:
     print("Counting with BMI NOT NULL and status != success:")
     count_q = '''
         SELECT COUNT(*)
-        FROM gold.data_ploidia dp
+        FROM gold.pesquisa_dados_para_ia dp
         LEFT JOIN gold.embryo_images_metadata eim ON dp."Slide ID" = eim.embryo_id
         WHERE dp."BMI" IS NOT NULL AND (eim.status IS NULL OR eim.status != 'success')
     '''
@@ -53,7 +53,7 @@ else:
     print("\nChecking for NULL prontuario in those candidates:")
     count_null_p = '''
         SELECT COUNT(*)
-        FROM gold.data_ploidia dp
+        FROM gold.pesquisa_dados_para_ia dp
         LEFT JOIN gold.embryoscope_embrioes ee ON dp."Slide ID" = ee.embryo_EmbryoID
         WHERE dp."BMI" IS NOT NULL AND ee.patient_PatientID IS NULL
     '''

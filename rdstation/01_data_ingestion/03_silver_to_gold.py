@@ -59,6 +59,7 @@ def create_gold_deals(con):
         u.name AS "Responsável",
         src.name AS "Fonte",
         d.campaign_id AS "Campanha ID",
+        camp.name AS "Campanha Nome",
         d.lost_reason_id AS "Motivo Perda ID",
         -- Custom Fields
         d.custom_nome_completo AS "Nome Completo",
@@ -80,7 +81,9 @@ def create_gold_deals(con):
     LEFT JOIN silver.users u
         ON d.owner_id = u.id
     LEFT JOIN silver.sources src
-        ON d.source_id = src.id;
+        ON d.source_id = src.id
+    LEFT JOIN silver.campaigns camp
+        ON d.campaign_id = camp.id;
     """
     con.execute(query)
     count = con.execute("SELECT COUNT(*) FROM gold.rdstation_deals").fetchone()[0]
@@ -127,6 +130,98 @@ def create_gold_deal_contacts(con):
     count = con.execute("SELECT COUNT(*) FROM gold.rdstation_deal_contacts").fetchone()[0]
     logger.info(f"Created gold.rdstation_deal_contacts with {count} rows")
 
+def create_gold_campaigns(con):
+    logger.info("Creating table gold.rdstation_campaigns...")
+    con.execute("DROP TABLE IF EXISTS gold.rdstation_campaigns")
+    
+    # Check if silver.campaigns exists
+    has_campaigns = con.execute("""
+        SELECT COUNT(*) FROM information_schema.tables 
+        WHERE table_schema = 'silver' AND table_name = 'campaigns'
+    """).fetchone()[0]
+    
+    if not has_campaigns:
+        logger.warning("silver.campaigns not found. Creating empty gold.rdstation_campaigns.")
+        con.execute("""
+            CREATE TABLE gold.rdstation_campaigns (
+                "Campanha ID" VARCHAR,
+                "Campanha Nome" VARCHAR,
+                "Data Cadastro" TIMESTAMP,
+                "Data Início" TIMESTAMP,
+                "Data Fim" TIMESTAMP,
+                "Status Campanha" VARCHAR,
+                "Total Leads" BIGINT,
+                "Dias Desde Último Lead" INTEGER
+            )
+        """)
+        return
+
+    query = """
+    CREATE TABLE gold.rdstation_campaigns AS
+    WITH campaign_lead_stats AS (
+        SELECT 
+            c.id AS campaign_id,
+            c.name AS campaign_name,
+            c.created_at AS campaign_created_at,
+            COUNT(d.id) AS total_leads,
+            MIN(d.created_at) AS first_lead_at,
+            MAX(d.created_at) AS last_lead_at,
+            date_diff('day', MAX(d.created_at), current_date) AS days_since_last_lead,
+            date_diff('day', MIN(d.created_at), MAX(d.created_at)) AS active_span_days
+        FROM silver.campaigns c
+        LEFT JOIN silver.deals d ON c.id = d.campaign_id
+        GROUP BY c.id, c.name, c.created_at
+    ),
+    campaign_lifecycle AS (
+        SELECT
+            cls.*,
+            -- Adaptive lifecycle based purely on created_at and volume
+            CASE 
+                -- When no leads were ever received: if created recently (<180d), consider active/ramp-up, else closed
+                WHEN cls.total_leads = 0 AND date_diff('day', cls.campaign_created_at, current_date) <= 180 THEN 'Active'
+                WHEN cls.total_leads = 0 THEN 'Closed'
+
+                -- Tier 1: High Volume (> 500 leads)
+                WHEN cls.total_leads > 500 AND cls.days_since_last_lead <= 45 THEN 'Active'
+                WHEN cls.total_leads > 500 AND cls.days_since_last_lead <= 90 THEN 'Dormant'
+                WHEN cls.total_leads > 500 THEN 'Closed'
+
+                -- Tier 2: Medium Volume (50 - 500 leads)
+                WHEN cls.total_leads BETWEEN 50 AND 500 AND cls.days_since_last_lead <= 90 THEN 'Active'
+                WHEN cls.total_leads BETWEEN 50 AND 500 AND cls.days_since_last_lead <= 150 THEN 'Dormant'
+                WHEN cls.total_leads BETWEEN 50 AND 500 THEN 'Closed'
+
+                -- Tier 3: Low Volume (< 50 leads) - wide window protecting niche campaigns
+                WHEN cls.total_leads < 50 AND cls.days_since_last_lead <= 150 THEN 'Active'
+                WHEN cls.total_leads < 50 AND cls.days_since_last_lead <= 240 THEN 'Dormant'
+                ELSE 'Closed'
+            END AS calculated_status
+        FROM campaign_lead_stats cls
+    )
+    SELECT
+        campaign_id AS "Campanha ID",
+        campaign_name AS "Campanha Nome",
+        campaign_created_at AS "Data Cadastro",
+        -- Start date: earliest of RD campaign registration and first lead created
+        CASE 
+            WHEN first_lead_at IS NOT NULL AND first_lead_at < campaign_created_at THEN first_lead_at
+            ELSE campaign_created_at 
+        END AS "Data Início",
+        -- End date: set to last lead date when closed; NULL if still active or dormant
+        CASE 
+            WHEN calculated_status = 'Closed' THEN last_lead_at
+            ELSE NULL 
+        END AS "Data Fim",
+        last_lead_at AS "Data Último Lead",
+        calculated_status AS "Status Campanha",
+        total_leads AS "Total Leads",
+        days_since_last_lead AS "Dias Desde Último Lead"
+    FROM campaign_lifecycle;
+    """
+    con.execute(query)
+    count = con.execute("SELECT COUNT(*) FROM gold.rdstation_campaigns").fetchone()[0]
+    logger.info(f"Created gold.rdstation_campaigns with {count} rows")
+
 def main():
     logger.info("=== RD STATION SILVER TO GOLD CONSOLIDATION STARTED ===")
     logger.info(f"Target Database: {DUCKDB_PATH}")
@@ -138,6 +233,7 @@ def main():
             create_gold_deals(con)
             create_gold_contacts(con)
             create_gold_deal_contacts(con)
+            create_gold_campaigns(con)
             
             logger.info("=== RD STATION SILVER TO GOLD CONSOLIDATION FINISHED SUCCESSFUL ===")
     except Exception as e:

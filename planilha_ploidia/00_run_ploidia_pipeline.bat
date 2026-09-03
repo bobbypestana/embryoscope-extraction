@@ -20,33 +20,11 @@ call conda activate try_request
 
 echo.
 echo ========================================
-echo STEP 1: Creating Data Ploidia Table
+echo BUILDING PESQUISA_DADOS_PARA_IA (CONSOLIDATED)
 echo ========================================
 python 01_create_data_ploidia_table.py
 if %errorlevel% neq 0 (
-    echo ERROR: Step 1 failed
-    @REM pause (removed for automated execution)
-    exit /b 1
-)
-
-echo.
-echo ========================================
-echo STEP 2: Filling Missing Values
-echo ========================================
-python 02_fill_missing_values.py
-if %errorlevel% neq 0 (
-    echo ERROR: Step 2 failed
-    @REM pause (removed for automated execution)
-    exit /b 1
-)
-
-echo.
-echo ========================================
-echo STEP 3: Joining Image Availability
-echo ========================================
-python 03_join_image_availability.py
-if %errorlevel% neq 0 (
-    echo ERROR: Step 3 failed
+    echo ERROR: Failed to build pesquisa_dados_para_ia
     @REM pause (removed for automated execution)
     exit /b 1
 )
@@ -56,7 +34,7 @@ echo ========================================
 echo PLOIDIA DATA PIPELINE COMPLETED SUCCESSFULLY!
 echo ========================================
 echo.
-echo All steps completed without errors.
+echo All steps completed without errors in a single consolidated pass.
 echo Check logs in planilha_ploidia\logs\
 echo.
 exit /b 0

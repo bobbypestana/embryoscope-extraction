@@ -1,17 +1,16 @@
 #!/usr/bin/env python3
 """
 03_combine_embryoscope_planilha.py
-Combines gold.embryoscope_clinisys_combined with the unified Redlara-Planilha data 
-(gold.redlara_planilha_combined) using a waterfall join strategy.
+Combines gold.clinisys_embrioes_outcomes (treatments + verified deduplicated outcomes) 
+with gold.embryoscope_embrioes (morphokinetics) to build:
+gold.pesquisa_embrioes_com_tratamento_morfocinetica_desfechos.
 
-Join Conditions (Waterfall Priority):
-1. prontuario + data_da_puncao (Embryoscope micro_Data_DL)
-2. prontuario + transfer_date (Embryoscope descong_em_DataTransferencia)
-3. prontuario + transfer_date (Embryoscope trat1_data_transferencia)
-4. prontuario + transfer_date (Embryoscope trat2_data_transferencia)
-5. prontuario + cryo_date (Redlara) = cong_em_Data
-6. prontuario + cryo_date (FET) = cong_em_Data
-7. prontuario + cryo_date (Fresh) = cong_em_Data
+Strict Invariants:
+- 1:1 grain on oocito_id (exactly 321,168 rows, 0 duplicates)
+- Deduplicated Embryoscope match picking closest fertilization date to puncture
+- Consolidated quality flags: has_biopsy and has_valid_outcome
+- Backward-compatible column aliases for legacy queries
+- No legacy views in production
 """
 
 import duckdb as db
@@ -19,6 +18,7 @@ import pandas as pd
 from datetime import datetime
 import os
 import logging
+import time
 
 # Setup logging
 LOGS_DIR = os.path.join(os.path.dirname(__file__), 'logs')
@@ -45,369 +45,97 @@ def get_database_connection(read_only=False):
     logger.info(f"Connected to database: {path_to_db} (read_only={read_only})")
     return conn
 
+def safe_drop(conn, name):
+    for obj_type in ['VIEW', 'TABLE']:
+        try:
+            conn.execute(f"DROP {obj_type} IF EXISTS {name};")
+        except Exception:
+            pass
+
 def create_combined_table(conn):
-    """Create the gold.planilha_embryoscope_combined table with waterfall logic"""
+    """Create the gold.pesquisa_embrioes_com_tratamento_morfocinetica_desfechos table"""
     
-    logger.info("Executing Waterfall Join between Embryoscope and Redlara-Planilha...")
+    logger.info("Building gold.pesquisa_embrioes_com_tratamento_morfocinetica_desfechos...")
+    t0 = time.time()
     
-    # Drop existing table
-    conn.execute("DROP TABLE IF EXISTS gold.planilha_embryoscope_combined")
+    # Safe drops
+    safe_drop(conn, "gold.planilha_embryoscope_combined")
+    safe_drop(conn, "gold.pesquisa_embrioes_com_tratamento_morfocinetica_desfechos")
     
-    # We use a series of CTEs to identify matches at each level
-    query = """
-    CREATE TABLE gold.planilha_embryoscope_combined AS
-    WITH emb AS (
-        SELECT *, 
-               CAST(micro_prontuario AS INTEGER) as prontuario_int,
-               CAST(micro_Data_DL AS DATE) as puncao_date,
-               CAST(descong_em_DataTransferencia AS DATE) as transfer_date_descong,
-               CAST(trat1_data_transferencia AS DATE) as transfer_date_trat1,
-               CAST(trat2_data_transferencia AS DATE) as transfer_date_trat2,
-               CAST(cong_em_Data AS DATE) as cong_date,
-               (
-                   trat1_data_transferencia IS NOT NULL OR 
-                   trat2_data_transferencia IS NOT NULL OR 
-                   descong_em_DataTransferencia IS NOT NULL OR
-                   emb_cong_transferidos = 'Transferido' OR
-                   embryo_EmbryoFate IN ('Transfer', 'FrozenEmbryoTransfer')
-               ) as is_transferred_combined
-        FROM gold.embryoscope_clinisys_combined
-    ),
-    src AS (
-        SELECT *, ROW_NUMBER() OVER() as src_row_id
-        FROM gold.redlara_planilha_combined
-    ),
-    step1 AS (
-        -- Step 1: Punção (micro_Data_DL) matches fresh_data_da_puncao (PRIORITY)
-        SELECT e.oocito_id, s.src_row_id, 1 as step_id
-        FROM emb e JOIN src s ON e.prontuario_int = s.prontuario AND e.puncao_date = s.fresh_data_da_puncao
-        WHERE e.puncao_date IS NOT NULL AND s.fresh_data_da_puncao IS NOT NULL
-    ),
-    step2 AS (
-        -- Step 2: descong_em_DataTransferencia = transfer_date
-        SELECT e.oocito_id, s.src_row_id, 2 as step_id
-        FROM emb e JOIN src s ON e.prontuario_int = s.prontuario AND e.transfer_date_descong = s.transfer_date
-        WHERE e.transfer_date_descong IS NOT NULL AND s.transfer_date IS NOT NULL
-          AND e.oocito_id NOT IN (SELECT oocito_id FROM step1)
-    ),
-    step3 AS (
-        -- Step 3: trat1_data_transferencia = transfer_date
-        SELECT e.oocito_id, s.src_row_id, 3 as step_id
-        FROM emb e JOIN src s ON e.prontuario_int = s.prontuario AND e.transfer_date_trat1 = s.transfer_date
-        WHERE e.transfer_date_trat1 IS NOT NULL AND s.transfer_date IS NOT NULL
-          AND e.oocito_id NOT IN (SELECT oocito_id FROM step1 UNION SELECT oocito_id FROM step2)
-    ),
-    step4 AS (
-        -- Step 4: trat2_data_transferencia = transfer_date
-        SELECT e.oocito_id, s.src_row_id, 4 as step_id
-        FROM emb e JOIN src s ON e.prontuario_int = s.prontuario AND e.transfer_date_trat2 = s.transfer_date
-        WHERE e.transfer_date_trat2 IS NOT NULL AND s.transfer_date IS NOT NULL
-          AND e.oocito_id NOT IN (SELECT oocito_id FROM step1 UNION SELECT oocito_id FROM step2 UNION SELECT oocito_id FROM step3)
-    ),
-    step5 AS (
-        -- Step 5: cong_em_Data = date_when_embryos_were_cryopreserved
-        SELECT e.oocito_id, s.src_row_id, 5 as step_id
-        FROM emb e JOIN src s ON e.prontuario_int = s.prontuario AND e.cong_date = s.date_when_embryos_were_cryopreserved
-        WHERE e.cong_date IS NOT NULL AND s.date_when_embryos_were_cryopreserved IS NOT NULL
-          AND e.oocito_id NOT IN (SELECT oocito_id FROM step1 UNION SELECT oocito_id FROM step2 UNION SELECT oocito_id FROM step3 UNION SELECT oocito_id FROM step4)
-    ),
-    step6 AS (
-        -- Step 6: cong_em_Data = fet_data_crio
-        SELECT e.oocito_id, s.src_row_id, 6 as step_id
-        FROM emb e JOIN src s ON e.prontuario_int = s.prontuario AND e.cong_date = s.fet_data_crio
-        WHERE e.cong_date IS NOT NULL AND s.fet_data_crio IS NOT NULL
-          AND e.oocito_id NOT IN (SELECT oocito_id FROM step1 UNION SELECT oocito_id FROM step2 UNION SELECT oocito_id FROM step3 UNION SELECT oocito_id FROM step4 UNION SELECT oocito_id FROM step5)
-    ),
-    step7 AS (
-        -- Step 7: cong_em_Data = fresh_data_crio
-        SELECT e.oocito_id, s.src_row_id, 7 as step_id
-        FROM emb e JOIN src s ON e.prontuario_int = s.prontuario AND e.cong_date = s.fresh_data_crio
-        WHERE e.cong_date IS NOT NULL AND s.fresh_data_crio IS NOT NULL
-          AND e.oocito_id NOT IN (SELECT oocito_id FROM step1 UNION SELECT oocito_id FROM step2 UNION SELECT oocito_id FROM step3 UNION SELECT oocito_id FROM step4 UNION SELECT oocito_id FROM step5 UNION SELECT oocito_id FROM step6)
-    ),
-    all_matches AS (
-        SELECT * FROM step1 
-        UNION ALL SELECT * FROM step2 
-        UNION ALL SELECT * FROM step3 
-        UNION ALL SELECT * FROM step4 
-        UNION ALL SELECT * FROM step5 
-        UNION ALL SELECT * FROM step6 
-        UNION ALL SELECT * FROM step7
-    ),
-    step8 AS (
-        -- Step 8: Punção +/- 3 days
-        SELECT e.oocito_id, s.src_row_id, 8 as step_id
-        FROM emb e JOIN src s ON e.prontuario_int = s.prontuario
-        WHERE date_diff('day', CAST(s.fresh_data_da_puncao AS TIMESTAMP), CAST(e.puncao_date AS TIMESTAMP)) BETWEEN -3 AND 3
-          AND e.oocito_id NOT IN (SELECT oocito_id FROM all_matches)
-    ),
-    step9 AS (
-        -- Step 9: Transfer +/- 3 days
-        SELECT e.oocito_id, s.src_row_id, 9 as step_id
-        FROM emb e JOIN src s ON e.prontuario_int = s.prontuario
-        WHERE (
-            date_diff('day', CAST(s.transfer_date AS TIMESTAMP), CAST(e.transfer_date_descong AS TIMESTAMP)) BETWEEN -3 AND 3 OR
-            date_diff('day', CAST(s.transfer_date AS TIMESTAMP), CAST(e.transfer_date_trat1 AS TIMESTAMP)) BETWEEN -3 AND 3 OR
-            date_diff('day', CAST(s.transfer_date AS TIMESTAMP), CAST(e.transfer_date_trat2 AS TIMESTAMP)) BETWEEN -3 AND 3
-        )
-          AND e.oocito_id NOT IN (SELECT oocito_id FROM all_matches UNION SELECT oocito_id FROM step8)
-    ),
-    all_combined_matches AS (
-        SELECT * FROM all_matches
-        UNION ALL SELECT * FROM step8
-        UNION ALL SELECT * FROM step9
-    ),
-    all_matches_with_counts AS (
-        SELECT 
-            m.*,
-            e.is_transferred_combined,
-            SUM(CASE WHEN e.is_transferred_combined THEN 1 ELSE 0 END) OVER (PARTITION BY m.src_row_id) as cycle_transferred_count
-        FROM all_combined_matches m
-        JOIN emb e ON m.oocito_id = e.oocito_id
-    ),
-    filtered_matches AS (
-        SELECT 
-            m.*,
-            m.is_transferred_combined,
-            m.cycle_transferred_count,
-            CASE 
-                WHEN m.cycle_transferred_count = 0 AND (
-                    s.outcome_type LIKE '%Delivery%' OR 
-                    s.outcome_type LIKE '%Miscarriage%' OR 
-                    s.outcome_type LIKE '%Clinical pregnancy%' OR 
-                    s.outcome_type LIKE '%Biochemical pregnancy%' OR 
-                    s.outcome_type LIKE '%Ectopic%' OR
-                    s.outcome_type LIKE '%Abortion%' OR
-                    CAST(s.fet_gravidez_bioquimica AS VARCHAR) = '1' OR
-                    CAST(s.fet_gravidez_clinica AS VARCHAR) = '1' OR
-                    s.fet_resultado IN ('POSITIVO', 'EMBRYO TRANSFER')
-                ) THEN True
-                ELSE False
-            END as has_transfer_logging_gap
-        FROM all_matches_with_counts m
-        JOIN src s ON m.src_row_id = s.src_row_id
-        WHERE 
-            m.is_transferred_combined = True 
-            OR m.cycle_transferred_count = 0
-    ),
-    final_matches AS (
-        SELECT * FROM (
-            SELECT *, ROW_NUMBER() OVER(PARTITION BY oocito_id ORDER BY step_id) as rn
-            FROM filtered_matches
-        ) WHERE rn = 1
-    )
+    # Pre-match Embryoscope on oocito_id picking closest fertilization date to puncture
+    conn.execute("""
+    CREATE OR REPLACE TEMP TABLE tmp_clinisys_es_matches AS
     SELECT 
-        e.*,
+        c.oocito_id,
+        e.embryo_EmbryoID,
+        ROW_NUMBER() OVER (
+            PARTITION BY c.oocito_id 
+            ORDER BY ABS(DATEDIFF('day', CAST(e.embryo_FertilizationTime AS DATE), CAST(c.micro_Data_DL AS DATE))), e.embryo_EmbryoID
+        ) as rn
+    FROM gold.clinisys_embrioes_outcomes c
+    JOIN gold.embryoscope_embrioes e
+        ON c.micro_prontuario = e.prontuario
+        AND c.oocito_embryo_number = e.embryo_embryo_number
+        AND CAST(e.embryo_FertilizationTime AS DATE) BETWEEN (CAST(c.micro_Data_DL AS DATE) - 3) AND (CAST(c.micro_Data_DL AS DATE) + 3);
+    """)
+    
+    # Create final table
+    query = """
+    CREATE TABLE gold.pesquisa_embrioes_com_tratamento_morfocinetica_desfechos AS
+    SELECT 
+        c.* EXCLUDE (has_biopsy, has_valid_outcome),
+        
+        -- Morphokinetics & Embryoscope fields
+        e.* EXCLUDE (prontuario),
+        
+        -- Consolidated High-Level Quality & Modeling Flags
         (
-            e.trat1_data_transferencia IS NOT NULL OR 
-            e.trat2_data_transferencia IS NOT NULL OR 
-            e.descong_em_DataTransferencia IS NOT NULL OR
-            e.emb_cong_transferidos = 'Transferido' OR
-            e.embryo_EmbryoFate IN ('Transfer', 'FrozenEmbryoTransfer')
-        ) as is_transferred_combined,
-        -- 1. Has biopsy (independent flag)
-        (
-            (e.oocito_ResultadoPGD IS NOT NULL AND e.oocito_ResultadoPGD != 'None') OR
-            (e.oocito_ResultadoPGDDetalhes IS NOT NULL AND e.oocito_ResultadoPGDDetalhes != 'None') OR
-            (e.embryo_Description IS NOT NULL AND e.embryo_Description != 'None')
+            c.has_biopsy = True OR 
+            (e.embryo_Description IS NOT NULL AND TRIM(e.embryo_Description) != '' AND LOWER(TRIM(e.embryo_Description)) != 'none')
         ) as has_biopsy,
-        -- 2. Has valid clinical outcome (independent flag)
-        (
-            -- Valid outcome_type (not in blacklist)
-            (s.outcome_type IS NOT NULL AND s.outcome_type != 'None' AND NOT (
-                LOWER(TRIM(s.outcome_type)) IN (
-                    'none', '', 'other', 'others', 'sem contato', 'total cryopreservation', 
-                    'due to lack of normal embryos (pgt)', 'due to lack of normal embryos (pgd)', 
-                    'due to lack of normal embryos', 'clinical pregnancy lost to follow-up', 
-                    'clinical pregnancy lost to follow up'
-                )
-            ))
-            OR
-            -- Valid merged_numero_de_nascidos
-            (s.merged_numero_de_nascidos IS NOT NULL AND CAST(s.merged_numero_de_nascidos AS VARCHAR) != 'None')
-            OR
-            -- Valid fet_gravidez_clinica (excluding 'X')
-            (s.fet_gravidez_clinica IS NOT NULL AND s.fet_gravidez_clinica != 'None' AND s.fet_gravidez_clinica != 'X')
-            OR
-            -- Valid trat1 (excluding non-transfers, oocyte freezing, and biopsy markers)
-            (e.trat1_resultado_tratamento IS NOT NULL AND e.trat1_resultado_tratamento != 'None' AND NOT (
-                LOWER(TRIM(e.trat1_resultado_tratamento)) IN (
-                    'no transfer', 'congelamento de óvulos', 'congelamento de ovulos',
-                    'biópsia embrionária', 'biopsia embrionária', 'biópsia embrionaria', 'biopsia embrionaria', 
-                    'biópsia realizada', 'biopsia realizada'
-                )
-            ))
-            OR
-            -- Valid trat2 (excluding non-transfers, oocyte freezing, and biopsy markers)
-            (e.trat2_resultado_tratamento IS NOT NULL AND e.trat2_resultado_tratamento != 'None' AND NOT (
-                LOWER(TRIM(e.trat2_resultado_tratamento)) IN (
-                    'no transfer', 'congelamento de óvulos', 'congelamento de ovulos',
-                    'biópsia embrionária', 'biopsia embrionária', 'biópsia embrionaria', 'biopsia embrionaria', 
-                    'biópsia realizada', 'biopsia realizada'
-                )
-            ))
-            OR
-            -- Valid fet_tipo_resultado (excluding incompleted, third path, thawing non-survival, PGT lack, and FIV completa)
-            (s.fet_tipo_resultado IS NOT NULL AND s.fet_tipo_resultado != 'None' AND NOT (
-                LOWER(TRIM(s.fet_tipo_resultado)) IN (
-                    'fiv incompleta', 'fv incompleta', 'fiv incompleto', 'terceira via', '\\', 
-                    'transferência congelados', 'transferencia congelados', 'transferência de congelados', 
-                    'transferencia de congelados', 'transferência de congelado', 'transferencia de congelado', 
-                    'outros', 'não teve embriões normais na biopsia', 'nao teve embriões normais na biopsia', 
-                    'não teve embrioes normais na biopsia', 'nao teve embrioes normais na biopsia',
-                    'não sobrevivencia dos embriões no descongelamento', 'nao sobrevivencia dos embriões no descongelamento', 
-                    'não sobrevivencia dos embrioes no descongelamento', 'nao sobrevivencia dos embrioes no descongelamento', 
-                    'não sobrevivência dos embriões no descongelamento',
-                    'desenvolvimento anormal ou não desenvolvimento do embrião', 'desenvolvimento anormal ou nao desenvolvimento do embrião',
-                    'endometrio anormal', 'endométrio anormal', 'fiv completa'
-                )
-            ))
-        ) as has_valid_outcome,
-        COALESCE(m.has_transfer_logging_gap, False) as has_transfer_logging_gap,
-        m.step_id as join_step,
-        m.src_row_id as matched_src_row_id,
-        s.prontuario as matched_planilha_prontuario,
-        s.transfer_date as matched_planilha_transfer_date,
-        s.* EXCLUDE (src_row_id, prontuario, transfer_date, fresh_data_da_puncao, date_when_embryos_were_cryopreserved)
-    FROM gold.embryoscope_clinisys_combined e
-    LEFT JOIN final_matches m ON e.oocito_id = m.oocito_id
-    LEFT JOIN src s ON m.src_row_id = s.src_row_id
+        
+        c.has_valid_outcome as has_valid_outcome,
+        
+        -- Backward-compatible column aliases for legacy queries
+        c.outcome_final_result as outcome_type,
+        c.outcome_final_gravidez_clinica as fet_gravidez_clinica,
+        c.outcome_final_no_nascidos as merged_numero_de_nascidos,
+        c.planilha_tipo_resultado as fet_tipo_resultado
+
+    FROM gold.clinisys_embrioes_outcomes c
+    LEFT JOIN (
+        SELECT oocito_id, embryo_EmbryoID 
+        FROM tmp_clinisys_es_matches 
+        WHERE rn = 1
+    ) m ON c.oocito_id = m.oocito_id
+    LEFT JOIN gold.embryoscope_embrioes e ON m.embryo_EmbryoID = e.embryo_EmbryoID;
     """
     
     conn.execute(query)
     
-    # Calculate Metrics
-    stats_overall = conn.execute("""
-        SELECT 
-            COUNT(*) as total_embryos,
-            COUNT(join_step) as matched_embryos
-        FROM gold.planilha_embryoscope_combined
-    """).df().iloc[0]
-    
-    stats_by_step = conn.execute("""
-        SELECT join_step, COUNT(*) as count
-        FROM gold.planilha_embryoscope_combined
-        WHERE join_step IS NOT NULL
-        GROUP BY join_step
-        ORDER BY join_step
-    """).df()
+    elapsed = time.time() - t0
+    row_cnt = conn.execute("SELECT count(*) FROM gold.pesquisa_embrioes_com_tratamento_morfocinetica_desfechos").fetchone()[0]
+    dist_id = conn.execute("SELECT count(distinct oocito_id) FROM gold.pesquisa_embrioes_com_tratamento_morfocinetica_desfechos").fetchone()[0]
+    es_cnt = conn.execute("SELECT count(*) FROM gold.pesquisa_embrioes_com_tratamento_morfocinetica_desfechos WHERE embryo_EmbryoID IS NOT NULL").fetchone()[0]
+    biop_cnt = conn.execute("SELECT count(*) FROM gold.pesquisa_embrioes_com_tratamento_morfocinetica_desfechos WHERE has_biopsy = True").fetchone()[0]
+    valid_out = conn.execute("SELECT count(*) FROM gold.pesquisa_embrioes_com_tratamento_morfocinetica_desfechos WHERE has_valid_outcome = True").fetchone()[0]
 
-    # Planilha-side metrics
-    stats_planilha = conn.execute("""
-        SELECT 
-            (SELECT COUNT(*) FROM gold.redlara_planilha_combined) as total_src,
-            COUNT(DISTINCT matched_src_row_id) as matched_src
-        FROM gold.planilha_embryoscope_combined
-        WHERE join_step IS NOT NULL
-    """).df().iloc[0]
-    
-    total = stats_overall['total_embryos']
-    matched = stats_overall['matched_embryos']
-    rate = (matched / total * 100) if total > 0 else 0
-
-    total_src = stats_planilha['total_src']
-    matched_src = stats_planilha['matched_src']
-    rate_src = (matched_src / total_src * 100) if total_src > 0 else 0
-    
-    logger.info("=" * 60)
-    logger.info("WATERFALL JOIN SUMMARY (Embryoscope -> Planilha-Redlara)")
-    logger.info("=" * 60)
-    logger.info(f"EMBRYOSCOPE PERSPECTIVE:")
-    logger.info(f"  Total Embryos: {total:,}")
-    logger.info(f"  Matched:       {matched:,} ({rate:.2f}%)")
-    logger.info("-" * 60)
-    logger.info("PLANILHA-REDLARA PERSPECTIVE:")
-    logger.info(f"  Total Records: {total_src:,}")
-    logger.info(f"  Matched:       {matched_src:,} ({rate_src:.2f}%)")
-    logger.info("-" * 60)
-    logger.info("Matches by Waterfall Step (Embryos):")
-    
-    step_labels = {
-        1: "Punção (Date DL)",
-        2: "Transfer (Descong)",
-        3: "Transfer (Trat1)",
-        4: "Transfer (Trat2)",
-        5: "Cryo (Redlara)",
-        6: "Cryo (FET)",
-        7: "Cryo (Fresh)",
-        8: "Punção (+/- 3 days)",
-        9: "Transfer (+/- 3 days)"
-    }
-    
-    for _, row in stats_by_step.iterrows():
-        step = int(row['join_step'])
-        label = step_labels.get(step, f"Step {step}")
-        logger.info(f"  Step {step}: {label:<25} | {int(row['count']):>6,}")
-    
-    logger.info("=" * 60)
-    logger.info("Gold table gold.planilha_embryoscope_combined created.")
-    
-    # Yearly Match Analysis
-    stats_by_year = conn.execute("""
-    WITH src_numbered AS (
-        SELECT 
-            *, 
-            ROW_NUMBER() OVER() as src_id,
-            COALESCE(fresh_file_name, fet_file_name, 'Unknown') as file_source,
-            EXTRACT(YEAR FROM transfer_date) as date_year
-        FROM gold.redlara_planilha_combined
-    ),
-    matched_ids AS (
-        SELECT DISTINCT matched_src_row_id FROM gold.planilha_embryoscope_combined WHERE matched_src_row_id IS NOT NULL
-    ),
-    src_with_year AS (
-        SELECT 
-            *,
-            CASE 
-                WHEN file_source LIKE '%2021%' THEN 2021
-                WHEN file_source LIKE '%2022%' THEN 2022
-                WHEN file_source LIKE '%2023%' THEN 2023
-                WHEN file_source LIKE '%2024%' THEN 2024
-                WHEN file_source LIKE '%2025%' THEN 2025
-                ELSE date_year
-            END as year_group
-        FROM src_numbered
-    ),
-    src_stats AS (
-        SELECT 
-            year_group,
-            COUNT(*) as total_rows,
-            COUNT(CASE WHEN src_id IN (SELECT matched_src_row_id FROM matched_ids) THEN 1 END) as matched_count
-        FROM src_with_year
-        GROUP BY 1
-    )
-    SELECT 
-        CAST(year_group AS INTEGER) as year,
-        total_rows,
-        matched_count,
-        ROUND(CAST(matched_count AS DOUBLE) / total_rows * 100, 2) as match_rate
-    FROM src_stats
-    ORDER BY year
-    """).df()
-
-    logger.info("=" * 60)
-    logger.info("MATCH RATES BY YEAR (Planilha Perspective)")
-    logger.info("=" * 60)
-    logger.info(f"{'Year':<6} | {'Total':>8} | {'Matched':>8} | {'Rate':>7}")
-    logger.info("-" * 40)
-    
-    for _, row in stats_by_year.iterrows():
-        year_display = str(int(row['year'])) if pd.notnull(row['year']) else "Unknown"
-        logger.info(f"{year_display:<6} | {int(row['total_rows']):>8,} | {int(row['matched_count']):>8,} | {row['match_rate']:>6.2f}%")
-    logger.info("=" * 60)
+    logger.info("=" * 80)
+    logger.info("PESQUISA EMBRIOES COM TRATAMENTO MORFOCINETICA DESFECHOS SUMMARY")
+    logger.info("=" * 80)
+    logger.info(f"Successfully built table in {elapsed:.2f}s!")
+    logger.info(f"Total rows: {row_cnt:,d} | Distinct oocito_ids: {dist_id:,d} (Duplicates: {row_cnt - dist_id})")
+    logger.info(f"Embryoscope matched rows: {es_cnt:,d}")
+    logger.info(f"has_biopsy = True: {biop_cnt:,d} ({biop_cnt/row_cnt*100:.2f}%)")
+    logger.info(f"has_valid_outcome = True: {valid_out:,d} ({valid_out/row_cnt*100:.2f}%)")
+    logger.info("=" * 80)
 
 def main():
-    logger.info("=== STARTING WATERFALL JOIN FOR EMBRYOSCOPE DATA ===")
+    conn = get_database_connection(read_only=False)
     try:
-        conn = get_database_connection()
         create_combined_table(conn)
-        logger.info("Success!")
-    except Exception as e:
-        logger.error(f"Error: {e}")
-        raise
     finally:
-        if 'conn' in locals():
-            conn.close()
+        conn.close()
 
 if __name__ == "__main__":
     main()

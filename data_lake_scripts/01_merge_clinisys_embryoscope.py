@@ -29,7 +29,8 @@ logger = logging.getLogger(__name__)
 logger.info(f'Loaded logging level: {logging_level_str}')
 
 # Database path
-db_path = os.path.join('..', 'database', 'huntington_data_lake.duckdb')
+repo_root = os.path.dirname(os.path.dirname(__file__))
+db_path = os.path.join(repo_root, 'database', 'huntington_data_lake.duckdb')
 
 def test_join_strategies(con):
     """Test exact day matching strategy."""
@@ -129,51 +130,71 @@ def main():
             for col in available_columns:
                 select_columns.append(f"c.{col}")
             
-            # Add all embryoscope columns
-            select_columns.append("e.*")
+            # Add all embryoscope columns excluding prontuario
+            select_columns.append("e.* EXCLUDE (prontuario)")
+            
+            logger.info("Pre-matching Embryoscope records to ensure strict 1:1 grain on oocito_id...")
+            con.execute(f'''
+            CREATE OR REPLACE TEMP TABLE tmp_clinisys_es_matches AS
+            SELECT 
+                c.oocito_id,
+                e.embryo_EmbryoID,
+                ROW_NUMBER() OVER (
+                    PARTITION BY c.oocito_id 
+                    ORDER BY 
+                        ABS(DATEDIFF('day', CAST(e.embryo_FertilizationTime AS DATE), CAST(c.micro_Data_DL AS DATE))),
+                        CASE WHEN e.embryo_EmbryoFate IS NOT NULL AND e.embryo_EmbryoFate != 'None' THEN 0 ELSE 1 END,
+                        CASE WHEN e.embryo_Time_t2 IS NOT NULL THEN 0 ELSE 1 END,
+                        e.embryo_EmbryoID
+                ) as rn
+            FROM gold.clinisys_embrioes c
+            JOIN gold.embryoscope_embrioes e
+                ON c.micro_prontuario = e.prontuario
+                AND c.oocito_embryo_number = e.embryo_embryo_number
+                AND {date_condition};
+            ''')
             
             query = f'''
             SELECT 
                 {', '.join(select_columns)}
             FROM gold.clinisys_embrioes c
             LEFT JOIN (
-                SELECT *
-                FROM gold.embryoscope_embrioes
-                WHERE prontuario IS NOT NULL
-            ) e
-                ON {date_condition}
-                AND c.micro_prontuario = e.prontuario
-                AND e.embryo_embryo_number = c.oocito_embryo_number
+                SELECT oocito_id, embryo_EmbryoID 
+                FROM tmp_clinisys_es_matches 
+                WHERE rn = 1
+            ) m ON c.oocito_id = m.oocito_id
+            LEFT JOIN gold.embryoscope_embrioes e ON m.embryo_EmbryoID = e.embryo_EmbryoID
             '''
             
-            logger.info(f"Using LEFT JOIN with simple date matching: {date_condition} + prontuario + embryo_number")
+            logger.info(f"Using deduplicated LEFT JOIN with simple date matching: {date_condition} + prontuario + embryo_number")
             
             # Create schema if not exists
             con.execute('CREATE SCHEMA IF NOT EXISTS gold;')
             logger.info('Ensured gold schema exists')
             
-            # Drop existing table if it exists
-            con.execute('DROP TABLE IF EXISTS gold.embryoscope_clinisys_combined;')
-            logger.info('Dropped existing gold.embryoscope_clinisys_combined table if it existed')
+            # Drop existing table/view if it exists
+            for obj_name in ['gold.embryoscope_clinisys_combined', 'gold.pesquisa_embrioes_com_tratamento_morfocinetica']:
+                for obj_type in ['VIEW', 'TABLE']:
+                    try:
+                        con.execute(f"DROP {obj_type} IF EXISTS {obj_name};")
+                    except Exception:
+                        pass
+            logger.info('Dropped existing table/view for pesquisa_embrioes_com_tratamento_morfocinetica')
             
             # Create table directly in SQL
-            logger.info("Creating table gold.embryoscope_clinisys_combined directly in DuckDB...")
-            con.execute(f"CREATE TABLE gold.embryoscope_clinisys_combined AS {query}")
-            logger.info('Created gold.embryoscope_clinisys_combined table')
-            
-            # Validate schema
-            # schema = con.execute("DESCRIBE gold.embryoscope_clinisys_combined").fetchdf()
-            # logger.info(f'gold.embryoscope_clinisys_combined schema:\n{schema}')
+            logger.info("Creating table gold.pesquisa_embrioes_com_tratamento_morfocinetica directly in DuckDB...")
+            con.execute(f"CREATE TABLE gold.pesquisa_embrioes_com_tratamento_morfocinetica AS {query}")
+            logger.info('Created gold.pesquisa_embrioes_com_tratamento_morfocinetica table')
             
             # Validate row count
-            row_count = con.execute("SELECT COUNT(*) FROM gold.embryoscope_clinisys_combined").fetchone()[0]
-            logger.info(f'gold.embryoscope_clinisys_combined row count: {row_count}')
+            row_count = con.execute("SELECT COUNT(*) FROM gold.pesquisa_embrioes_com_tratamento_morfocinetica").fetchone()[0]
+            logger.info(f'gold.pesquisa_embrioes_com_tratamento_morfocinetica row count: {row_count}')
             
             # Check join statistics
             clinisys_count = con.execute("SELECT COUNT(*) FROM gold.clinisys_embrioes").fetchone()[0]
             embryoscope_count = con.execute("SELECT COUNT(*) FROM gold.embryoscope_embrioes").fetchone()[0]
-            matched_count = con.execute("SELECT COUNT(*) FROM gold.embryoscope_clinisys_combined WHERE embryo_EmbryoID IS NOT NULL AND oocito_id IS NOT NULL").fetchone()[0]
-            clinisys_only_count = con.execute("SELECT COUNT(*) FROM gold.embryoscope_clinisys_combined WHERE embryo_EmbryoID IS NULL AND oocito_id IS NOT NULL").fetchone()[0]
+            matched_count = con.execute("SELECT COUNT(*) FROM gold.pesquisa_embrioes_com_tratamento_morfocinetica WHERE embryo_EmbryoID IS NOT NULL AND oocito_id IS NOT NULL").fetchone()[0]
+            clinisys_only_count = con.execute("SELECT COUNT(*) FROM gold.pesquisa_embrioes_com_tratamento_morfocinetica WHERE embryo_EmbryoID IS NULL AND oocito_id IS NOT NULL").fetchone()[0]
             
             logger.info(f'LEFT JOIN statistics (All-Time):')
             logger.info(f'  - Total clinisys records: {clinisys_count:,}')
@@ -187,8 +208,8 @@ def main():
             # Check 2023+ join statistics
             clinisys_count_2023 = con.execute("SELECT COUNT(*) FROM gold.clinisys_embrioes WHERE micro_Data_DL >= '2023-01-01'").fetchone()[0]
             embryoscope_count_2023 = con.execute("SELECT COUNT(*) FROM gold.embryoscope_embrioes WHERE embryo_FertilizationTime >= '2023-01-01'").fetchone()[0]
-            matched_count_2023 = con.execute("SELECT COUNT(*) FROM gold.embryoscope_clinisys_combined WHERE embryo_EmbryoID IS NOT NULL AND oocito_id IS NOT NULL AND embryo_FertilizationTime >= '2023-01-01'").fetchone()[0]
-            clinisys_only_count_2023 = con.execute("SELECT COUNT(*) FROM gold.embryoscope_clinisys_combined WHERE embryo_EmbryoID IS NULL AND oocito_id IS NOT NULL AND micro_Data_DL >= '2023-01-01'").fetchone()[0]
+            matched_count_2023 = con.execute("SELECT COUNT(*) FROM gold.pesquisa_embrioes_com_tratamento_morfocinetica WHERE embryo_EmbryoID IS NOT NULL AND oocito_id IS NOT NULL AND embryo_FertilizationTime >= '2023-01-01'").fetchone()[0]
+            clinisys_only_count_2023 = con.execute("SELECT COUNT(*) FROM gold.pesquisa_embrioes_com_tratamento_morfocinetica WHERE embryo_EmbryoID IS NULL AND oocito_id IS NOT NULL AND micro_Data_DL >= '2023-01-01'").fetchone()[0]
 
             logger.info(f'LEFT JOIN statistics (2023 Onwards):')
             logger.info(f'  - Total clinisys records (2023+): {clinisys_count_2023:,}')
@@ -212,7 +233,7 @@ def main():
                     SELECT 
                         EXTRACT(YEAR FROM CAST(embryo_FertilizationTime AS DATE)) as year_val,
                         COUNT(DISTINCT embryo_EmbryoID) as matched_emb
-                    FROM gold.embryoscope_clinisys_combined
+                    FROM gold.pesquisa_embrioes_com_tratamento_morfocinetica
                     WHERE embryo_EmbryoID IS NOT NULL
                     GROUP BY 1
                 )

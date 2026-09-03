@@ -569,18 +569,48 @@ def create_leads_funil(con):
     logger.info(f"    Leads with post-lead sales: {_count(con, 'tmp_vendas'):,}")
 
     # -----------------------------------------------------------------------
-    # 9. Build final gold table
+    # 9. Build final gold table (gold.rd_station_leads_funil)
     # -----------------------------------------------------------------------
-    logger.info("Step 9 — Write gold.leads_funil")
+    logger.info("Step 9 — Write gold.rd_station_leads_funil")
+    con.execute("DROP TABLE IF EXISTS gold.rd_station_leads_funil")
     con.execute("DROP TABLE IF EXISTS gold.leads_funil")
-    _step(con, "gold.leads_funil", """
-        CREATE TABLE gold.leads_funil AS
+    con.execute("DROP VIEW IF EXISTS gold.leads_funil")
+    
+    # Check if gold.rdstation_campaigns exists to join campaign dates and name
+    has_camp = con.execute("""
+        SELECT COUNT(*) FROM information_schema.tables 
+        WHERE table_schema = 'gold' AND table_name = 'rdstation_campaigns'
+    """).fetchone()[0]
+
+    if has_camp:
+        camp_join = """
+        LEFT JOIN gold.rdstation_campaigns camp 
+            ON l.campanha_id = camp."Campanha ID"
+        """
+        camp_cols = """
+            COALESCE(camp."Campanha Nome", 'Não informada') AS campanha_nome,
+            COALESCE(camp."Status Campanha", 'Sem Campanha') AS campanha_status,
+            camp."Data Início" AS campanha_data_inicio,
+            camp."Data Fim" AS campanha_data_fim,
+        """
+    else:
+        camp_join = ""
+        camp_cols = """
+            'Não informada' AS campanha_nome,
+            'Sem Campanha' AS campanha_status,
+            CAST(NULL AS TIMESTAMP) AS campanha_data_inicio,
+            CAST(NULL AS TIMESTAMP) AS campanha_data_fim,
+        """
+
+    query = f"""
+        CREATE TABLE gold.rd_station_leads_funil AS
         SELECT
             l.lead_id,
             l.deal_name,
             l.deal_status,
             COALESCE(l.fonte, 'Não informada') AS fonte,
             l.campanha_id,
+            {camp_cols}
             COALESCE(l.unidade, 'Não informada') AS unidade,
             l.funil,
             l.lead_date,
@@ -609,19 +639,24 @@ def create_leads_funil(con):
             v.primeira_venda_data,
             date_diff('day', l.lead_from, v.primeira_venda_data) AS dias_ate_primeira_venda
         FROM tmp_leads_matched l
+        {camp_join}
         LEFT JOIN tmp_consultas c ON l.lead_id = c.lead_id
         LEFT JOIN tmp_vendas v    ON l.lead_id = v.lead_id
-    """)
+    """
+    _step(con, "gold.rd_station_leads_funil", query)
+
+    # Backward compatibility view
+    con.execute("CREATE OR REPLACE VIEW gold.leads_funil AS SELECT * FROM gold.rd_station_leads_funil")
 
     # -----------------------------------------------------------------------
     # 10. Audit log
     # -----------------------------------------------------------------------
-    total       = _count(con, 'gold.leads_funil')
-    matched     = con.execute("SELECT COUNT(*) FROM gold.leads_funil WHERE prontuario IS NOT NULL").fetchone()[0]
-    typos       = con.execute("SELECT COUNT(*) FROM gold.leads_funil WHERE matched_flag LIKE '%typo%'").fetchone()[0]
-    consultas   = con.execute("SELECT COUNT(*) FROM gold.leads_funil WHERE consulta_date IS NOT NULL").fetchone()[0]
-    with_vendas = con.execute("SELECT COUNT(*) FROM gold.leads_funil WHERE total_gasto_pos_lead > 0").fetchone()[0]
-    total_val   = con.execute("SELECT COALESCE(SUM(total_gasto_pos_lead), 0.0) FROM gold.leads_funil").fetchone()[0]
+    total       = _count(con, 'gold.rd_station_leads_funil')
+    matched     = con.execute("SELECT COUNT(*) FROM gold.rd_station_leads_funil WHERE prontuario IS NOT NULL").fetchone()[0]
+    typos       = con.execute("SELECT COUNT(*) FROM gold.rd_station_leads_funil WHERE matched_flag LIKE '%typo%'").fetchone()[0]
+    consultas   = con.execute("SELECT COUNT(*) FROM gold.rd_station_leads_funil WHERE consulta_date IS NOT NULL").fetchone()[0]
+    with_vendas = con.execute("SELECT COUNT(*) FROM gold.rd_station_leads_funil WHERE total_gasto_pos_lead > 0").fetchone()[0]
+    total_val   = con.execute("SELECT COALESCE(SUM(total_gasto_pos_lead), 0.0) FROM gold.rd_station_leads_funil").fetchone()[0]
     unmatched   = total - matched
 
     logger.info("=== AUDIT ===")
