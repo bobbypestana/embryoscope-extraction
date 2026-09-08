@@ -153,6 +153,10 @@ def create_long_table(conn):
 
     conn.execute(query)
     logger.info("Table gold.pesquisa_embrioes_com_tratamento_morfocinetica_desfechos_medicamentos_long created successfully.")
+    
+    # Local backward-compatible VIEW
+    conn.execute("CREATE OR REPLACE VIEW gold.embryos_with_prescription_long AS SELECT * FROM gold.pesquisa_embrioes_com_tratamento_morfocinetica_desfechos_medicamentos_long;")
+    logger.info("Created local VIEW gold.embryos_with_prescription_long")
 
     # ── 3. Join metrics Split by External/Internal ───────────────────────────
     stats_df = conn.execute("""
@@ -201,7 +205,7 @@ def create_long_table(conn):
     # ── 4. Top groups ─────────────────────────────────────────────────────────
     top_groups = conn.execute("""
         SELECT presc_grupo_medicamento, COUNT(*) n
-        FROM gold.embryos_with_prescription_long
+        FROM gold.pesquisa_embrioes_com_tratamento_morfocinetica_desfechos_medicamentos_long
         WHERE presc_grupo_medicamento IS NOT NULL
         GROUP BY 1 ORDER BY 2 DESC LIMIT 10
     """).df()
@@ -210,7 +214,7 @@ def create_long_table(conn):
     for _, row in top_groups.iterrows():
         logger.info(f"  {row['presc_grupo_medicamento']:<30} {int(row['n']):>8,}")
     logger.info("=" * 60)
-    logger.info("gold.embryos_with_prescription_long created successfully.")
+    logger.info("gold.pesquisa_embrioes_com_tratamento_morfocinetica_desfechos_medicamentos_long created successfully.")
 
 
 def main():

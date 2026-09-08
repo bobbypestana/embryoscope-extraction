@@ -79,11 +79,16 @@ def create_gold_table(con):
     query = """
     CREATE TABLE gold.protheus_notas_faturadas AS
     SELECT
-        TRY_CAST(c_cli.A1_CODMS AS INTEGER) AS "Cliente",
-        COALESCE(c_cli.A1_NOME, n.F2_NOMPACI) AS "Nome",
-        TRY_CAST(c_pac.A1_CODMS AS INTEGER)::VARCHAR AS "Paciente",
-        n.F2_NOMPACI AS "Nom Paciente",
-        c_cli.A1_CGC as CPF,
+        COALESCE(TRY_CAST(c_cli.A1_CODMS AS INTEGER), TRY_CAST(n.F2_CLIENTE AS INTEGER)) AS "Cliente",
+        COALESCE(c_cli.A1_NOME, n.F2_NOME, n.F2_NOMPACI, n.F2_PACIENT) AS "Nome",
+        COALESCE(TRY_CAST(c_pac.A1_CODMS AS INTEGER)::VARCHAR, TRY_CAST(c_cli.A1_CODMS AS INTEGER)::VARCHAR, TRY_CAST(n.F2_CLIENTE AS INTEGER)::VARCHAR) AS "Paciente",
+        COALESCE(
+            n.F2_NOMPACI,
+            CASE WHEN n.instance_id = 'BH' THEN n.F2_PACIENT ELSE NULL END,
+            c_pac.A1_NOME,
+            n.F2_NOME
+        ) AS "Nom Paciente",
+        COALESCE(n.F2_CPFPACI, c_cli.A1_CGC) as CPF,
         TRY_CAST(-1 AS INTEGER) AS prontuario,
         CAST(n.F2_EMISSAO AS TIMESTAMP) AS "DT Emissao",
         p.B1_DESC AS "Descricao",
@@ -105,6 +110,9 @@ def create_gold_table(con):
         0.0 AS "Custo Unit",
         n.D2_DESC AS "Desconto",
         CASE
+            -- BH Instance (ProCriar)
+            WHEN n.instance_id = 'BH' AND n.F2_FILIAL IN ('0102', '0201') THEN 'Pouso Alegre'
+            WHEN n.instance_id = 'BH' THEN 'Belo Horizonte'
             -- Company 01 (Ibirapuera / Vila Mariana)
             WHEN n.company_id = '01' AND n.F2_FILIAL IN ('010101', '010150') THEN 'Ibirapuera'
             WHEN n.company_id = '01' AND n.F2_FILIAL IN ('010155', '010104', '010106') THEN 'Vila Mariana'
@@ -112,11 +120,12 @@ def create_gold_table(con):
             WHEN n.company_id = '03' AND n.F2_FILIAL = '030101' THEN 'Campinas'
             -- Company 06 (Pro Fiv / Santa Joana)
             WHEN n.company_id = '06' AND n.F2_FILIAL = '060101' THEN 'Pro Fiv'
-            -- Company 05 (Belo Horizonte)
+            -- Company 05 (Belo Horizonte - legacy / Huntington)
             WHEN n.company_id = '05' AND n.F2_FILIAL = '0101' THEN 'Belo Horizonte'
             -- Company 07 (Salvador - Cenafert / FIV Brasilia)
             WHEN n.company_id = '07' AND n.F2_FILIAL IN ('010101', '020101') THEN 'Salvador - Cenafert'
             WHEN n.company_id = '07' AND n.F2_FILIAL IN ('030101') THEN 'FIV Brasilia'
+            WHEN n.company_id = '07' AND n.F2_FILIAL IN ('040101', '040102') THEN 'Rio de Janeiro'
             ELSE 'Unknown Unit (' || COALESCE(n.company_id, '') || ', ' || COALESCE(n.F2_FILIAL, '') || ')'
         END AS "Unidade",
         MONTH(n.F2_EMISSAO) AS "Mês",
@@ -127,6 +136,7 @@ def create_gold_table(con):
         TRY_CAST(p.B1_ZCICLOS AS INTEGER) AS "Ciclos",
         0 AS "Qnt Cons.",
         CASE 
+            WHEN n.instance_id = 'BH' THEN '5'
             WHEN n.company_id = '01' THEN '1'
             WHEN n.company_id = '03' THEN '3'
             WHEN n.company_id = '05' THEN '5'
@@ -138,18 +148,19 @@ def create_gold_table(con):
         'False' AS "Fez Ciclo?",
         ROW_NUMBER() OVER (ORDER BY n.F2_EMISSAO DESC, n.F2_DOC DESC, n.D2_ITEM ASC) AS line_number,
         n.extraction_timestamp AS extraction_timestamp,
-        'Protheus API' AS file_name
+        'Protheus API' AS file_name,
+        n.instance_id AS instance_id
     FROM silver.notas n
     LEFT JOIN silver.clientes c_cli
-        ON n.F2_CLIENTE = c_cli.A1_COD AND n.F2_LOJA = c_cli.A1_LOJA
+        ON n.instance_id = c_cli.instance_id AND n.F2_CLIENTE = c_cli.A1_COD AND n.F2_LOJA = c_cli.A1_LOJA
     LEFT JOIN silver.clientes c_pac
-        ON n.F2_PACIENT = c_pac.A1_COD AND c_pac.A1_LOJA = '01'
+        ON n.instance_id = c_pac.instance_id AND n.F2_PACIENT = c_pac.A1_COD AND COALESCE(c_pac.A1_LOJA, '01') = '01'
     LEFT JOIN silver.produtos p
-        ON n.D2_COD = p.B1_COD
+        ON n.instance_id = p.instance_id AND n.D2_COD = p.B1_COD
     LEFT JOIN silver.vendedores v
-        ON n.F2_VEND1 = v.A3_COD
+        ON n.instance_id = v.instance_id AND n.F2_VEND1 = v.A3_COD
     LEFT JOIN silver.tes t
-        ON n.D2_TES = t.F4_CODIGO
+        ON n.instance_id = t.instance_id AND n.D2_TES = t.F4_CODIGO
     WHERE n.is_deleted = FALSE;
     """
 
@@ -171,7 +182,7 @@ def update_prontuario_column(con):
         id_col='Paciente',
         name_col='Nom Paciente',
         birthdate_col=None,
-        cpf_col=None,
+        cpf_col='CPF',
         label='protheus_paciente',
         suffix='',
     )
@@ -214,6 +225,7 @@ def create_gold_pedidos_a_faturar_table(con):
     CREATE TABLE gold.protheus_pedidos_a_faturar AS
     WITH notas_dedup AS (
         SELECT 
+            instance_id,
             company_id,
             F2_FILIAL,
             D2_PEDIDO,
@@ -224,7 +236,7 @@ def create_gold_pedidos_a_faturar_table(con):
             F2_NFELETR,
             CAST(F2_EMISSAO AS TIMESTAMP) AS dt_nota,
             ROW_NUMBER() OVER(
-                PARTITION BY company_id, F2_FILIAL, D2_PEDIDO, D2_ITEMPV, D2_COD 
+                PARTITION BY instance_id, company_id, F2_FILIAL, D2_PEDIDO, D2_ITEMPV, D2_COD 
                 ORDER BY F2_EMISSAO DESC, F2_DOC DESC
             ) as rn
         FROM silver.notas
@@ -233,15 +245,16 @@ def create_gold_pedidos_a_faturar_table(con):
           AND TRIM(D2_PEDIDO) != ''
     ),
     l1_dedup AS (
-        -- Point 3: Patient resolution via SL10X0 L1 (silver.venda_direta)
+        -- Patient resolution via SL10X0 L1 (silver.venda_direta)
         SELECT 
+            instance_id,
             company_id,
             L1_FILIAL,
             L1_PEDRES,
-            L1_PACIENT,
-            L1_NOMPACI,
+            COALESCE(L1_PACIENT, L1_CLIRESP, L1_CLIENTE) AS L1_PACIENT,
+            COALESCE(L1_NOMPACI, '') AS L1_NOMPACI,
             ROW_NUMBER() OVER(
-                PARTITION BY company_id, L1_FILIAL, L1_PEDRES 
+                PARTITION BY instance_id, company_id, L1_FILIAL, L1_PEDRES 
                 ORDER BY extraction_timestamp DESC
             ) as rn
         FROM silver.venda_direta
@@ -250,7 +263,10 @@ def create_gold_pedidos_a_faturar_table(con):
           AND TRIM(L1_PEDRES) != ''
     )
     SELECT
-        p.company_id AS "Grp",
+        CASE 
+            WHEN p.instance_id = 'BH' THEN '5'
+            ELSE p.company_id 
+        END AS "Grp",
         p.C5_FILIAL AS "Filial",
         TRY_CAST(p.C5_NUM AS INTEGER) AS "Pedido",
         TRY_CAST(p.C5_ORCRES AS INTEGER) AS "Orcamento",
@@ -258,10 +274,10 @@ def create_gold_pedidos_a_faturar_table(con):
         c_cli_cli.A1_NOME AS "Nome",
         c_cli_cli.A1_CGC AS CPF,
         TRY_CAST(-1 AS INTEGER) AS prontuario,
-        -- Point 3: Map L1_PACIENT with fallback to C6_CLI
-        TRY_CAST(COALESCE(l1.L1_PACIENT, p.C6_CLI) AS INTEGER) AS "Paciente",
-        -- Point 3: Map L1_NOMPACI with fallback to A1_NOME
-        COALESCE(l1.L1_NOMPACI, c_cli_pat.A1_NOME) AS "Nome Paciente",
+        -- Patient resolution: L1_PACIENT fallback to BH C5_ZCODPAC, then C6_CLI
+        TRY_CAST(COALESCE(l1.L1_PACIENT, p.C5_ZCODPAC, p.C6_CLI) AS INTEGER) AS "Paciente",
+        -- Patient name resolution: L1_NOMPACI fallback to BH C5_ZPACIEN, then customer name
+        COALESCE(NULLIF(l1.L1_NOMPACI, ''), p.C5_ZPACIEN, c_cli_pat.A1_NOME) AS "Nome Paciente",
         TRY_CAST(p.C5_VEND1 AS INTEGER) AS "Medico",
         v.A3_NOME AS "Nome Medico",
         CAST(p.C5_EMISSAO AS TIMESTAMP) AS "Emissao",
@@ -281,26 +297,27 @@ def create_gold_pedidos_a_faturar_table(con):
         p.C6_VALOR AS "Total",
         CAST(NULL AS DOUBLE) AS "Vlr.Bruto",
         TRY_CAST(p.C6_PRUNIT AS DOUBLE) AS "Prc.Venda",
-        0.0 AS "Ult.Preco"
+        0.0 AS "Ult.Preco",
+        p.instance_id AS instance_id
     FROM silver.pedidos p
     LEFT JOIN silver.clientes c_cli_cli
-        ON p.C5_CLIENTE = c_cli_cli.A1_COD AND p.C5_LOJACLI = c_cli_cli.A1_LOJA
+        ON p.instance_id = c_cli_cli.instance_id AND p.C5_CLIENTE = c_cli_cli.A1_COD AND p.C5_LOJACLI = c_cli_cli.A1_LOJA
     LEFT JOIN l1_dedup l1
-        ON p.company_id = l1.company_id AND p.C5_FILIAL = l1.L1_FILIAL AND p.C5_NUM = l1.L1_PEDRES AND l1.rn = 1
+        ON p.instance_id = l1.instance_id AND p.company_id = l1.company_id AND p.C5_FILIAL = l1.L1_FILIAL AND p.C5_NUM = l1.L1_PEDRES AND l1.rn = 1
     LEFT JOIN silver.clientes c_cli_pat
-        ON p.C6_CLI = c_cli_pat.A1_COD AND p.C5_LOJACLI = c_cli_pat.A1_LOJA
+        ON p.instance_id = c_cli_pat.instance_id AND p.C6_CLI = c_cli_pat.A1_COD AND p.C5_LOJACLI = c_cli_pat.A1_LOJA
     LEFT JOIN silver.produtos prod
-        ON p.C6_PRODUTO = prod.B1_COD
+        ON p.instance_id = prod.instance_id AND p.C6_PRODUTO = prod.B1_COD
     LEFT JOIN silver.vendedores v
-        ON p.C5_VEND1 = v.A3_COD
+        ON p.instance_id = v.instance_id AND p.C5_VEND1 = v.A3_COD
     LEFT JOIN notas_dedup n_item
-        ON p.company_id = n_item.company_id
+        ON p.instance_id = n_item.instance_id
+       AND p.company_id = n_item.company_id
        AND p.C5_FILIAL = n_item.F2_FILIAL
        AND p.C5_NUM = n_item.D2_PEDIDO 
        AND p.C6_ITEM = n_item.D2_ITEMPV
        AND p.C6_PRODUTO = n_item.D2_COD 
        AND n_item.rn = 1
-
     WHERE p.is_deleted = FALSE
       -- Point 2: Budget Identifier Filtering (C5_ORCRES <> '')
       AND p.C5_ORCRES IS NOT NULL AND TRIM(p.C5_ORCRES) != '';
@@ -389,7 +406,7 @@ def create_gold_vendas_consolidadas_table(con):
     ),
     invoiced_pedidos AS (
         SELECT DISTINCT 
-            company_id, C5_FILIAL, C5_NUM 
+            instance_id, company_id, C5_FILIAL, C5_NUM 
         FROM silver.pedidos 
         WHERE is_deleted = FALSE 
           AND (
@@ -399,26 +416,29 @@ def create_gold_vendas_consolidadas_table(con):
     ),
     ped_dates AS (
         SELECT 
+            instance_id,
             company_id, 
             C5_FILIAL, 
             C5_NUM, 
             MIN(CAST(C5_EMISSAO AS TIMESTAMP)) AS dt_pedido
         FROM silver.pedidos 
         WHERE is_deleted = FALSE
-        GROUP BY 1, 2, 3
+        GROUP BY 1, 2, 3, 4
     ),
     orc_dates AS (
         SELECT 
+            instance_id,
             company_id, 
             L1_FILIAL, 
             TRY_CAST(COALESCE(L1_NUM, L1_ORCRES) AS INTEGER) AS orc_num, 
             MIN(CAST(L1_EMISSAO AS TIMESTAMP)) AS dt_orcamento
         FROM silver.venda_direta 
         WHERE is_deleted = FALSE
-        GROUP BY 1, 2, 3
+        GROUP BY 1, 2, 3, 4
     ),
     ped_item_nota AS (
         SELECT 
+            n.instance_id,
             n.company_id,
             n.F2_FILIAL,
             n.D2_PEDIDO,
@@ -428,7 +448,7 @@ def create_gold_vendas_consolidadas_table(con):
             n.F2_SERIE AS serie_nota,
             CAST(n.F2_EMISSAO AS TIMESTAMP) AS dt_nota,
             ROW_NUMBER() OVER(
-                PARTITION BY n.company_id, n.F2_FILIAL, n.D2_PEDIDO, n.D2_ITEMPV, n.D2_COD
+                PARTITION BY n.instance_id, n.company_id, n.F2_FILIAL, n.D2_PEDIDO, n.D2_ITEMPV, n.D2_COD
                 ORDER BY n.F2_EMISSAO DESC, n.F2_DOC DESC
             ) AS rn
         FROM silver.notas n
@@ -437,6 +457,7 @@ def create_gold_vendas_consolidadas_table(con):
     ),
     vd_item_nota AS (
         SELECT 
+            instance_id,
             company_id,
             F2_FILIAL,
             F2_DOC,
@@ -444,13 +465,18 @@ def create_gold_vendas_consolidadas_table(con):
             MIN(CAST(F2_EMISSAO AS TIMESTAMP)) AS dt_nota
         FROM silver.notas 
         WHERE is_deleted = FALSE
-        GROUP BY 1, 2, 3, 4
+        GROUP BY 1, 2, 3, 4, 5
     ),
     venda_direta_rows AS (
         SELECT 
             TRY_CAST(-1 AS INTEGER) AS prontuario,
-            v.company_id AS grp,
+            CASE 
+                WHEN v.instance_id = 'BH' THEN '5'
+                ELSE v.company_id 
+            END AS grp,
             CASE
+                WHEN v.instance_id = 'BH' AND v.L1_FILIAL IN ('0102', '0201') THEN 'Pouso Alegre'
+                WHEN v.instance_id = 'BH' THEN 'Belo Horizonte'
                 WHEN v.company_id = '01' AND v.L1_FILIAL IN ('010101', '010150') THEN 'Ibirapuera'
                 WHEN v.company_id = '01' AND v.L1_FILIAL IN ('010155', '010104', '010106') THEN 'Vila Mariana'
                 WHEN v.company_id = '03' AND v.L1_FILIAL = '030101' THEN 'Campinas'
@@ -498,8 +524,8 @@ def create_gold_vendas_consolidadas_table(con):
             END AS status_fluxo,
             TRY_CAST(v.L1_CLIENTE AS INTEGER) AS cliente_id,
             c_cli.A1_NOME AS nome_cliente,
-            TRY_CAST(COALESCE(v.L1_PACIENT, c_pac.A1_COD) AS INTEGER) AS paciente_id,
-            COALESCE(v.L1_NOMPACI, c_pac.A1_NOME) AS nome_paciente,
+            TRY_CAST(COALESCE(v.L1_PACIENT, v.L1_CLIRESP, c_pac.A1_COD, v.L1_CLIENTE) AS INTEGER) AS paciente_id,
+            COALESCE(v.L1_NOMPACI, c_pac.A1_NOME, c_cli.A1_NOME) AS nome_paciente,
             TRY_CAST(v.L1_VEND AS INTEGER) AS medico_id,
             vend.A3_NOME AS nome_medico,
             v.L2_PRODUTO AS produto_id,
@@ -525,39 +551,44 @@ def create_gold_vendas_consolidadas_table(con):
             v.L1_FORMPG AS forma_pagamento,
             v.L1_CONDPG AS condicao_pagamento,
             v.L1_OPERADO AS operador,
-            c_cli.A1_CGC AS _cpf,
+            COALESCE(c_cli.A1_CGC, v.L1_CPFPACI) AS _cpf,
             YEAR(v.L1_EMISSAO) AS ano,
             MONTH(v.L1_EMISSAO) AS mes,
             'VENDA_DIRETA' AS origem,
-            v.extraction_timestamp AS extraction_timestamp
+            v.extraction_timestamp AS extraction_timestamp,
+            v.instance_id AS instance_id
         FROM silver.venda_direta v
         LEFT JOIN invoiced_pedidos inv 
-          ON v.company_id = inv.company_id 
+          ON v.instance_id = inv.instance_id
+         AND v.company_id = inv.company_id 
          AND v.L1_FILIAL = inv.C5_FILIAL 
          AND v.L1_PEDRES = inv.C5_NUM
         LEFT JOIN ped_dates p_dt
-          ON v.company_id = p_dt.company_id
+          ON v.instance_id = p_dt.instance_id
+         AND v.company_id = p_dt.company_id
          AND v.L1_FILIAL = p_dt.C5_FILIAL
          AND v.L1_PEDRES = p_dt.C5_NUM
         LEFT JOIN ped_item_nota pn
-          ON v.company_id = pn.company_id
+          ON v.instance_id = pn.instance_id
+         AND v.company_id = pn.company_id
          AND v.L1_FILIAL = pn.F2_FILIAL
          AND v.L1_PEDRES = pn.D2_PEDIDO
          AND v.L2_ITEM = pn.D2_ITEMPV
          AND v.L2_PRODUTO = pn.D2_COD
          AND pn.rn = 1
         LEFT JOIN vd_item_nota vn
-          ON v.company_id = vn.company_id
+          ON v.instance_id = vn.instance_id
+         AND v.company_id = vn.company_id
          AND v.L1_FILIAL = vn.F2_FILIAL
          AND COALESCE(v.L1_DOC, v.L2_DOC) = vn.F2_DOC
         LEFT JOIN silver.clientes c_cli
-            ON v.L1_CLIENTE = c_cli.A1_COD AND v.L1_LOJA = c_cli.A1_LOJA
+            ON v.instance_id = c_cli.instance_id AND v.L1_CLIENTE = c_cli.A1_COD AND v.L1_LOJA = c_cli.A1_LOJA
         LEFT JOIN silver.clientes c_pac
-            ON v.L1_PACIENT = c_pac.A1_COD AND c_pac.A1_LOJA = '01'
+            ON v.instance_id = c_pac.instance_id AND v.L1_PACIENT = c_pac.A1_COD AND COALESCE(c_pac.A1_LOJA, '01') = '01'
         LEFT JOIN silver.produtos prod
-            ON v.L2_PRODUTO = prod.B1_COD
+            ON v.instance_id = prod.instance_id AND v.L2_PRODUTO = prod.B1_COD
         LEFT JOIN silver.vendedores vend
-            ON v.L1_VEND = vend.A3_COD
+            ON v.instance_id = vend.instance_id AND v.L1_VEND = vend.A3_COD
         WHERE v.is_deleted = FALSE
           AND (v.L1_SITUA IS NULL OR v.L1_SITUA != 'FR')
           AND v.L1_EMISSAO BETWEEN (SELECT start_date FROM common_window) AND (SELECT end_date FROM common_window)
@@ -565,8 +596,13 @@ def create_gold_vendas_consolidadas_table(con):
     pedidos_direct_rows AS (
         SELECT 
             p.prontuario AS prontuario,
-            p."Grp" AS grp,
+            CASE 
+                WHEN p.instance_id = 'BH' THEN '5'
+                ELSE p."Grp" 
+            END AS grp,
             CASE
+                WHEN p.instance_id = 'BH' AND p."Filial" IN ('0102', '0201') THEN 'Pouso Alegre'
+                WHEN p.instance_id = 'BH' THEN 'Belo Horizonte'
                 WHEN p."Grp" = '01' AND p."Filial" IN ('010101', '010150') THEN 'Ibirapuera'
                 WHEN p."Grp" = '01' AND p."Filial" IN ('010155', '010104', '010106') THEN 'Vila Mariana'
                 WHEN p."Grp" = '03' AND p."Filial" = '030101' THEN 'Campinas'
@@ -618,34 +654,40 @@ def create_gold_vendas_consolidadas_table(con):
             YEAR(p."Emissao") AS ano,
             MONTH(p."Emissao") AS mes,
             'PEDIDO_DIRETO' AS origem,
-            CURRENT_TIMESTAMP::VARCHAR AS extraction_timestamp
+            CURRENT_TIMESTAMP::VARCHAR AS extraction_timestamp,
+            p.instance_id AS instance_id
         FROM gold.protheus_pedidos_a_faturar p
         LEFT JOIN orc_dates o_dt
-            ON p."Filial" = o_dt.L1_FILIAL
+            ON p.instance_id = o_dt.instance_id
+           AND p."Filial" = o_dt.L1_FILIAL
            AND p."Orcamento" = o_dt.orc_num
         LEFT JOIN (
             SELECT 
+                instance_id,
                 company_id, 
                 F2_FILIAL, 
                 TRY_CAST(F2_DOC AS INTEGER) AS doc_num, 
                 MIN(CAST(F2_EMISSAO AS TIMESTAMP)) AS dt_nota
             FROM silver.notas 
             WHERE is_deleted = FALSE
-            GROUP BY 1, 2, 3
+            GROUP BY 1, 2, 3, 4
         ) n_dt
-            ON p."Filial" = n_dt.F2_FILIAL
+            ON p.instance_id = n_dt.instance_id
+           AND p."Filial" = n_dt.F2_FILIAL
            AND p."Numero" = n_dt.doc_num
         LEFT JOIN silver.produtos prod
-            ON p."Produt" = prod.B1_COD
+            ON p.instance_id = prod.instance_id AND p."Produt" = prod.B1_COD
         LEFT JOIN (
             SELECT DISTINCT 
+                instance_id,
                 L1_FILIAL, 
                 TRY_CAST(L1_PEDRES AS INTEGER) as pedido, 
                 TRY_CAST(COALESCE(L1_NUM, L1_ORCRES) AS INTEGER) as orcamento
             FROM silver.venda_direta 
             WHERE is_deleted = FALSE AND (L1_SITUA IS NULL OR L1_SITUA != 'FR')
         ) vd_exists
-          ON p."Filial" = vd_exists.L1_FILIAL 
+          ON p.instance_id = vd_exists.instance_id
+         AND p."Filial" = vd_exists.L1_FILIAL 
          AND (p."Pedido" = vd_exists.pedido OR (p."Orcamento" = vd_exists.orcamento AND vd_exists.orcamento IS NOT NULL))
         WHERE CAST(p."Emissao" AS DATE) BETWEEN (SELECT start_date FROM common_window) AND (SELECT end_date FROM common_window)
           AND vd_exists.L1_FILIAL IS NULL

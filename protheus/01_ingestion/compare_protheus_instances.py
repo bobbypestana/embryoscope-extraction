@@ -48,7 +48,8 @@ INST_A = {
     "base_url": API_CONF['base_url'].rstrip('/'),
     "username": API_CONF['username'],
     "password": API_CONF['password'],
-    "tenant_id": API_CONF.get('tenant_id', '07,030101')
+    "tenant_id": API_CONF.get('tenant_id', '07,030101'),
+    "bootstrap_tenant": "07,030101"
 }
 
 # Config for Instance B (BH)
@@ -57,7 +58,8 @@ INST_B = {
     "base_url": API_CONF['base_url_bh'].rstrip('/'),
     "username": API_CONF.get('username_bh', API_CONF['username']),
     "password": API_CONF['password_bh'],
-    "tenant_id": API_CONF.get('tenant_id_bh', None) # Will be discovered dynamically
+    "tenant_id": API_CONF.get('tenant_id_bh', '05,010101'),
+    "bootstrap_tenant": "05,010101"
 }
 
 def create_session(auth: HTTPBasicAuth) -> requests.Session:
@@ -91,7 +93,6 @@ def make_request(instance: Dict[str, Any], path: str, params: Optional[Dict] = N
         "status_code": None,
         "elapsed_seconds": None,
         "data": None,
-        "raw_response": None,
         "error": None,
         "headers": {}
     }
@@ -113,7 +114,7 @@ def make_request(instance: Dict[str, Any], path: str, params: Optional[Dict] = N
                     except Exception as json_err:
                         result["error"] = f"JSON decode error: {json_err}. Body preview: {r.text[:300]}"
                     return result
-                elif r.status_code in [400, 404]:
+                elif r.status_code in [400, 403, 404]:
                     result["error"] = f"HTTP {r.status_code}: {r.text[:500]}"
                     return result
                 else:
@@ -133,41 +134,54 @@ def make_request(instance: Dict[str, Any], path: str, params: Optional[Dict] = N
 
     return result
 
-def extract_schema(record: Dict[str, Any]) -> Dict[str, Any]:
+def extract_schema(records: List[Dict[str, Any]]) -> Dict[str, Any]:
     """
-    Recursively extracts schema structure from a record:
+    Extracts unified schema structure across multiple sample records:
     - field name -> type description (e.g. 'str', 'int', 'float', 'list[dict]', 'dict')
     """
-    if not isinstance(record, dict):
-        return {"_type": type(record).__name__}
+    if not records:
+        return {}
     
     schema = {}
-    for k, v in record.items():
-        if v is None:
-            schema[k] = "null"
-        elif isinstance(v, bool):
-            schema[k] = "bool"
-        elif isinstance(v, int):
-            schema[k] = "int"
-        elif isinstance(v, float):
-            schema[k] = "float"
-        elif isinstance(v, str):
-            schema[k] = "str"
-        elif isinstance(v, list):
-            if len(v) > 0 and isinstance(v[0], dict):
-                # Sample first child item schema
-                child_schema = extract_schema(v[0])
-                schema[k] = f"list[dict: {len(child_schema)} fields]"
-                schema[f"{k}__nested_schema"] = child_schema
-            elif len(v) > 0:
-                schema[k] = f"list[{type(v[0]).__name__}]"
-            else:
-                schema[k] = "list[empty]"
-        elif isinstance(v, dict):
-            schema[k] = "dict"
-            schema[f"{k}__nested_schema"] = extract_schema(v)
-        else:
-            schema[k] = type(v).__name__
+    nested_records_map = {}
+
+    for record in records:
+        if not isinstance(record, dict):
+            continue
+        for k, v in record.items():
+            if k not in schema or schema[k] == "null":
+                if v is None:
+                    schema[k] = "null"
+                elif isinstance(v, bool):
+                    schema[k] = "bool"
+                elif isinstance(v, int):
+                    schema[k] = "int"
+                elif isinstance(v, float):
+                    schema[k] = "float"
+                elif isinstance(v, str):
+                    schema[k] = "str"
+                elif isinstance(v, list):
+                    if len(v) > 0 and isinstance(v[0], dict):
+                        schema[k] = "list[dict]"
+                        if k not in nested_records_map:
+                            nested_records_map[k] = []
+                        nested_records_map[k].extend(v)
+                    elif len(v) > 0:
+                        schema[k] = f"list[{type(v[0]).__name__}]"
+                    else:
+                        schema[k] = "list[empty]"
+                elif isinstance(v, dict):
+                    schema[k] = "dict"
+                    if k not in nested_records_map:
+                        nested_records_map[k] = []
+                    nested_records_map[k].append(v)
+                else:
+                    schema[k] = type(v).__name__
+
+    # Process nested structures
+    for nested_k, nested_list in nested_records_map.items():
+        schema[f"{nested_k}__nested_schema"] = extract_schema(nested_list)
+
     return schema
 
 def compare_schemas(schema_a: Dict[str, Any], schema_b: Dict[str, Any]) -> Dict[str, Any]:
@@ -195,6 +209,10 @@ def compare_schemas(schema_a: Dict[str, Any], schema_b: Dict[str, Any]) -> Dict[
         nested_b_key = f"{k}__nested_schema"
         if nested_a_key in schema_a and nested_b_key in schema_b:
             nested_diffs[k] = compare_schemas(schema_a[nested_a_key], schema_b[nested_b_key])
+        elif nested_a_key in schema_a and nested_b_key not in schema_b:
+            nested_diffs[k] = {"status": f"Nested array '{k}' present in A but missing or empty in B"}
+        elif nested_b_key in schema_a and nested_a_key not in schema_a:
+            nested_diffs[k] = {"status": f"Nested array '{k}' present in B but missing or empty in A"}
 
     total_keys = len(keys_a.union(keys_b))
     match_pct = (len(common_keys) / total_keys * 100) if total_keys > 0 else 100.0
@@ -234,8 +252,8 @@ def run_comparison():
 
     # Step 1: Discover Tenants via /rest/CONSEMP/empresas
     logger.info("\n--- STEP 1: Discovering Tenants (/rest/CONSEMP/empresas) ---")
-    emp_res_a = make_request(INST_A, "/rest/CONSEMP/empresas", params={"nPage": 1, "nPageSize": 50})
-    emp_res_b = make_request(INST_B, "/rest/CONSEMP/empresas", params={"nPage": 1, "nPageSize": 50})
+    emp_res_a = make_request(INST_A, "/rest/CONSEMP/empresas", params={"nPage": 1, "nPageSize": 50}, tenant_id=INST_A["bootstrap_tenant"])
+    emp_res_b = make_request(INST_B, "/rest/CONSEMP/empresas", params={"nPage": 1, "nPageSize": 50}, tenant_id=INST_B["bootstrap_tenant"])
 
     tenants_a = []
     tenants_b = []
@@ -259,7 +277,7 @@ def run_comparison():
 
     # Select representative tenant for tenant-scoped calls
     tenant_for_a = INST_A['tenant_id'] if INST_A['tenant_id'] in tenants_a else (tenants_a[0] if tenants_a else "07,030101")
-    tenant_for_b = tenants_b[0] if tenants_b else "01,010101" # Fallback if empty
+    tenant_for_b = "05,010101" # ProCriar BH valid tenant
 
     logger.info(f"Using Tenant for test calls: Instance A -> '{tenant_for_a}', Instance B -> '{tenant_for_b}'")
 
@@ -272,56 +290,56 @@ def run_comparison():
             "name": "empresas",
             "path": "/rest/CONSEMP/empresas",
             "type": "full",
-            "params": {"nPage": 1, "nPageSize": 5},
-            "use_tenant": False
+            "params": {"nPage": 1, "nPageSize": 10},
+            "use_tenant": True
         },
         {
             "name": "tes",
             "path": "/rest/CONSTES/tes",
             "type": "full",
-            "params": {"nPage": 1, "nPageSize": 5},
-            "use_tenant": False
+            "params": {"nPage": 1, "nPageSize": 10},
+            "use_tenant": True
         },
         {
             "name": "produtos",
             "path": "/rest/CONSPROD/produtos",
             "type": "full",
-            "params": {"nPage": 1, "nPageSize": 5},
-            "use_tenant": False
+            "params": {"nPage": 1, "nPageSize": 10},
+            "use_tenant": True
         },
         {
             "name": "clientes",
             "path": "/rest/CONSCLI/clientes",
             "type": "full",
-            "params": {"nPage": 1, "nPageSize": 5},
-            "use_tenant": False
+            "params": {"nPage": 1, "nPageSize": 10},
+            "use_tenant": True
         },
         {
             "name": "vendedores",
             "path": "/rest/CONSVEN/vendedores",
             "type": "full",
-            "params": {"nPage": 1, "nPageSize": 5},
-            "use_tenant": False
+            "params": {"nPage": 1, "nPageSize": 10},
+            "use_tenant": True
         },
         {
             "name": "notas",
             "path": "/rest/CONSNOTA/notas",
             "type": "incremental",
-            "params": {"dataIni": "20220101", "dataFim": data_fim, "nPage": 1, "nPageSize": 5},
+            "params": {"dataIni": "20220101", "dataFim": data_fim, "nPage": 1, "nPageSize": 10},
             "use_tenant": True
         },
         {
             "name": "pedidos",
             "path": "/rest/CONSPED/pedidos",
             "type": "incremental",
-            "params": {"dataIni": "20220101", "dataFim": data_fim, "nPage": 1, "nPageSize": 5},
+            "params": {"dataIni": "20220101", "dataFim": data_fim, "nPage": 1, "nPageSize": 10},
             "use_tenant": True
         },
         {
             "name": "venda_direta",
             "path": "/rest/CONSPEVD/pedidos",
             "type": "incremental",
-            "params": {"dataIni": "20220101", "dataFim": data_fim, "nPage": 1, "nPageSize": 5},
+            "params": {"dataIni": "20220101", "dataFim": data_fim, "nPage": 1, "nPageSize": 10},
             "use_tenant": True
         }
     ]
@@ -374,7 +392,7 @@ def run_comparison():
             ep_report["instance_a"]["has_next"] = res_a["data"].get("hasNext")
             ep_report["instance_a"]["total"] = res_a["data"].get("total")
             if isinstance(records_a, list) and len(records_a) > 0:
-                ep_report["instance_a"]["schema"] = extract_schema(records_a[0])
+                ep_report["instance_a"]["schema"] = extract_schema(records_a)
                 ep_report["instance_a"]["sample_record"] = records_a[0]
 
         # Extract record sample & schema from B
@@ -385,7 +403,7 @@ def run_comparison():
             ep_report["instance_b"]["has_next"] = res_b["data"].get("hasNext")
             ep_report["instance_b"]["total"] = res_b["data"].get("total")
             if isinstance(records_b, list) and len(records_b) > 0:
-                ep_report["instance_b"]["schema"] = extract_schema(records_b[0])
+                ep_report["instance_b"]["schema"] = extract_schema(records_b)
                 ep_report["instance_b"]["sample_record"] = records_b[0]
 
         # If both schemas extracted, compare them
@@ -412,7 +430,7 @@ def run_comparison():
             }
 
         report_summary["endpoints"][ep_name] = ep_report
-        logger.info(f"[{ep_name}] Inst A Status: {res_a['status_code']} ({res_a['elapsed_seconds']}s, {ep_report['instance_a']['records_returned']} rows) | Inst B Status: {res_b['status_code']} ({res_b['elapsed_seconds']}s, {ep_report['instance_b']['records_returned']} rows)")
+        logger.info(f"[{ep_name}] Inst A Status: {res_a['status_code']} ({res_a['elapsed_seconds']}s, {ep_report['instance_a']['records_returned']} rows, total: {ep_report['instance_a']['total']}) | Inst B Status: {res_b['status_code']} ({res_b['elapsed_seconds']}s, {ep_report['instance_b']['records_returned']} rows, total: {ep_report['instance_b']['total']})")
 
     # Step 3: Write JSON Output
     json_path = os.path.join(SCRIPT_DIR, 'endpoint_comparison_diff.json')
@@ -437,7 +455,7 @@ def generate_markdown_report(summary: Dict[str, Any], output_path: str):
     lines.append("# Protheus Endpoints & Schema Comparison Report")
     lines.append(f"\n**Execution Date:** {summary['timestamp']}")
     lines.append(f"\n- **Instance A (Huntington):** `{inst_a['url']}` (User: `{inst_a['user']}`)")
-    lines.append(f"- **Instance B (BH):** `{inst_b['url']}` (User: `{inst_b['user']}`)")
+    lines.append(f"- **Instance B (BH / ProCriar):** `{inst_b['url']}` (User: `{inst_b['user']}`)")
 
     # Section: Tenants
     lines.append("\n## 1. Dynamic Tenants Discovery (`/rest/CONSEMP/empresas`)")
@@ -454,7 +472,7 @@ def generate_markdown_report(summary: Dict[str, Any], output_path: str):
 
     # Section: Matrix
     lines.append("\n## 2. Endpoint Connectivity & Performance Matrix")
-    lines.append("| Endpoint | Type | Status (A) | Status (B) | Latency A (s) | Latency B (s) | Rows A | Rows B | Schema Match % |")
+    lines.append("| Endpoint | Type | Status (A) | Status (B) | Latency A (s) | Latency B (s) | Total A | Total B | Schema Match % |")
     lines.append("| :--- | :--- | :---: | :---: | :---: | :---: | :---: | :---: | :---: |")
 
     for ep_name, ep in summary["endpoints"].items():
@@ -462,13 +480,13 @@ def generate_markdown_report(summary: Dict[str, Any], output_path: str):
         st_b = ep["instance_b"]["status_code"] or "ERR"
         lat_a = ep["instance_a"]["elapsed_seconds"] if ep["instance_a"]["elapsed_seconds"] is not None else "-"
         lat_b = ep["instance_b"]["elapsed_seconds"] if ep["instance_b"]["elapsed_seconds"] is not None else "-"
-        rows_a = ep["instance_a"]["records_returned"]
-        rows_b = ep["instance_b"]["records_returned"]
+        tot_a = f"{ep['instance_a']['total']:,}" if ep['instance_a']['total'] is not None else str(ep['instance_a']['records_returned'])
+        tot_b = f"{ep['instance_b']['total']:,}" if ep['instance_b']['total'] is not None else str(ep['instance_b']['records_returned'])
         
         comp = ep.get("schema_comparison", {})
         match_pct = f"{comp.get('match_percentage', 0.0)}%" if "match_percentage" in comp else comp.get("status", "N/A")[:15]
 
-        lines.append(f"| `{ep_name}` | {ep['type']} | `{st_a}` | `{st_b}` | {lat_a} | {lat_b} | {rows_a} | {rows_b} | {match_pct} |")
+        lines.append(f"| `{ep_name}` | {ep['type']} | `{st_a}` | `{st_b}` | {lat_a} | {lat_b} | {tot_a} | {tot_b} | **{match_pct}** |")
 
     # Section: Detailed Differences per Endpoint
     lines.append("\n## 3. Detailed Schema & Field Comparison per Endpoint")
@@ -500,18 +518,21 @@ def generate_markdown_report(summary: Dict[str, Any], output_path: str):
                 lines.append("- ✅ **New Fields in BH:** None.")
 
             if comp.get("type_mismatches"):
-                lines.append("- ⚠️ **Field Type / Format Differences:**")
+                lines.append("- ⚠️ **Field Type Differences:**")
                 for field, types in comp["type_mismatches"].items():
                     lines.append(f"  - `{field}`: Instance A has `{types['inst_a']}` vs Instance B has `{types['inst_b']}`")
 
             if comp.get("nested_diffs"):
                 lines.append("- **Nested Structures Comparison:**")
                 for nested_name, n_diff in comp["nested_diffs"].items():
-                    lines.append(f"  - **`{nested_name}` Parity:** {n_diff.get('match_percentage', 'N/A')}%")
-                    if n_diff.get("missing_in_b"):
-                        lines.append(f"    - Missing in BH `{nested_name}`: `{', '.join(n_diff['missing_in_b'])}`")
-                    if n_diff.get("extra_in_b"):
-                        lines.append(f"    - Added in BH `{nested_name}`: `{', '.join(n_diff['extra_in_b'])}`")
+                    if "match_percentage" in n_diff:
+                        lines.append(f"  - **`{nested_name}` Parity:** **{n_diff.get('match_percentage')}%** ({n_diff.get('common_keys_count')} common fields)")
+                        if n_diff.get("missing_in_b"):
+                            lines.append(f"    - Missing in BH `{nested_name}`: `{', '.join(n_diff['missing_in_b'])}`")
+                        if n_diff.get("extra_in_b"):
+                            lines.append(f"    - Added in BH `{nested_name}`: `{', '.join(n_diff['extra_in_b'])}`")
+                    elif "status" in n_diff:
+                        lines.append(f"  - **`{nested_name}`:** {n_diff['status']}")
 
     with open(output_path, 'w', encoding='utf-8') as f:
         f.write("\n".join(lines))

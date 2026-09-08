@@ -43,9 +43,35 @@ with open(PARAMS_PATH, 'r') as f:
 
 DUCKDB_PATH = config['duckdb_path']
 API_CONF = config['api']
+
+CURRENT_INSTANCE = "huntington"
+BASE_URL = API_CONF['base_url'].rstrip('/')
 AUTH = HTTPBasicAuth(API_CONF['username'], API_CONF['password'])
-BASE_URL = API_CONF['base_url']
+BOOTSTRAP_TENANT = API_CONF.get('tenant_id', '07,030101')
+TARGET_SCHEMA = "bronze"
 BACKFILL_START = API_CONF.get('backfill_start_date', '20220101')
+
+def set_active_instance(instance_name: str):
+    """Configures endpoints, credentials, bootstrap tenant, and target schema for the active instance."""
+    global CURRENT_INSTANCE, BASE_URL, AUTH, BOOTSTRAP_TENANT, TARGET_SCHEMA, BACKFILL_START
+    CURRENT_INSTANCE = instance_name.lower()
+    if CURRENT_INSTANCE == "bh":
+        BASE_URL = API_CONF['base_url_bh'].rstrip('/')
+        username = API_CONF.get('username_bh', API_CONF['username'])
+        password = API_CONF['password_bh']
+        AUTH = HTTPBasicAuth(username, password)
+        BOOTSTRAP_TENANT = API_CONF.get('tenant_id_bh', '05,010101')
+        TARGET_SCHEMA = "bronze_bh"
+        BACKFILL_START = API_CONF.get('backfill_start_date_bh', API_CONF.get('backfill_start_date', '20220101'))
+    else:
+        BASE_URL = API_CONF['base_url'].rstrip('/')
+        username = API_CONF['username']
+        password = API_CONF['password']
+        AUTH = HTTPBasicAuth(username, password)
+        BOOTSTRAP_TENANT = API_CONF.get('tenant_id', '07,030101')
+        TARGET_SCHEMA = "bronze"
+        BACKFILL_START = API_CONF.get('backfill_start_date', '20220101')
+    logger.info(f"Active Instance set to '{CURRENT_INSTANCE}' -> URL: {BASE_URL}, Target Schema: {TARGET_SCHEMA}")
 
 def create_session():
     """Create a fresh HTTP session with auth pre-configured.
@@ -92,13 +118,13 @@ def get_existing_pks(table_name, company_id=None, filial=None, start_date=None, 
             # Check if table exists
             exists = con.execute(f"""
                 SELECT COUNT(*) FROM information_schema.tables 
-                WHERE table_schema = 'bronze' AND table_name = '{table_name}'
+                WHERE table_schema = '{TARGET_SCHEMA}' AND table_name = '{table_name}'
             """).fetchone()[0]
             if not exists:
                 return set()
                 
             pk_cols_str = ", ".join(f'COALESCE("{p}", \'\')' for p in pks)
-            query = f'SELECT DISTINCT {pk_cols_str} FROM bronze.{table_name}'
+            query = f'SELECT DISTINCT {pk_cols_str} FROM {TARGET_SCHEMA}.{table_name}'
             
             conditions = []
             if company_id:
@@ -125,7 +151,7 @@ def get_existing_pks(table_name, company_id=None, filial=None, start_date=None, 
         else:
             return {tuple(str(val).strip() for val in r) for r in rows}
     except Exception as e:
-        logger.warning(f"Could not fetch existing PKs for bronze.{table_name}: {e}")
+        logger.warning(f"Could not fetch existing PKs for {TARGET_SCHEMA}.{table_name}: {e}")
         return set()
 
 def flag_deleted_in_bronze(table_name, company_id, deleted_pks):
@@ -140,19 +166,19 @@ def flag_deleted_in_bronze(table_name, company_id, deleted_pks):
             # Check if table exists
             exists = con.execute(f"""
                 SELECT COUNT(*) FROM information_schema.tables 
-                WHERE table_schema = 'bronze' AND table_name = '{table_name}'
+                WHERE table_schema = '{TARGET_SCHEMA}' AND table_name = '{table_name}'
             """).fetchone()[0]
             if not exists:
                 return
                 
             # Ensure is_deleted column exists in bronze table
-            existing_cols = {row[0] for row in con.execute(f"DESCRIBE bronze.{table_name}").fetchall()}
+            existing_cols = {row[0] for row in con.execute(f"DESCRIBE {TARGET_SCHEMA}.{table_name}").fetchall()}
             if "is_deleted" not in existing_cols:
-                logger.info(f"Adding is_deleted column to bronze.{table_name}")
-                con.execute(f"ALTER TABLE bronze.{table_name} ADD COLUMN is_deleted VARCHAR")
-                con.execute(f"UPDATE bronze.{table_name} SET is_deleted = 'FALSE'")
+                logger.info(f"Adding is_deleted column to {TARGET_SCHEMA}.{table_name}")
+                con.execute(f"ALTER TABLE {TARGET_SCHEMA}.{table_name} ADD COLUMN is_deleted VARCHAR")
+                con.execute(f"UPDATE {TARGET_SCHEMA}.{table_name} SET is_deleted = 'FALSE'")
 
-            logger.info(f"Flagging {len(deleted_pks)} deleted records in bronze.{table_name}...")
+            logger.info(f"Flagging {len(deleted_pks)} deleted records in {TARGET_SCHEMA}.{table_name}...")
             
             # Build conditions for each PK tuple
             pk_cols_str = ", ".join(f'"{p}"' for p in pks)
@@ -175,15 +201,15 @@ def flag_deleted_in_bronze(table_name, company_id, deleted_pks):
                 
                 tuples_in_str = ", ".join(tuple_list_str)
                 update_query = f"""
-                    UPDATE bronze.{table_name}
+                    UPDATE {TARGET_SCHEMA}.{table_name}
                     SET is_deleted = 'TRUE'
                     WHERE company_id = '{company_id}' AND ({pk_cols_str}) IN ({tuples_in_str})
                 """
                 con.execute(update_query)
                 
-            logger.info(f"Successfully flagged {len(deleted_pks)} deleted records in bronze.{table_name}")
+            logger.info(f"Successfully flagged {len(deleted_pks)} deleted records in {TARGET_SCHEMA}.{table_name}")
     except Exception as e:
-        logger.error(f"Failed to flag deleted records in bronze.{table_name}: {e}")
+        logger.error(f"Failed to flag deleted records in {TARGET_SCHEMA}.{table_name}: {e}")
 
 # List of all verified active/accessible tenants for branch invoices
 ACCESSIBLE_TENANTS = [
@@ -199,29 +225,35 @@ ACCESSIBLE_TENANTS = [
     "07,030101", # FIV Brasilia
 ]
 
-def make_request(session, path, params=None, tenant_id=None):
+def make_request(session, path, params=None, tenant_id=None, timeout=None):
     url = f"{BASE_URL}{path}"
     headers = {
         "Accept": "application/json",
         "Connection": "close"
     }
-    if tenant_id:
-        headers["TenantId"] = tenant_id
+    # For BH, Protheus requires a TenantId header even on global endpoints to avoid 403
+    effective_tenant = tenant_id or (BOOTSTRAP_TENANT if CURRENT_INSTANCE == "bh" else None)
+    if effective_tenant:
+        headers["TenantId"] = effective_tenant
         
     max_attempts = 5
-    timeout = 90  # Increased timeout for offset pagination queries
+    req_timeout = timeout or 90  # Default 90s, customizable per endpoint
     
     for attempt in range(1, max_attempts + 1):
         try:
-            r = session.get(url, params=params, headers=headers, timeout=timeout)
+            r = session.get(url, params=params, headers=headers, timeout=req_timeout)
             if r.status_code == 200:
                 r.encoding = 'utf-8'
                 return r.json()
-            elif r.status_code in [400, 404]:
+            elif r.status_code in [400, 403, 404]:
                 logger.error(f"API Error {r.status_code} for {path} (Tenant: {headers.get('TenantId', 'None')}): {r.text[:500]}")
                 return None
+            elif r.status_code == 202:
+                err_msg = r.text.strip()[:300]
+                logger.error(f"API Authentication Error 202 for {path} (Tenant: {headers.get('TenantId', 'None')}): Protheus requires password change: '{err_msg}'")
+                raise RuntimeError(f"Protheus HTTP 202 - Troca de senha obrigatoria: {err_msg}")
             else:
-                logger.warning(f"Attempt {attempt}/{max_attempts} failed with status code {r.status_code} for {path} (Tenant: {headers.get('TenantId', 'None')}). Retrying...")
+                logger.warning(f"Attempt {attempt}/{max_attempts} failed with status code {r.status_code} for {path} (Tenant: {headers.get('TenantId', 'None')}). Response: {r.text[:200]}. Retrying...")
         except Exception as e:
             logger.warning(f"Attempt {attempt}/{max_attempts} failed with exception for {path} (Tenant: {headers.get('TenantId', 'None')}): {e}")
             
@@ -246,19 +278,19 @@ def get_existing_hashes(table_name):
             # Check if table exists
             exists = con.execute(f"""
                 SELECT COUNT(*) FROM information_schema.tables 
-                WHERE table_schema = 'bronze' AND table_name = '{table_name}'
+                WHERE table_schema = '{TARGET_SCHEMA}' AND table_name = '{table_name}'
             """).fetchone()[0]
             if exists:
-                hashes = con.execute(f"SELECT hash FROM bronze.{table_name}").fetchall()
+                hashes = con.execute(f"SELECT hash FROM {TARGET_SCHEMA}.{table_name}").fetchall()
                 return {h[0] for h in hashes if h[0]}
             return set()
     except Exception as e:
-        logger.warning(f"Could not fetch existing hashes for bronze.{table_name}: {e}")
+        logger.warning(f"Could not fetch existing hashes for {TARGET_SCHEMA}.{table_name}: {e}")
         return set()
 
 def write_to_bronze(table_name, rows):
     if not rows:
-        logger.info(f"No new rows to write to bronze.{table_name}")
+        logger.info(f"No new rows to write to {TARGET_SCHEMA}.{table_name}")
         return
         
     df = pd.DataFrame(rows)
@@ -299,40 +331,41 @@ def write_to_bronze(table_name, rows):
         
     try:
         with duckdb.connect(DUCKDB_PATH) as con:
+            con.execute(f"CREATE SCHEMA IF NOT EXISTS {TARGET_SCHEMA}")
             # Check if table exists
             exists = con.execute(f"""
                 SELECT COUNT(*) FROM information_schema.tables 
-                WHERE table_schema = 'bronze' AND table_name = '{table_name}'
+                WHERE table_schema = '{TARGET_SCHEMA}' AND table_name = '{table_name}'
             """).fetchone()[0]
             
             con.register('df_temp', df)
             try:
                 if not exists:
-                    logger.info(f"Creating table bronze.{table_name} with VARCHAR columns and inserting {unique_parents} unique {parent_label} ({len(df)} flat rows)")
+                    logger.info(f"Creating table {TARGET_SCHEMA}.{table_name} with VARCHAR columns and inserting {unique_parents} unique {parent_label} ({len(df)} flat rows)")
                     cols_def = ", ".join(f'"{c}" VARCHAR' for c in df.columns)
-                    con.execute(f"CREATE TABLE bronze.{table_name} ({cols_def})")
+                    con.execute(f"CREATE TABLE {TARGET_SCHEMA}.{table_name} ({cols_def})")
                     cols_str = ", ".join(f'"{c}"' for c in df.columns)
-                    con.execute(f"INSERT INTO bronze.{table_name} ({cols_str}) SELECT {cols_str} FROM df_temp")
+                    con.execute(f"INSERT INTO {TARGET_SCHEMA}.{table_name} ({cols_str}) SELECT {cols_str} FROM df_temp")
                 else:
                     # Check and handle schema evolution
-                    existing_cols = {row[0] for row in con.execute(f"DESCRIBE bronze.{table_name}").fetchall()}
+                    existing_cols = {row[0] for row in con.execute(f"DESCRIBE {TARGET_SCHEMA}.{table_name}").fetchall()}
                     new_cols = set(df.columns) - existing_cols
                     for col in new_cols:
-                        logger.info(f"Schema evolution: Adding column '{col}' to bronze.{table_name}")
-                        con.execute(f"ALTER TABLE bronze.{table_name} ADD COLUMN \"{col}\" VARCHAR")
+                        logger.info(f"Schema evolution: Adding column '{col}' to {TARGET_SCHEMA}.{table_name}")
+                        con.execute(f"ALTER TABLE {TARGET_SCHEMA}.{table_name} ADD COLUMN \"{col}\" VARCHAR")
                         
                     # Select and insert aligned columns
                     cols_str = ", ".join(f'"{c}"' for c in df.columns)
-                    logger.info(f"Inserting {unique_parents} unique {parent_label} ({len(df)} flat rows) to bronze.{table_name}")
-                    con.execute(f"INSERT INTO bronze.{table_name} ({cols_str}) SELECT {cols_str} FROM df_temp")
+                    logger.info(f"Inserting {unique_parents} unique {parent_label} ({len(df)} flat rows) to {TARGET_SCHEMA}.{table_name}")
+                    con.execute(f"INSERT INTO {TARGET_SCHEMA}.{table_name} ({cols_str}) SELECT {cols_str} FROM df_temp")
             finally:
                 try:
                     con.unregister('df_temp')
                 except Exception:
                     pass
-            logger.info(f"Successfully wrote {unique_parents} unique {parent_label} to bronze.{table_name}")
+            logger.info(f"Successfully wrote {unique_parents} unique {parent_label} to {TARGET_SCHEMA}.{table_name}")
     except Exception as bulk_err:
-        logger.error(f"Bulk insert failed for bronze.{table_name}: {bulk_err}")
+        logger.error(f"Bulk insert failed for {TARGET_SCHEMA}.{table_name}: {bulk_err}")
         raise bulk_err
 
 def generate_date_chunks(start_dt, end_dt, force_backfill):
@@ -540,7 +573,7 @@ def fetch_direct_sales_range(session, tenant_id, company_id, start_date_str, end
     flat_rows_read = 0
     seen_hashes = set()
     page = 1
-    page_size = 500
+    page_size = 100 if CURRENT_INSTANCE == "bh" else 500
     api_total = 0
     
     # Retrieve existing PKs for auditing deletions
@@ -555,7 +588,7 @@ def fetch_direct_sales_range(session, tenant_id, company_id, start_date_str, end
             "nPage": page,
             "nPageSize": page_size
         }
-        res = make_request(session, "/rest/CONSPEVD/pedidos", params=params, tenant_id=tenant_id)
+        res = make_request(session, "/rest/CONSPEVD/pedidos", params=params, tenant_id=tenant_id, timeout=180)
         if not res or "data" not in res or not res["data"]:
             break
             
@@ -788,7 +821,7 @@ def ingest_venda_direta(force_backfill=False):
                         "nPage": 1,
                         "nPageSize": 1
                     }
-                    check_res = make_request(session, "/rest/CONSPEVD/pedidos", params=check_params, tenant_id=tenant_id)
+                    check_res = make_request(session, "/rest/CONSPEVD/pedidos", params=check_params, tenant_id=tenant_id, timeout=180)
                     if not check_res or "data" not in check_res or not check_res["data"]:
                         logger.info(f"Tenant {tenant_id} has no direct sales in the backfill range. Skipping.")
                         break
@@ -879,7 +912,7 @@ def ingest_full_table(name, path, max_sweeps=10):
             logger.info(f"Sweep {sweep} complete. Total records read: {total_read:,}. New unique rows found: {len(sweep_new_rows):,}")
 
             if sweep_new_rows:
-                logger.info(f"Writing {len(sweep_new_rows):,} new rows to bronze.{name}")
+                logger.info(f"Writing {len(sweep_new_rows):,} new rows to {TARGET_SCHEMA}.{name}")
                 write_to_bronze(name, sweep_new_rows)
             else:
                 logger.info(f"Sweep {sweep} complete. Total records read: {total_read:,}. 0 new rows found. Converged — stopping sweeps for {name}.")
@@ -897,14 +930,14 @@ def ingest_full_table(name, path, max_sweeps=10):
 
 def get_dynamic_tenants(force_backfill=False):
     """
-    Attempts to ingest companies from the new /rest/CONSEMP/empresas endpoint.
-    Then, queries the bronze.empresas table to retrieve M0_CODIGO and M0_CODFIL,
+    Attempts to ingest companies from the /rest/CONSEMP/empresas endpoint.
+    Then, queries the {TARGET_SCHEMA}.empresas table to retrieve M0_CODIGO and M0_CODFIL,
     building a list of tenant IDs in the format "M0_CODIGO,M0_CODFIL".
     If the API call fails or returns nothing, logs a warning and falls back
-    to already existing data in the bronze database. If that is also empty,
+    to already existing data in the database. If that is also empty,
     it raises an error.
     """
-    logger.info("Retrieving dynamic tenants list from /rest/CONSEMP/empresas...")
+    logger.info(f"Retrieving dynamic tenants list from /rest/CONSEMP/empresas for {TARGET_SCHEMA}...")
     
     # 1. Attempt to ingest the empresas table
     try:
@@ -918,19 +951,19 @@ def get_dynamic_tenants(force_backfill=False):
     try:
         with duckdb.connect(DUCKDB_PATH, read_only=True) as con:
             # Check if table exists
-            exists = con.execute("""
+            exists = con.execute(f"""
                 SELECT COUNT(*) FROM information_schema.tables 
-                WHERE table_schema = 'bronze' AND table_name = 'empresas'
+                WHERE table_schema = '{TARGET_SCHEMA}' AND table_name = 'empresas'
             """).fetchone()[0]
             
             if exists:
                 # Retrieve unique active/present code/filial combinations
                 # Clean fields using strip to ensure no leading/trailing spaces
-                rows = con.execute("""
+                rows = con.execute(f"""
                     SELECT DISTINCT 
                         TRIM(M0_CODIGO) as cod, 
                         TRIM(M0_CODFIL) as filial 
-                    FROM bronze.empresas 
+                    FROM {TARGET_SCHEMA}.empresas 
                     WHERE M0_CODIGO IS NOT NULL AND M0_CODFIL IS NOT NULL
                     ORDER BY cod, filial
                 """).fetchall()
@@ -940,46 +973,71 @@ def get_dynamic_tenants(force_backfill=False):
     except Exception as db_err:
         logger.warning(f"Failed to read 'empresas' from database: {db_err}")
 
+    # For BH, only company 05 has accessible branch permissions for WSLAKE
+    if CURRENT_INSTANCE == "bh":
+        tenants = [t for t in tenants if t.startswith("05,")]
+
     if not tenants:
-        msg = "Dynamic tenants list is empty. Both API ingestion and DuckDB fallback failed or returned no data."
+        msg = f"Dynamic tenants list is empty for {TARGET_SCHEMA}. Both API ingestion and DuckDB fallback failed or returned no data."
         logger.error(msg)
         raise RuntimeError(msg)
 
-    logger.info(f"Successfully loaded {len(tenants)} dynamic tenants: {tenants}")
+    logger.info(f"Successfully loaded {len(tenants)} dynamic tenants for {TARGET_SCHEMA}: {tenants}")
     return tenants
 
-def main():
-    import argparse
-    parser = argparse.ArgumentParser(description="Protheus API Ingestion Script")
-    parser.add_argument("--force-backfill", action="store_true", help="Force a full backfill for all endpoints, bypassing incremental checks")
-    args = parser.parse_args()
-
-    logger.info("=== PROTHEUS SOURCE TO BRONZE INGESTION STARTED ===")
-    logger.info(f"Target Database: {DUCKDB_PATH}")
+def run_ingestion_for_instance(instance_name, force_backfill=False, target_table="all"):
+    set_active_instance(instance_name)
+    logger.info(f"\n========================================================")
+    logger.info(f"=== PROTHEUS SOURCE TO BRONZE INGESTION ({instance_name.upper()} -> {TARGET_SCHEMA}) ===")
+    logger.info(f"========================================================")
     
     # Initialize Schema if not exists
     try:
         with duckdb.connect(DUCKDB_PATH) as con:
-            con.execute("CREATE SCHEMA IF NOT EXISTS bronze")
+            con.execute(f"CREATE SCHEMA IF NOT EXISTS {TARGET_SCHEMA}")
     except Exception as e:
         logger.warning(f"Failed to create schema directly on target database: {e}")
 
     # Fetch dynamic tenants list
     global ACCESSIBLE_TENANTS
-    ACCESSIBLE_TENANTS = get_dynamic_tenants(force_backfill=args.force_backfill)
+    ACCESSIBLE_TENANTS = get_dynamic_tenants(force_backfill=force_backfill)
 
     # Tenant-scoped ingestions (sessions created/closed per tenant inside each function)
-    ingest_notas(force_backfill=args.force_backfill)
-    ingest_pedidos(force_backfill=args.force_backfill)
-    ingest_venda_direta(force_backfill=args.force_backfill)
+    if target_table in ["all", "notas"]:
+        ingest_notas(force_backfill=force_backfill)
+    if target_table in ["all", "pedidos"]:
+        ingest_pedidos(force_backfill=force_backfill)
+    if target_table in ["all", "venda_direta"]:
+        ingest_venda_direta(force_backfill=force_backfill)
 
     # Globally shared full-load tables (sessions created/closed per table)
-    ingest_full_table("tes", "/rest/CONSTES/tes", max_sweeps=1)
-    ingest_full_table("produtos", "/rest/CONSPROD/produtos", max_sweeps=1)
-    ingest_full_table("clientes", "/rest/CONSCLI/clientes", max_sweeps=1)
-    ingest_full_table("vendedores", "/rest/CONSVEN/vendedores", max_sweeps=1)
+    if target_table in ["all", "tes"]:
+        ingest_full_table("tes", "/rest/CONSTES/tes", max_sweeps=1)
+    if target_table in ["all", "produtos"]:
+        ingest_full_table("produtos", "/rest/CONSPROD/produtos", max_sweeps=1)
+    if target_table in ["all", "clientes"]:
+        ingest_full_table("clientes", "/rest/CONSCLI/clientes", max_sweeps=1)
+    if target_table in ["all", "vendedores"]:
+        ingest_full_table("vendedores", "/rest/CONSVEN/vendedores", max_sweeps=1)
 
-    logger.info("=== PROTHEUS SOURCE TO BRONZE INGESTION FINISHED SUCCESSFUL ===")
+    logger.info(f"=== FINISHED INGESTION FOR {instance_name.upper()} ({TARGET_SCHEMA}) ===\n")
+
+def main():
+    import argparse
+    parser = argparse.ArgumentParser(description="Protheus Source to Bronze Ingestion Script")
+    parser.add_argument("--instance", choices=["huntington", "bh", "all"], default="all", help="Instance to ingest (default: all)")
+    parser.add_argument("--table", choices=["notas", "pedidos", "venda_direta", "tes", "produtos", "clientes", "vendedores", "all"], default="all", help="Specific table to ingest (default: all)")
+    parser.add_argument("--force-backfill", action="store_true", help="Force a full backfill for all endpoints, bypassing incremental checks")
+    args = parser.parse_args()
+
+    logger.info("=== PROTHEUS SOURCE TO BRONZE PIPELINE STARTED ===")
+    logger.info(f"Target Database: {DUCKDB_PATH}")
+
+    instances_to_run = ["huntington", "bh"] if args.instance == "all" else [args.instance]
+    for inst in instances_to_run:
+        run_ingestion_for_instance(inst, force_backfill=args.force_backfill, target_table=args.table)
+
+    logger.info("=== ALL PROTHEUS SOURCE TO BRONZE INGESTIONS COMPLETED SUCCESSFULLY ===")
 
 if __name__ == "__main__":
     main()

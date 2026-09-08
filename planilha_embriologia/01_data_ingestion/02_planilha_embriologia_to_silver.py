@@ -223,6 +223,7 @@ WHITELIST = {
         'peso',
         'medico',
         'unidade',
+        'tipo_1',
         'tipo_de_tratamento',
         'motivo_do_congelamento',
         'tipo_cancer',
@@ -282,6 +283,7 @@ WHITELIST = {
         'peso',
         'medico',
         'unidade',
+        'tipo_1',
         'tipo_de_tratamento',
         'data_inicial_da_inducao',
         'data_do_procedimento',
@@ -308,12 +310,12 @@ WHITELIST = {
 TIPO_FILTERS = {
     'fresh': ['FIC/ICSI', 'FIV/ICSI', 'FRESH', 'ICSI', 'FIV', 'CONG', 'OR', 'PUNÇÃO', 'PUNCAO'],
     'fet': ['FET', 'FET/OR', 'FET/ER', 'TEC', 'DESCONG EMBRIAO', 'DESCONG EMBRIÃO'],
-    'recep': ['RECEPTORA', 'RECEP', 'DOAÇÃO', 'DOACAO', 'RECEPT'],
+    'recep': ['RECEPTORA', 'RECEP', 'DOAÇÃO', 'DOACAO', 'RECEPT', 'DONOR'],
     'fot': ['FOT', 'FOT OR', 'DESCONG OVO', 'DESCONG OVULO', 'DESCONG ÓVULO'],
     'doadoras': ['DOADORA', 'DOADORAS'],
-    'fp_ovulos': ['CRIO DE ÓVULOS', 'CRIO DE OVULOS', 'CRIO OVULOS', 'FP', 'CRIO TECIDO'],
+    'fp_ovulos': ['EGG FREEZING', 'CRIO DE ÓVULOS', 'CRIO DE OVULOS', 'CRIO OVULOS', 'CRIO DE OÓCITOS', 'CONG. ÓVULOS', 'CONG ÓVULOS', 'FP', 'CRIO TECIDO'],
     'fp_semen': ['CRIO DE SPTZ', 'CRIO SPTZ', 'CONG SEMEN', 'CONGELAMENTO DE SEMEN'],
-    'iiu': ['IIU', 'INSEMINAÇÃO', 'INSEMINACAO']
+    'iiu': ['IIU', 'IUI', 'INSEMINAÇÃO', 'INSEMINACAO']
 }
 
 # Explicit Synonyms (Global heuristics)
@@ -1323,11 +1325,11 @@ def get_bronze_tables(con, sheet_type=None):
         elif sheet_type == 'doadoras':
             condition = "(table_name LIKE '%_doadoras')"
         elif sheet_type == 'fp_ovulos':
-            condition = "((table_name LIKE '%_fp_cong_ovulos%' OR table_name LIKE '%_fp') AND table_name NOT LIKE '%_semen%')"
+            condition = f"(((table_name LIKE '%_fp_cong_ovulos%' OR table_name LIKE '%_fp') AND table_name NOT LIKE '%_semen%') OR {shared_condition})"
         elif sheet_type == 'fp_semen':
             condition = "(table_name LIKE '%_fp_cong_de_semen%' OR table_name LIKE '%_semen%')"
         elif sheet_type == 'iiu':
-            condition = "(table_name LIKE '%_iiu')"
+            condition = f"(table_name LIKE '%_iiu' OR {shared_condition})"
         else:
             condition = "1=1"
 
@@ -1826,6 +1828,10 @@ def process_bronze_to_silver(con, sheet_type):
             
             # 1. Apply Per-Table Config or Global Heuristic
             table_config = TABLE_CONFIGS.get(table_name)
+            if not table_config and any(k in table_name for k in ['_total', '_geral', '_anual', '_2022']):
+                alias = table_name.replace('_ibi_', '_ibira_')
+                if alias in TABLE_CONFIGS:
+                    table_config = TABLE_CONFIGS[alias]
             
             # Check if there is a specific config for this sheet_type inside the table_config
             type_config = None
@@ -1835,10 +1841,51 @@ def process_bronze_to_silver(con, sheet_type):
                 elif sheet_type in ['recep', 'fot']:
                     base_type = 'fet' if sheet_type == 'recep' else 'fresh'
                     if base_type in table_config:
+                        base_map = table_config[base_type].get('mapping', {}).copy()
+                        if sheet_type == 'recep' and 'pin_doadora' not in base_map:
+                            base_map['pin_doadora'] = 'PIN DOADORA'
                         type_config = {
-                            'mapping': table_config[base_type].get('mapping', {}),
+                            'mapping': base_map,
                             'filters': TIPO_FILTERS.get(sheet_type, [])
                         }
+                elif sheet_type == 'fp_ovulos':
+                    if 'fresh' in table_config:
+                        fresh_map = table_config['fresh'].get('mapping', {})
+                        fp_map = {
+                            'nome_da_paciente': fresh_map.get('nome_da_paciente', 'NOME'),
+                            'data_de_nasc': fresh_map.get('data_de_nasc', 'DATA DE NASC.'),
+                            'pin': fresh_map.get('pin', 'PIN'),
+                            'tipo_1': fresh_map.get('tipo_1', 'TIPO 1'),
+                            'tipo_de_tratamento': fresh_map.get('tipo_1', 'TIPO 1'),
+                            'data_do_procedimento': fresh_map.get('data_da_puncao', 'DIA'),
+                            'opu': fresh_map.get('opu', 'OPU'),
+                            'mii_crio': fresh_map.get('total_de_mii', 'MII'),
+                            'fator_1': fresh_map.get('fator_1', 'FATOR 1'),
+                            'incubadora': fresh_map.get('incubadora', 'INCUB'),
+                            'dia_cryo': fresh_map.get('dia_cryo', 'DIA CRYO'),
+                            'idade': fresh_map.get('idade', 'IDADE'),
+                        }
+                        type_config = {
+                            'mapping': fp_map,
+                            'filters': TIPO_FILTERS.get(sheet_type, [])
+                        }
+                elif sheet_type == 'iiu':
+                    ref_map = table_config.get('fresh', table_config.get('fet', {})).get('mapping', {})
+                    iiu_map = {
+                        'nome_da_paciente': ref_map.get('nome_da_paciente', 'NOME'),
+                        'data_de_nasc': ref_map.get('data_de_nasc', 'DATA DE NASC.'),
+                        'pin': ref_map.get('pin', 'PIN'),
+                        'tipo_1': ref_map.get('tipo_1', 'TIPO 1'),
+                        'tipo_de_tratamento': ref_map.get('tipo_1', 'TIPO 1'),
+                        'data_do_procedimento': ref_map.get('data_da_puncao', ref_map.get('data_da_fet', 'DIA')),
+                        'result': 'RESULT',
+                        'no_sg': 'SG',
+                        'fator_1': ref_map.get('fator_1', 'FATOR 1'),
+                    }
+                    type_config = {
+                        'mapping': iiu_map,
+                        'filters': TIPO_FILTERS.get(sheet_type, [])
+                    }
                 elif 'mapping' in table_config:
                     # Fallback for old structure or shared mapping
                     type_config = table_config
