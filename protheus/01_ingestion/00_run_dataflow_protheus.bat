@@ -54,6 +54,15 @@ if %errorlevel% neq 0 (
     exit /b 1
 )
 
+REM ========================================
+REM STEP %PARENT_STEP%.4: Export Gold to Excel (Optional / On-demand)
+REM ========================================
+REM python 04_export_gold_to_excel.py
+REM if %errorlevel% neq 0 (
+REM     echo ERROR: Step %PARENT_STEP%.4 failed
+REM     exit /b 1
+REM )
+
 echo.
 echo ========================================
 echo DATAFLOW COMPLETED SUCCESSFULLY!

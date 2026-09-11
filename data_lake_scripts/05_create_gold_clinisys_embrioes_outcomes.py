@@ -171,44 +171,108 @@ def create_gold_clinisys_embrioes_outcomes(con):
         WHERE prontuario IS NOT NULL AND prontuario > 0
     ) WHERE rn = 1;
 
-    -- 3. Prepare Clean REDLARA with Verified Transfers Filter
-    CREATE OR REPLACE TEMP TABLE tmp_redlara_clean AS
+    -- 3. Prepare Clean REDLARA 4 Independent Streams
+    CREATE OR REPLACE TEMP TABLE tmp_redlara_fet_clean AS
     SELECT 
         TRY_CAST(prontuario AS INTEGER) as prontuario,
         TRY_CAST(date_of_embryo_transfer AS DATE) as transfer_date,
-        TRY_CAST(date_when_embryos_were_cryopreserved AS DATE) as crio_date,
+        TRY_CAST(date_cryopreserved AS DATE) as crio_date,
         outcome as redlara_outcome,
         outcome_type as redlara_outcome_type,
-        CASE 
-            WHEN UPPER(outcome_type) LIKE '%DELIVERY%' 
-              OR UPPER(outcome_type) LIKE '%MISCARRIAGE%' 
-              OR UPPER(outcome_type) LIKE '%CLINICAL%' 
-              OR UPPER(outcome_type) LIKE '%ECTOPIC%' THEN '1'
-            WHEN UPPER(outcome_type) LIKE '%NO PREGNANCY%' THEN '0'
-            ELSE NULL 
-        END as redlara_gravidez_clinica,
-        CASE 
-            WHEN UPPER(outcome_type) LIKE '%BIOCHEMICAL%' THEN '1'
-            ELSE '0'
-        END as redlara_gravidez_bioquimica,
-        CASE 
-            WHEN number_of_newborns IS NOT NULL AND TRIM(number_of_newborns) NOT IN ('\\\\', '-', '', 'None') 
-            THEN TRIM(number_of_newborns) 
-            ELSE NULL 
-        END as redlara_no_nascidos,
+        clinical_pregnancy as redlara_gravidez_clinica,
+        biochemical_pregnancy as redlara_gravidez_bioquimica,
+        delivery_occurred as redlara_delivery_occurred,
+        CAST(number_of_newborns AS VARCHAR) as redlara_no_nascidos,
         TRY_CAST(date_of_delivery AS DATE) as redlara_data_parto,
         type_of_delivery as redlara_tipo_parto,
-        'REDLARA' as source_type
+        'REDLARA_FET' as source_type
     FROM (
         SELECT *, ROW_NUMBER() OVER (
             PARTITION BY TRY_CAST(prontuario AS INTEGER), TRY_CAST(date_of_embryo_transfer AS DATE) 
             ORDER BY CASE WHEN date_of_delivery IS NOT NULL THEN 0 ELSE 1 END,
-                     CASE WHEN number_of_newborns IS NOT NULL AND number_of_newborns NOT IN ('\\\\', '-') THEN 0 ELSE 1 END,
+                     CASE WHEN number_of_newborns IS NOT NULL THEN 0 ELSE 1 END,
                      CASE WHEN outcome_type IS NOT NULL THEN 0 ELSE 1 END
         ) as rn
-        FROM silver.redlara_unified
+        FROM silver.redlara_fet
         WHERE prontuario IS NOT NULL AND prontuario > 0
-          AND UPPER(outcome) LIKE '%EMBRYO TRANSFER%' -- Exclude freeze-all and cancellation records
+          AND (date_of_embryo_transfer IS NOT NULL OR COALESCE(number_of_embryos_transferred, 0) > 0)
+          AND UPPER(COALESCE(outcome, '')) NOT IN ('CANCELLATION', 'CANCELADO', 'NO TRANSFER')
+    ) WHERE rn = 1;
+
+    CREATE OR REPLACE TEMP TABLE tmp_redlara_fresh_clean AS
+    SELECT 
+        TRY_CAST(prontuario AS INTEGER) as prontuario,
+        TRY_CAST(date_of_embryo_transfer AS DATE) as transfer_date,
+        TRY_CAST(date_of_surgery AS DATE) as puncao_date,
+        outcome as redlara_outcome,
+        outcome_type as redlara_outcome_type,
+        clinical_pregnancy as redlara_gravidez_clinica,
+        biochemical_pregnancy as redlara_gravidez_bioquimica,
+        delivery_occurred as redlara_delivery_occurred,
+        CAST(number_of_newborns AS VARCHAR) as redlara_no_nascidos,
+        TRY_CAST(date_of_delivery AS DATE) as redlara_data_parto,
+        type_of_delivery as redlara_tipo_parto,
+        'REDLARA_FRESH' as source_type
+    FROM (
+        SELECT *, ROW_NUMBER() OVER (
+            PARTITION BY TRY_CAST(prontuario AS INTEGER), TRY_CAST(date_of_embryo_transfer AS DATE) 
+            ORDER BY CASE WHEN date_of_delivery IS NOT NULL THEN 0 ELSE 1 END,
+                     CASE WHEN number_of_newborns IS NOT NULL THEN 0 ELSE 1 END,
+                     CASE WHEN outcome_type IS NOT NULL THEN 0 ELSE 1 END
+        ) as rn
+        FROM silver.redlara_fresh
+        WHERE prontuario IS NOT NULL AND prontuario > 0
+          AND (date_of_embryo_transfer IS NOT NULL OR COALESCE(number_of_embryos_transferred, 0) > 0)
+          AND UPPER(COALESCE(outcome, '')) NOT IN ('CANCELLATION', 'CANCELADO', 'NO TRANSFER', 'PRESERVATION', 'VITRIFICATION')
+    ) WHERE rn = 1;
+
+    CREATE OR REPLACE TEMP TABLE tmp_redlara_fot_clean AS
+    SELECT 
+        TRY_CAST(prontuario AS INTEGER) as prontuario,
+        TRY_CAST(date_of_embryo_transfer AS DATE) as transfer_date,
+        TRY_CAST(initial_date AS DATE) as proc_date,
+        outcome as redlara_outcome,
+        outcome_type as redlara_outcome_type,
+        clinical_pregnancy as redlara_gravidez_clinica,
+        biochemical_pregnancy as redlara_gravidez_bioquimica,
+        delivery_occurred as redlara_delivery_occurred,
+        CAST(number_of_newborns AS VARCHAR) as redlara_no_nascidos,
+        TRY_CAST(date_of_delivery AS DATE) as redlara_data_parto,
+        type_of_delivery as redlara_tipo_parto,
+        'REDLARA_FOT' as source_type
+    FROM (
+        SELECT *, ROW_NUMBER() OVER (
+            PARTITION BY TRY_CAST(prontuario AS INTEGER), COALESCE(TRY_CAST(date_of_embryo_transfer AS DATE), TRY_CAST(initial_date AS DATE))
+            ORDER BY CASE WHEN date_of_delivery IS NOT NULL THEN 0 ELSE 1 END,
+                     CASE WHEN number_of_newborns IS NOT NULL THEN 0 ELSE 1 END
+        ) as rn
+        FROM silver.redlara_fot
+        WHERE prontuario IS NOT NULL AND prontuario > 0
+          AND (date_of_embryo_transfer IS NOT NULL OR COALESCE(number_of_embryos_transferred, 0) > 0)
+    ) WHERE rn = 1;
+
+    CREATE OR REPLACE TEMP TABLE tmp_redlara_recep_clean AS
+    SELECT 
+        TRY_CAST(prontuario AS INTEGER) as prontuario,
+        TRY_CAST(date_of_embryo_transfer AS DATE) as transfer_date,
+        outcome as redlara_outcome,
+        outcome_type as redlara_outcome_type,
+        clinical_pregnancy as redlara_gravidez_clinica,
+        biochemical_pregnancy as redlara_gravidez_bioquimica,
+        delivery_occurred as redlara_delivery_occurred,
+        CAST(number_of_newborns AS VARCHAR) as redlara_no_nascidos,
+        TRY_CAST(date_of_delivery AS DATE) as redlara_data_parto,
+        type_of_delivery as redlara_tipo_parto,
+        'REDLARA_RECEP' as source_type
+    FROM (
+        SELECT *, ROW_NUMBER() OVER (
+            PARTITION BY TRY_CAST(prontuario AS INTEGER), TRY_CAST(date_of_embryo_transfer AS DATE) 
+            ORDER BY CASE WHEN date_of_delivery IS NOT NULL THEN 0 ELSE 1 END,
+                     CASE WHEN number_of_newborns IS NOT NULL THEN 0 ELSE 1 END
+        ) as rn
+        FROM silver.redlara_recep
+        WHERE prontuario IS NOT NULL AND prontuario > 0
+          AND (date_of_embryo_transfer IS NOT NULL OR COALESCE(number_of_embryos_transferred, 0) > 0)
     ) WHERE rn = 1;
     """)
 
@@ -272,35 +336,60 @@ def create_gold_clinisys_embrioes_outcomes(con):
     ) WHERE rn = 1;
     """)
 
-    # 5. REDLARA Matching with Option 2 & 1:1 Grain Guarantee
-    logger.info("Step 4: Matching transferred embryos against REDLARA independently...")
+    # 5. REDLARA Matching with 4 Streams & 1:1 Grain Guarantee
+    logger.info("Step 4: Matching transferred embryos against REDLARA independently (4 streams)...")
     con.execute("""
     CREATE OR REPLACE TEMP TABLE tmp_matched_redlara AS
     WITH 
-    r1_transf AS (
-        SELECT c.oocito_id, r.source_type, r.redlara_outcome, r.redlara_outcome_type, r.redlara_gravidez_clinica, r.redlara_gravidez_bioquimica, r.redlara_no_nascidos, r.redlara_data_parto, r.redlara_tipo_parto, '1. REDLARA: Exact Transfer Date' as redlara_rule, 1 as priority
-        FROM tmp_transferred_scope c JOIN tmp_redlara_clean r ON c.prontuario = r.prontuario AND c.effective_transfer_date = r.transfer_date
+    r1_fet AS (
+        SELECT c.oocito_id, f.source_type, f.redlara_outcome, f.redlara_outcome_type, f.redlara_gravidez_clinica, f.redlara_gravidez_bioquimica, f.redlara_delivery_occurred, f.redlara_no_nascidos, f.redlara_data_parto, f.redlara_tipo_parto, '1. FET: Exact Transfer Date' as redlara_rule, 1 as priority
+        FROM tmp_transferred_scope c JOIN tmp_redlara_fet_clean f ON c.prontuario = f.prontuario AND c.fet_transfer_date = f.transfer_date
+        WHERE c.is_transferred = 1 AND c.transfer_category = 'FET' AND c.fet_transfer_date IS NOT NULL
+    ),
+    r1_recep AS (
+        SELECT c.oocito_id, r.source_type, r.redlara_outcome, r.redlara_outcome_type, r.redlara_gravidez_clinica, r.redlara_gravidez_bioquimica, r.redlara_delivery_occurred, r.redlara_no_nascidos, r.redlara_data_parto, r.redlara_tipo_parto, '2. RECEP: Exact Transfer Date' as redlara_rule, 2 as priority
+        FROM tmp_transferred_scope c JOIN tmp_redlara_recep_clean r ON c.prontuario = r.prontuario AND c.fet_transfer_date = r.transfer_date
+        WHERE c.is_transferred = 1 AND c.transfer_category = 'FET' AND c.fet_transfer_date IS NOT NULL
+          AND c.oocito_id NOT IN (SELECT oocito_id FROM r1_fet)
+    ),
+    r2_fresh_transf AS (
+        SELECT c.oocito_id, fr.source_type, fr.redlara_outcome, fr.redlara_outcome_type, fr.redlara_gravidez_clinica, fr.redlara_gravidez_bioquimica, fr.redlara_delivery_occurred, fr.redlara_no_nascidos, fr.redlara_data_parto, fr.redlara_tipo_parto, '3. FRESH: Exact Transfer Date' as redlara_rule, 3 as priority
+        FROM tmp_transferred_scope c JOIN tmp_redlara_fresh_clean fr ON c.prontuario = fr.prontuario AND c.fresh_transfer_date = fr.transfer_date
+        WHERE c.is_transferred = 1 AND c.transfer_category = 'FRESH' AND c.fresh_transfer_date IS NOT NULL
+          AND c.oocito_id NOT IN (SELECT oocito_id FROM r1_fet UNION ALL SELECT oocito_id FROM r1_recep)
+    ),
+    r2_fot_transf AS (
+        SELECT c.oocito_id, fot.source_type, fot.redlara_outcome, fot.redlara_outcome_type, fot.redlara_gravidez_clinica, fot.redlara_gravidez_bioquimica, fot.redlara_delivery_occurred, fot.redlara_no_nascidos, fot.redlara_data_parto, fot.redlara_tipo_parto, '4. FOT: Exact Transfer Date' as redlara_rule, 4 as priority
+        FROM tmp_transferred_scope c JOIN tmp_redlara_fot_clean fot ON c.prontuario = fot.prontuario AND c.effective_transfer_date = fot.transfer_date
         WHERE c.is_transferred = 1 AND c.effective_transfer_date IS NOT NULL
+          AND c.oocito_id NOT IN (SELECT oocito_id FROM r1_fet UNION ALL SELECT oocito_id FROM r1_recep UNION ALL SELECT oocito_id FROM r2_fresh_transf)
     ),
-    -- Rule 2: Cryo date match, strictly aligned transfer date (+/- 30 days or transfer date null) to prevent cross-transfer contamination
-    r2_crio AS (
-        SELECT c.oocito_id, r.source_type, r.redlara_outcome, r.redlara_outcome_type, r.redlara_gravidez_clinica, r.redlara_gravidez_bioquimica, r.redlara_no_nascidos, r.redlara_data_parto, r.redlara_tipo_parto, '2. REDLARA: Cryo Date (Aligned Cycle)' as redlara_rule, 2 as priority
-        FROM tmp_transferred_scope c JOIN tmp_redlara_clean r ON c.prontuario = r.prontuario AND c.data_crio = r.crio_date
-        WHERE c.is_transferred = 1 AND c.data_crio IS NOT NULL
-          AND (c.effective_transfer_date IS NULL OR r.transfer_date IS NULL OR ABS(DATEDIFF('day', c.effective_transfer_date, r.transfer_date)) <= 30)
-          AND c.oocito_id NOT IN (SELECT oocito_id FROM r1_transf)
+    r3_fet_crio AS (
+        SELECT c.oocito_id, f.source_type, f.redlara_outcome, f.redlara_outcome_type, f.redlara_gravidez_clinica, f.redlara_gravidez_bioquimica, f.redlara_delivery_occurred, f.redlara_no_nascidos, f.redlara_data_parto, f.redlara_tipo_parto, '5. FET: Cryo Date (Aligned Cycle)' as redlara_rule, 5 as priority
+        FROM tmp_transferred_scope c JOIN tmp_redlara_fet_clean f ON c.prontuario = f.prontuario AND c.data_crio = f.crio_date
+        WHERE c.is_transferred = 1 AND c.transfer_category = 'FET' AND c.data_crio IS NOT NULL
+          AND (c.effective_transfer_date IS NULL OR f.transfer_date IS NULL OR ABS(DATEDIFF('day', c.effective_transfer_date, f.transfer_date)) <= 30)
+          AND c.oocito_id NOT IN (SELECT oocito_id FROM r1_fet UNION ALL SELECT oocito_id FROM r1_recep UNION ALL SELECT oocito_id FROM r2_fresh_transf UNION ALL SELECT oocito_id FROM r2_fot_transf)
     ),
-    r3_win AS (
-        SELECT c.oocito_id, r.source_type, r.redlara_outcome, r.redlara_outcome_type, r.redlara_gravidez_clinica, r.redlara_gravidez_bioquimica, r.redlara_no_nascidos, r.redlara_data_parto, r.redlara_tipo_parto, '3. REDLARA: Transfer Window (+/- 2d)' as redlara_rule, 3 as priority
-        FROM tmp_transferred_scope c JOIN tmp_redlara_clean r ON c.prontuario = r.prontuario AND r.transfer_date BETWEEN (c.effective_transfer_date - INTERVAL 2 DAYS) AND (c.effective_transfer_date + INTERVAL 2 DAYS)
-        WHERE c.is_transferred = 1 AND c.effective_transfer_date IS NOT NULL 
-          AND c.oocito_id NOT IN (SELECT oocito_id FROM r1_transf UNION ALL SELECT oocito_id FROM r2_crio)
+    r4_fet_win AS (
+        SELECT c.oocito_id, f.source_type, f.redlara_outcome, f.redlara_outcome_type, f.redlara_gravidez_clinica, f.redlara_gravidez_bioquimica, f.redlara_delivery_occurred, f.redlara_no_nascidos, f.redlara_data_parto, f.redlara_tipo_parto, '6. FET: Transfer Window (+/- 2d)' as redlara_rule, 6 as priority
+        FROM tmp_transferred_scope c JOIN tmp_redlara_fet_clean f ON c.prontuario = f.prontuario AND f.transfer_date BETWEEN (c.effective_transfer_date - INTERVAL 2 DAYS) AND (c.effective_transfer_date + INTERVAL 2 DAYS)
+        WHERE c.is_transferred = 1 AND c.transfer_category = 'FET' AND c.effective_transfer_date IS NOT NULL 
+          AND c.oocito_id NOT IN (SELECT oocito_id FROM r1_fet UNION ALL SELECT oocito_id FROM r1_recep UNION ALL SELECT oocito_id FROM r2_fresh_transf UNION ALL SELECT oocito_id FROM r2_fot_transf UNION ALL SELECT oocito_id FROM r3_fet_crio)
+    ),
+    r4_fresh_win AS (
+        SELECT c.oocito_id, fr.source_type, fr.redlara_outcome, fr.redlara_outcome_type, fr.redlara_gravidez_clinica, fr.redlara_gravidez_bioquimica, fr.redlara_delivery_occurred, fr.redlara_no_nascidos, fr.redlara_data_parto, fr.redlara_tipo_parto, '7. FRESH: Transfer Window (+/- 2d)' as redlara_rule, 7 as priority
+        FROM tmp_transferred_scope c JOIN tmp_redlara_fresh_clean fr ON c.prontuario = fr.prontuario AND fr.transfer_date BETWEEN (c.fresh_transfer_date - INTERVAL 2 DAYS) AND (c.fresh_transfer_date + INTERVAL 2 DAYS)
+        WHERE c.is_transferred = 1 AND c.transfer_category = 'FRESH' AND c.fresh_transfer_date IS NOT NULL 
+          AND c.oocito_id NOT IN (SELECT oocito_id FROM r1_fet UNION ALL SELECT oocito_id FROM r1_recep UNION ALL SELECT oocito_id FROM r2_fresh_transf UNION ALL SELECT oocito_id FROM r2_fot_transf UNION ALL SELECT oocito_id FROM r3_fet_crio UNION ALL SELECT oocito_id FROM r4_fet_win)
     ),
     all_red AS (
-        SELECT * FROM r1_transf UNION ALL SELECT * FROM r2_crio UNION ALL SELECT * FROM r3_win
+        SELECT * FROM r1_fet UNION ALL SELECT * FROM r1_recep UNION ALL SELECT * FROM r2_fresh_transf 
+        UNION ALL SELECT * FROM r2_fot_transf UNION ALL SELECT * FROM r3_fet_crio 
+        UNION ALL SELECT * FROM r4_fet_win UNION ALL SELECT * FROM r4_fresh_win
     )
     -- Deduplicate strictly by oocito_id to guarantee 1:1 grain
-    SELECT oocito_id, source_type, redlara_outcome, redlara_outcome_type, redlara_gravidez_clinica, redlara_gravidez_bioquimica, redlara_no_nascidos, redlara_data_parto, redlara_tipo_parto, redlara_rule
+    SELECT oocito_id, source_type, redlara_outcome, redlara_outcome_type, redlara_gravidez_clinica, redlara_gravidez_bioquimica, redlara_delivery_occurred, redlara_no_nascidos, redlara_data_parto, redlara_tipo_parto, redlara_rule
     FROM (
         SELECT *, ROW_NUMBER() OVER (PARTITION BY oocito_id ORDER BY priority) as rn
         FROM all_red
@@ -310,10 +399,9 @@ def create_gold_clinisys_embrioes_outcomes(con):
     # 6. Create gold.clinisys_embrioes_outcomes table
     logger.info("Step 5: Materializing refined gold.clinisys_embrioes_outcomes...")
     con.execute("CREATE SCHEMA IF NOT EXISTS gold;")
-    con.execute("DROP TABLE IF EXISTS gold.clinisys_embrioes_outcomes;")
     
     con.execute("""
-    CREATE TABLE gold.clinisys_embrioes_outcomes AS
+    CREATE OR REPLACE TABLE gold.clinisys_embrioes_outcomes AS
     SELECT 
         c.*,
         
@@ -336,11 +424,13 @@ def create_gold_clinisys_embrioes_outcomes(con):
         
         -- REDLARA Registry Outcomes (Preserved)
         CASE WHEN r.oocito_id IS NOT NULL THEN 1 ELSE 0 END as redlara_matched,
+        r.source_type as redlara_source_sheet,
         r.redlara_rule as redlara_match_rule,
         r.redlara_outcome as redlara_outcome,
         r.redlara_outcome_type as redlara_outcome_type,
         r.redlara_gravidez_clinica as redlara_gravidez_clinica,
         r.redlara_gravidez_bioquimica as redlara_gravidez_bioquimica,
+        r.redlara_delivery_occurred as redlara_delivery_occurred,
         r.redlara_no_nascidos as redlara_no_nascidos,
         r.redlara_data_parto as redlara_data_parto,
         r.redlara_tipo_parto as redlara_tipo_parto,
@@ -382,6 +472,25 @@ def create_gold_clinisys_embrioes_outcomes(con):
         COALESCE(CAST(p.gravidez_clinica AS VARCHAR), CAST(r.redlara_gravidez_clinica AS VARCHAR)) as outcome_final_gravidez_clinica,
         COALESCE(CAST(p.no_nascidos AS VARCHAR), CAST(r.redlara_no_nascidos AS VARCHAR)) as outcome_final_no_nascidos,
         COALESCE(p.data_parto, r.redlara_data_parto) as outcome_final_data_parto,
+        
+        -- Clean Canonical Binary Indicators (0 or 1, NULL if unknown)
+        CASE 
+            WHEN COALESCE(CAST(p.gravidez_clinica AS VARCHAR), CAST(r.redlara_gravidez_clinica AS VARCHAR)) IN ('1', 'POSITIVO') 
+                 OR TRY_CAST(COALESCE(CAST(p.gravidez_clinica AS VARCHAR), CAST(r.redlara_gravidez_clinica AS VARCHAR)) AS INTEGER) >= 1 THEN 1
+            WHEN COALESCE(CAST(p.gravidez_clinica AS VARCHAR), CAST(r.redlara_gravidez_clinica AS VARCHAR)) = '0' 
+                 OR TRY_CAST(COALESCE(CAST(p.gravidez_clinica AS VARCHAR), CAST(r.redlara_gravidez_clinica AS VARCHAR)) AS INTEGER) = 0 THEN 0
+            ELSE NULL
+        END as gravidez_clinica,
+        
+        CASE 
+            WHEN r.redlara_delivery_occurred = '1' 
+                 OR TRY_CAST(COALESCE(CAST(p.no_nascidos AS VARCHAR), CAST(r.redlara_no_nascidos AS VARCHAR)) AS INTEGER) > 0 
+                 OR p.data_parto IS NOT NULL 
+                 OR r.redlara_data_parto IS NOT NULL THEN 1
+            WHEN r.redlara_delivery_occurred = '0' 
+                 OR TRY_CAST(COALESCE(CAST(p.no_nascidos AS VARCHAR), CAST(r.redlara_no_nascidos AS VARCHAR)) AS INTEGER) = 0 THEN 0
+            ELSE NULL
+        END as delivery_occurred,
         
         -- High-Level Quality & Modeling Flags
         (

@@ -48,6 +48,120 @@ if _root_dir not in sys.path:
 from commons.prontuario_matching_v1 import find_prontuarios
 
 
+def create_dim_paciente_crosswalk(con):
+    logger.info("=== Creating gold.dim_paciente_crosswalk (Single-Pass Strategy L) ===")
+    
+    con.execute("""
+    CREATE OR REPLACE TABLE gold._stage_dim_paciente_crosswalk AS
+    WITH all_entities AS (
+        SELECT 
+            instance_id,
+            COALESCE(NULLIF(TRIM(A1_CODMS), ''), NULLIF(TRIM(A1_COD), '')) as entity_id,
+            NULLIF(TRIM(A1_NOME), '') as entity_name,
+            NULLIF(TRIM(A1_CGC), '') as cpf
+        FROM silver.clientes 
+        WHERE is_deleted = FALSE
+        
+        UNION
+        
+        SELECT 
+            instance_id,
+            NULLIF(TRIM(F2_PACIENT), '') as entity_id,
+            NULLIF(TRIM(F2_NOMPACI), '') as entity_name,
+            NULLIF(TRIM(F2_CPFPACI), '') as cpf
+        FROM silver.notas 
+        WHERE is_deleted = FALSE AND F2_PACIENT IS NOT NULL
+        
+        UNION
+        
+        SELECT 
+            instance_id,
+            NULLIF(TRIM(COALESCE(C5_ZCODPAC, C6_CLI, C5_CLIENTE)), '') as entity_id,
+            NULLIF(TRIM(COALESCE(C5_ZPACIEN, C5_NOMCLI)), '') as entity_name,
+            NULL as cpf
+        FROM silver.pedidos 
+        WHERE is_deleted = FALSE
+        
+        UNION
+        
+        SELECT 
+            instance_id,
+            NULLIF(TRIM(COALESCE(L1_PACIENT, L1_CLIRESP, L1_CLIENTE)), '') as entity_id,
+            NULLIF(TRIM(L1_NOMPACI), '') as entity_name,
+            NULLIF(TRIM(L1_CPFPACI), '') as cpf
+        FROM silver.venda_direta 
+        WHERE is_deleted = FALSE
+    )
+    SELECT DISTINCT
+        instance_id,
+        entity_id,
+        entity_name,
+        cpf,
+        CAST(-1 AS BIGINT) as prontuario
+    FROM all_entities
+    WHERE entity_id IS NOT NULL AND entity_name IS NOT NULL;
+    """)
+    
+    cnt = con.execute("SELECT count(*) FROM gold._stage_dim_paciente_crosswalk").fetchone()[0]
+    logger.info(f"Extracted {cnt:,} distinct entities for crosswalk matching.")
+    
+    find_prontuarios(
+        source_con=con,
+        clinisys_db_path=CLINISYS_DB_PATH,
+        source_schema='gold',
+        source_table='_stage_dim_paciente_crosswalk',
+        id_col='entity_id',
+        name_col='entity_name',
+        birthdate_col=None,
+        cpf_col='cpf',
+        label='paciente_crosswalk',
+        suffix='',
+    )
+    
+    con.execute("""
+    CREATE OR REPLACE TABLE gold.dim_paciente_crosswalk AS
+    WITH ranked AS (
+        SELECT 
+            instance_id,
+            entity_id,
+            entity_name,
+            cpf,
+            prontuario,
+            ROW_NUMBER() OVER(
+                PARTITION BY instance_id, entity_id 
+                ORDER BY 
+                    CASE WHEN prontuario > 0 THEN 0 ELSE 1 END,
+                    CASE WHEN cpf IS NOT NULL THEN 0 ELSE 1 END,
+                    LENGTH(entity_name) DESC
+            ) as rn
+        FROM gold._stage_dim_paciente_crosswalk
+    )
+    SELECT 
+        instance_id,
+        entity_id,
+        entity_name,
+        cpf,
+        prontuario
+    FROM ranked
+    WHERE rn = 1;
+    """)
+    
+    con.execute("DROP TABLE IF EXISTS gold._stage_dim_paciente_crosswalk")
+    
+    stats = con.execute("""
+        SELECT 
+            instance_id,
+            count(*) as total,
+            count(CASE WHEN prontuario > 0 THEN 1 END) as matched,
+            round(count(CASE WHEN prontuario > 0 THEN 1 END) * 100.0 / count(*), 2) as rate
+        FROM gold.dim_paciente_crosswalk
+        GROUP BY instance_id
+    """).fetchall()
+    logger.info("Crosswalk dimension built successfully:")
+    for s in stats:
+        logger.info(f"  Instance {s[0]}: Total={s[1]:,} | Matched={s[2]:,} ({s[3]}%)")
+
+
 def create_gold_table(con):
     logger.info("Calculating filling rates for the new columns in silver.produtos...")
     try:
@@ -79,36 +193,46 @@ def create_gold_table(con):
     query = """
     CREATE TABLE gold.protheus_notas_faturadas AS
     SELECT
-        COALESCE(TRY_CAST(c_cli.A1_CODMS AS INTEGER), TRY_CAST(n.F2_CLIENTE AS INTEGER)) AS "Cliente",
-        COALESCE(c_cli.A1_NOME, n.F2_NOME, n.F2_NOMPACI, n.F2_PACIENT) AS "Nome",
-        COALESCE(TRY_CAST(c_pac.A1_CODMS AS INTEGER)::VARCHAR, TRY_CAST(c_cli.A1_CODMS AS INTEGER)::VARCHAR, TRY_CAST(n.F2_CLIENTE AS INTEGER)::VARCHAR) AS "Paciente",
+        COALESCE(NULLIF(TRIM(c_cli.A1_CODMS), ''), NULLIF(TRIM(c_cli.A1_COD), ''), NULLIF(TRIM(n.F2_CLIENTE), '')) AS cliente_id,
+        COALESCE(c_cli.A1_NOME, n.F2_NOME, n.F2_NOMPACI, n.F2_PACIENT) AS nome_cliente,
+        COALESCE(
+            NULLIF(TRIM(c_pac.A1_CODMS), ''),
+            NULLIF(TRIM(c_cli.A1_CODMS), ''),
+            NULLIF(TRIM(c_pac.A1_COD), ''),
+            NULLIF(TRIM(n.F2_PACIENT), ''),
+            NULLIF(TRIM(n.F2_CLIENTE), '')
+        ) AS paciente_id,
         COALESCE(
             n.F2_NOMPACI,
             CASE WHEN n.instance_id = 'BH' THEN n.F2_PACIENT ELSE NULL END,
             c_pac.A1_NOME,
             n.F2_NOME
-        ) AS "Nom Paciente",
-        COALESCE(n.F2_CPFPACI, c_cli.A1_CGC) as CPF,
-        TRY_CAST(-1 AS INTEGER) AS prontuario,
-        CAST(n.F2_EMISSAO AS TIMESTAMP) AS "DT Emissao",
-        p.B1_DESC AS "Descricao",
-        n.D2_QUANT AS "Qntd.",
-        n.D2_TOTAL AS "Total",
-        p.B1_ZDGEREN AS "Descrição Gerencial",
-        n.F2_FILIAL AS "Loja",
-        n.D2_TES AS "Tipo da nota",
-        TRY_CAST(n.F2_DOC AS INTEGER) AS "Numero",
-        n.F2_SERIE AS "Serie Docto.",
-        n.F2_NFELETR AS "NF Eletr.",
-        n.F2_VEND1 AS "Vend. 1",
-        v.A3_NOME AS "Médico",
-        n.F2_CLIENTE AS "Cliente_totvs",
-        n.F2_USERLGI AS "Operador",
-        n.D2_COD AS "Produto",
-        0.0 AS "Valor Mercadoria",
-        0.0 AS "Custo",
-        0.0 AS "Custo Unit",
-        n.D2_DESC AS "Desconto",
+        ) AS nome_paciente,
+        COALESCE(n.F2_CPFPACI, c_cli.A1_CGC) AS cpf,
+        COALESCE(
+            NULLIF(cw_pac.prontuario, -1),
+            NULLIF(cw_cli.prontuario, -1),
+            -1
+        ) AS prontuario,
+        CAST(n.F2_EMISSAO AS TIMESTAMP) AS dt_emissao,
+        p.B1_DESC AS descricao_produto,
+        n.D2_QUANT AS quantidade,
+        n.D2_TOTAL AS valor_total,
+        p.B1_ZDGEREN AS descricao_gerencial,
+        NULLIF(TRIM(n.F2_FILIAL), '') AS filial,
+        n.D2_TES AS tipo_nota,
+        NULLIF(TRIM(n.F2_DOC), '') AS num_nota,
+        n.F2_SERIE AS serie_nota,
+        n.F2_NFELETR AS nf_eletr,
+        NULLIF(TRIM(n.F2_VEND1), '') AS medico_id,
+        v.A3_NOME AS nome_medico,
+        n.F2_CLIENTE AS cliente_totvs,
+        n.F2_USERLGI AS operador,
+        NULLIF(TRIM(n.D2_COD), '') AS produto_id,
+        COALESCE(TRY_CAST(n.D2_TOTAL AS DOUBLE), 0.0) AS valor_mercadoria,
+        COALESCE(TRY_CAST(n.D2_CUSTO1 AS DOUBLE), 0.0) AS valor_custo,
+        COALESCE(TRY_CAST(n.D2_CUSTO2 AS DOUBLE), 0.0) AS valor_custo_unit,
+        COALESCE(TRY_CAST(n.D2_DESC AS DOUBLE), 0.0) AS valor_desconto,
         CASE
             -- BH Instance (ProCriar)
             WHEN n.instance_id = 'BH' AND n.F2_FILIAL IN ('0102', '0201') THEN 'Pouso Alegre'
@@ -127,14 +251,14 @@ def create_gold_table(con):
             WHEN n.company_id = '07' AND n.F2_FILIAL IN ('030101') THEN 'FIV Brasilia'
             WHEN n.company_id = '07' AND n.F2_FILIAL IN ('040101', '040102') THEN 'Rio de Janeiro'
             ELSE 'Unknown Unit (' || COALESCE(n.company_id, '') || ', ' || COALESCE(n.F2_FILIAL, '') || ')'
-        END AS "Unidade",
-        MONTH(n.F2_EMISSAO) AS "Mês",
-        YEAR(n.F2_EMISSAO) AS "Ano",
-        n.D2_CONTA AS "Cta-Ctbl",
-        CAST(NULL AS VARCHAR) AS "Interno/Externo",
-        p.B1_ZMAPING AS "Descrição Mapping Actividad",
-        TRY_CAST(p.B1_ZCICLOS AS INTEGER) AS "Ciclos",
-        0 AS "Qnt Cons.",
+        END AS unidade,
+        MONTH(n.F2_EMISSAO) AS mes,
+        YEAR(n.F2_EMISSAO) AS ano,
+        n.D2_CONTA AS conta_contabil,
+        CAST(NULL AS VARCHAR) AS interno_externo,
+        p.B1_ZMAPING AS descricao_mapping_actividad,
+        TRY_CAST(p.B1_ZCICLOS AS INTEGER) AS ciclos,
+        0 AS qnt_cons,
         CASE 
             WHEN n.instance_id = 'BH' THEN '5'
             WHEN n.company_id = '01' THEN '1'
@@ -143,9 +267,9 @@ def create_gold_table(con):
             WHEN n.company_id = '06' THEN '6'
             WHEN n.company_id = '07' THEN '7'
             ELSE 'Unknown'
-        END AS "Grp",
-        t.F4_TEXTO AS "Descr.TES",
-        'False' AS "Fez Ciclo?",
+        END AS grp,
+        t.F4_TEXTO AS descricao_tes,
+        'False' AS fez_ciclo,
         ROW_NUMBER() OVER (ORDER BY n.F2_EMISSAO DESC, n.F2_DOC DESC, n.D2_ITEM ASC) AS line_number,
         n.extraction_timestamp AS extraction_timestamp,
         'Protheus API' AS file_name,
@@ -161,46 +285,18 @@ def create_gold_table(con):
         ON n.instance_id = v.instance_id AND n.F2_VEND1 = v.A3_COD
     LEFT JOIN silver.tes t
         ON n.instance_id = t.instance_id AND n.D2_TES = t.F4_CODIGO
+    LEFT JOIN gold.dim_paciente_crosswalk cw_pac
+        ON n.instance_id = cw_pac.instance_id 
+       AND COALESCE(NULLIF(TRIM(c_pac.A1_CODMS), ''), NULLIF(TRIM(c_cli.A1_CODMS), ''), NULLIF(TRIM(c_pac.A1_COD), ''), NULLIF(TRIM(n.F2_PACIENT), ''), NULLIF(TRIM(n.F2_CLIENTE), '')) = cw_pac.entity_id
+    LEFT JOIN gold.dim_paciente_crosswalk cw_cli
+        ON n.instance_id = cw_cli.instance_id 
+       AND COALESCE(NULLIF(TRIM(c_cli.A1_CODMS), ''), NULLIF(TRIM(c_cli.A1_COD), ''), NULLIF(TRIM(n.F2_CLIENTE), '')) = cw_cli.entity_id
     WHERE n.is_deleted = FALSE;
     """
 
     con.execute(query)
     count = con.execute("SELECT COUNT(*) FROM gold.protheus_notas_faturadas").fetchone()[0]
     logger.info(f"Created gold.protheus_notas_faturadas with {count:,} rows")
-
-
-def update_prontuario_column(con):
-    logger.info("Updating prontuario column using Strategy L matching (Paciente & Cliente)...")
-
-    # 1. First run: Paciente
-    logger.info("Run 1: Matching via Paciente columns...")
-    find_prontuarios(
-        source_con=con,
-        clinisys_db_path=CLINISYS_DB_PATH,
-        source_schema='gold',
-        source_table='protheus_notas_faturadas',
-        id_col='Paciente',
-        name_col='Nom Paciente',
-        birthdate_col=None,
-        cpf_col='CPF',
-        label='protheus_paciente',
-        suffix='',
-    )
-
-    # 2. Second run: Cliente (matching remaining unmatched)
-    logger.info("Run 2: Matching via Cliente columns...")
-    find_prontuarios(
-        source_con=con,
-        clinisys_db_path=CLINISYS_DB_PATH,
-        source_schema='gold',
-        source_table='protheus_notas_faturadas',
-        id_col='Cliente',
-        name_col='Nome',
-        birthdate_col=None,
-        cpf_col='CPF',
-        label='protheus_cliente',
-        suffix='',
-    )
 
     # Log final statistics
     stats = con.execute("""
@@ -211,7 +307,12 @@ def update_prontuario_column(con):
         FROM gold.protheus_notas_faturadas
     """).fetchone()
     rate = stats[1] / stats[0] * 100 if stats[0] else 0.0
-    logger.info(f"Final prontuario matching stats: Total={stats[0]:,}, Matched={stats[1]:,}, Unmatched={stats[2]:,}, Rate={rate:.2f}%")
+    logger.info(f"Final prontuario matching stats (gold.protheus_notas_faturadas): Total={stats[0]:,}, Matched={stats[1]:,}, Unmatched={stats[2]:,}, Rate={rate:.2f}%")
+
+
+def update_prontuario_column(con):
+    """Deprecated: Matching is now performed directly at table creation via gold.dim_paciente_crosswalk."""
+    pass
 
 
 def create_gold_pedidos_a_faturar_table(con):
@@ -231,7 +332,7 @@ def create_gold_pedidos_a_faturar_table(con):
             D2_PEDIDO,
             D2_ITEMPV,
             D2_COD,
-            F2_DOC,
+            NULLIF(TRIM(F2_DOC), '') AS F2_DOC,
             F2_SERIE,
             F2_NFELETR,
             CAST(F2_EMISSAO AS TIMESTAMP) AS dt_nota,
@@ -253,6 +354,7 @@ def create_gold_pedidos_a_faturar_table(con):
             L1_PEDRES,
             COALESCE(L1_PACIENT, L1_CLIRESP, L1_CLIENTE) AS L1_PACIENT,
             COALESCE(L1_NOMPACI, '') AS L1_NOMPACI,
+            L1_CPFPACI,
             ROW_NUMBER() OVER(
                 PARTITION BY instance_id, company_id, L1_FILIAL, L1_PEDRES 
                 ORDER BY extraction_timestamp DESC
@@ -266,46 +368,83 @@ def create_gold_pedidos_a_faturar_table(con):
         CASE 
             WHEN p.instance_id = 'BH' THEN '5'
             ELSE p.company_id 
-        END AS "Grp",
-        p.C5_FILIAL AS "Filial",
-        TRY_CAST(p.C5_NUM AS INTEGER) AS "Pedido",
-        TRY_CAST(p.C5_ORCRES AS INTEGER) AS "Orcamento",
-        TRY_CAST(p.C5_CLIENTE AS INTEGER) AS "Cliente",
-        c_cli_cli.A1_NOME AS "Nome",
-        c_cli_cli.A1_CGC AS CPF,
-        TRY_CAST(-1 AS INTEGER) AS prontuario,
-        -- Patient resolution: L1_PACIENT fallback to BH C5_ZCODPAC, then C6_CLI
-        TRY_CAST(COALESCE(l1.L1_PACIENT, p.C5_ZCODPAC, p.C6_CLI) AS INTEGER) AS "Paciente",
-        -- Patient name resolution: L1_NOMPACI fallback to BH C5_ZPACIEN, then customer name
-        COALESCE(NULLIF(l1.L1_NOMPACI, ''), p.C5_ZPACIEN, c_cli_pat.A1_NOME) AS "Nome Paciente",
-        TRY_CAST(p.C5_VEND1 AS INTEGER) AS "Medico",
-        v.A3_NOME AS "Nome Medico",
-        CAST(p.C5_EMISSAO AS TIMESTAMP) AS "Emissao",
-        COALESCE(TRY_CAST(n_item.F2_DOC AS INTEGER), TRY_CAST(p.C6_NOTA AS INTEGER)) AS "Numero",
-        COALESCE(n_item.F2_SERIE, p.C6_SERIE) AS "NFSe",
-        TRY_CAST(prod.B1_GRUPO AS INTEGER) AS "Grupo",
-        p.C6_PRODUTO AS "Produt",
-        COALESCE(prod.B1_DESC, p.C6_DESCRI) AS "Descricao",
-        p.C6_QTDVEN AS "Quantidade",
-        p.C6_PRCVEN AS "Vlr.Unit",
-        p.C6_VALOR AS "Vlr.Mercadoria",
-        0.0 AS "Vlr.ISS",
-        TRY_CAST(p.C6_VALDESC AS DOUBLE) AS "Vlr.Desconto",
-        0.0 AS "Vlr.Custo",
-        TRY_CAST(p.C6_PRUNIT AS DOUBLE) AS "Vlr.Custo Unit",
-        0.0 AS "Vlr.Comissao",
-        p.C6_VALOR AS "Total",
-        CAST(NULL AS DOUBLE) AS "Vlr.Bruto",
-        TRY_CAST(p.C6_PRUNIT AS DOUBLE) AS "Prc.Venda",
-        0.0 AS "Ult.Preco",
+        END AS grp,
+        CASE
+            -- BH Instance (ProCriar)
+            WHEN p.instance_id = 'BH' AND p.C5_FILIAL IN ('0102', '0201') THEN 'Pouso Alegre'
+            WHEN p.instance_id = 'BH' THEN 'Belo Horizonte'
+            -- Company 01 (Ibirapuera / Vila Mariana)
+            WHEN p.company_id = '01' AND p.C5_FILIAL IN ('010101', '010150') THEN 'Ibirapuera'
+            WHEN p.company_id = '01' AND p.C5_FILIAL IN ('010155', '010104', '010106') THEN 'Vila Mariana'
+            -- Company 03 (Campinas)
+            WHEN p.company_id = '03' AND p.C5_FILIAL = '030101' THEN 'Campinas'
+            -- Company 06 (Pro Fiv / Santa Joana)
+            WHEN p.company_id = '06' AND p.C5_FILIAL = '060101' THEN 'Pro Fiv'
+            -- Company 05 (Belo Horizonte - legacy / Huntington)
+            WHEN p.company_id = '05' AND p.C5_FILIAL = '0101' THEN 'Belo Horizonte'
+            -- Company 07 (Salvador - Cenafert / FIV Brasilia)
+            WHEN p.company_id = '07' AND p.C5_FILIAL IN ('010101', '020101') THEN 'Salvador - Cenafert'
+            WHEN p.company_id = '07' AND p.C5_FILIAL IN ('030101') THEN 'FIV Brasilia'
+            WHEN p.company_id = '07' AND p.C5_FILIAL IN ('040101', '040102') THEN 'Rio de Janeiro'
+            ELSE 'Unknown Unit (' || COALESCE(p.company_id, '') || ', ' || COALESCE(p.C5_FILIAL, '') || ')'
+        END AS unidade,
+        NULLIF(TRIM(p.C5_FILIAL), '') AS filial,
+        NULLIF(TRIM(p.C5_NUM), '') AS pedido,
+        NULLIF(TRIM(p.C5_ORCRES), '') AS orcamento,
+        COALESCE(NULLIF(TRIM(c_cli_cli.A1_CODMS), ''), NULLIF(TRIM(c_cli_cli.A1_COD), ''), NULLIF(TRIM(p.C5_CLIENTE), '')) AS cliente_id,
+        c_cli_cli.A1_NOME AS nome_cliente,
+        COALESCE(l1.L1_CPFPACI, c_l1_pac.A1_CGC, c_cli_pat.A1_CGC, c_cli_cli.A1_CGC) AS cpf,
+        COALESCE(
+            NULLIF(cw_pac.prontuario, -1),
+            NULLIF(cw_cli.prontuario, -1),
+            -1
+        ) AS prontuario,
+        -- Patient resolution: A1_CODMS priority (Huntington), fallback to raw IDs (BH)
+        COALESCE(
+            NULLIF(TRIM(c_cli_pat.A1_CODMS), ''),
+            NULLIF(TRIM(c_l1_pac.A1_CODMS), ''),
+            NULLIF(TRIM(c_zcodpac.A1_CODMS), ''),
+            NULLIF(TRIM(c_cli_cli.A1_CODMS), ''),
+            NULLIF(TRIM(l1.L1_PACIENT), ''),
+            NULLIF(TRIM(p.C5_ZCODPAC), ''),
+            NULLIF(TRIM(p.C6_CLI), ''),
+            NULLIF(TRIM(p.C5_CLIENTE), '')
+        ) AS paciente_id,
+        COALESCE(NULLIF(l1.L1_NOMPACI, ''), p.C5_ZPACIEN, c_l1_pac.A1_NOME, c_cli_pat.A1_NOME, c_cli_cli.A1_NOME) AS nome_paciente,
+        NULLIF(TRIM(p.C5_VEND1), '') AS medico_id,
+        v.A3_NOME AS nome_medico,
+        CAST(p.C5_EMISSAO AS TIMESTAMP) AS dt_emissao,
+        COALESCE(NULLIF(TRIM(n_item.F2_DOC), ''), NULLIF(TRIM(p.C6_NOTA), '')) AS num_nota,
+        COALESCE(n_item.F2_SERIE, p.C6_SERIE) AS serie_nota,
+        TRY_CAST(prod.B1_GRUPO AS INTEGER) AS grupo_produto,
+        NULLIF(TRIM(p.C6_PRODUTO), '') AS produto_id,
+        COALESCE(prod.B1_DESC, p.C6_DESCRI) AS descricao_produto,
+        p.C6_QTDVEN AS quantidade,
+        p.C6_PRCVEN AS valor_unitario,
+        p.C6_VALOR AS valor_mercadoria,
+        0.0 AS valor_iss,
+        TRY_CAST(p.C6_VALDESC AS DOUBLE) AS valor_desconto,
+        0.0 AS valor_custo,
+        TRY_CAST(p.C6_PRUNIT AS DOUBLE) AS valor_custo_unit,
+        0.0 AS valor_comissao,
+        p.C6_VALOR AS valor_total,
+        COALESCE(TRY_CAST(p.C6_VALOR AS DOUBLE), 0.0) + COALESCE(TRY_CAST(p.C6_VALDESC AS DOUBLE), 0.0) AS valor_bruto,
+        NULLIF(TRIM(p.C5_CONDPAG), '') AS condicao_pagamento,
+        p.C5_USERLGI AS operador,
+        TRY_CAST(p.C6_PRUNIT AS DOUBLE) AS preco_venda,
+        0.0 AS ultimo_preco,
         p.instance_id AS instance_id
     FROM silver.pedidos p
     LEFT JOIN silver.clientes c_cli_cli
         ON p.instance_id = c_cli_cli.instance_id AND p.C5_CLIENTE = c_cli_cli.A1_COD AND p.C5_LOJACLI = c_cli_cli.A1_LOJA
     LEFT JOIN l1_dedup l1
         ON p.instance_id = l1.instance_id AND p.company_id = l1.company_id AND p.C5_FILIAL = l1.L1_FILIAL AND p.C5_NUM = l1.L1_PEDRES AND l1.rn = 1
+    LEFT JOIN silver.clientes c_l1_pac
+        ON p.instance_id = c_l1_pac.instance_id AND l1.L1_PACIENT = c_l1_pac.A1_COD AND COALESCE(c_l1_pac.A1_LOJA, '01') = '01'
     LEFT JOIN silver.clientes c_cli_pat
         ON p.instance_id = c_cli_pat.instance_id AND p.C6_CLI = c_cli_pat.A1_COD AND p.C5_LOJACLI = c_cli_pat.A1_LOJA
+    LEFT JOIN silver.clientes c_zcodpac
+        ON p.instance_id = c_zcodpac.instance_id AND p.C5_ZCODPAC = c_zcodpac.A1_COD AND COALESCE(c_zcodpac.A1_LOJA, '01') = '01'
     LEFT JOIN silver.produtos prod
         ON p.instance_id = prod.instance_id AND p.C6_PRODUTO = prod.B1_COD
     LEFT JOIN silver.vendedores v
@@ -318,9 +457,26 @@ def create_gold_pedidos_a_faturar_table(con):
        AND p.C6_ITEM = n_item.D2_ITEMPV
        AND p.C6_PRODUTO = n_item.D2_COD 
        AND n_item.rn = 1
+    LEFT JOIN gold.dim_paciente_crosswalk cw_pac
+        ON p.instance_id = cw_pac.instance_id 
+       AND COALESCE(
+            NULLIF(TRIM(c_cli_pat.A1_CODMS), ''),
+            NULLIF(TRIM(c_l1_pac.A1_CODMS), ''),
+            NULLIF(TRIM(c_zcodpac.A1_CODMS), ''),
+            NULLIF(TRIM(c_cli_cli.A1_CODMS), ''),
+            NULLIF(TRIM(l1.L1_PACIENT), ''),
+            NULLIF(TRIM(p.C5_ZCODPAC), ''),
+            NULLIF(TRIM(p.C6_CLI), ''),
+            NULLIF(TRIM(p.C5_CLIENTE), '')
+        ) = cw_pac.entity_id
+    LEFT JOIN gold.dim_paciente_crosswalk cw_cli
+        ON p.instance_id = cw_cli.instance_id 
+       AND COALESCE(NULLIF(TRIM(c_cli_cli.A1_CODMS), ''), NULLIF(TRIM(c_cli_cli.A1_COD), ''), NULLIF(TRIM(p.C5_CLIENTE), '')) = cw_cli.entity_id
     WHERE p.is_deleted = FALSE
       -- Point 2: Budget Identifier Filtering (C5_ORCRES <> '')
-      AND p.C5_ORCRES IS NOT NULL AND TRIM(p.C5_ORCRES) != '';
+      AND p.C5_ORCRES IS NOT NULL AND TRIM(p.C5_ORCRES) != ''
+      -- Point 3: Residue / Cancellation Filtering (C6_BLQ != 'R')
+      AND (p.C6_BLQ IS NULL OR p.C6_BLQ != 'R');
     """
 
     con.execute(query)
@@ -331,48 +487,14 @@ def create_gold_pedidos_a_faturar_table(con):
     patient_stats = con.execute("""
         SELECT
             COUNT(*) as total,
-            COUNT(CASE WHEN "Paciente" != "Cliente" THEN 1 END) as patient_differs_from_client,
-            COUNT(CASE WHEN "Nome Paciente" IS NOT NULL AND "Nome Paciente" != '' THEN 1 END) as has_patient_name
+            COUNT(CASE WHEN paciente_id != cliente_id THEN 1 END) as patient_differs_from_client,
+            COUNT(CASE WHEN nome_paciente IS NOT NULL AND nome_paciente != '' THEN 1 END) as has_patient_name
         FROM gold.protheus_pedidos_a_faturar
     """).fetchone()
     pct_differs = (patient_stats[1] / patient_stats[0] * 100) if patient_stats[0] else 0.0
     pct_has_name = (patient_stats[2] / patient_stats[0] * 100) if patient_stats[0] else 0.0
     logger.info(f"  Patient coverage: {patient_stats[1]:,}/{patient_stats[0]:,} rows where Patient != Client ({pct_differs:.1f}%)")
     logger.info(f"  Patient name coverage: {patient_stats[2]:,}/{patient_stats[0]:,} rows with patient name ({pct_has_name:.1f}%)")
-
-
-def update_prontuario_column_pedidos(con):
-    logger.info("Updating prontuario column in gold.protheus_pedidos_a_faturar using Strategy L matching (Paciente & Cliente)...")
-
-    # 1. First run: Paciente
-    logger.info("Run 1 (pedidos): Matching via Paciente columns...")
-    find_prontuarios(
-        source_con=con,
-        clinisys_db_path=CLINISYS_DB_PATH,
-        source_schema='gold',
-        source_table='protheus_pedidos_a_faturar',
-        id_col='Paciente',
-        name_col='Nome Paciente',
-        birthdate_col=None,
-        cpf_col=None,
-        label='pedidos_paciente',
-        suffix='',
-    )
-
-    # 2. Second run: Cliente (matching remaining unmatched)
-    logger.info("Run 2 (pedidos): Matching via Cliente columns...")
-    find_prontuarios(
-        source_con=con,
-        clinisys_db_path=CLINISYS_DB_PATH,
-        source_schema='gold',
-        source_table='protheus_pedidos_a_faturar',
-        id_col='Cliente',
-        name_col='Nome',
-        birthdate_col=None,
-        cpf_col='CPF',
-        label='pedidos_cliente',
-        suffix='',
-    )
 
     # Log final statistics for pedidos_a_faturar
     stats = con.execute("""
@@ -386,6 +508,11 @@ def update_prontuario_column_pedidos(con):
     logger.info(f"Final prontuario matching stats (gold.protheus_pedidos_a_faturar): Total={stats[0]:,}, Matched={stats[1]:,}, Unmatched={stats[2]:,}, Rate={rate:.2f}%")
 
 
+def update_prontuario_column_pedidos(con):
+    """Deprecated: Matching is now performed directly at table creation via gold.dim_paciente_crosswalk."""
+    pass
+
+
 def create_gold_vendas_consolidadas_table(con):
     logger.info("Combining silver.venda_direta and gold.protheus_pedidos_a_faturar into gold.protheus_vendas_consolidadas (with deduplication)...")
 
@@ -397,11 +524,11 @@ def create_gold_vendas_consolidadas_table(con):
         SELECT 
             GREATEST(
                 (SELECT MIN(L1_EMISSAO) FROM silver.venda_direta WHERE is_deleted = FALSE),
-                (SELECT MIN(CAST("Emissao" AS DATE)) FROM gold.protheus_pedidos_a_faturar)
+                (SELECT MIN(CAST(dt_emissao AS DATE)) FROM gold.protheus_pedidos_a_faturar)
             ) AS start_date,
             LEAST(
                 (SELECT MAX(L1_EMISSAO) FROM silver.venda_direta WHERE is_deleted = FALSE),
-                (SELECT MAX(CAST("Emissao" AS DATE)) FROM gold.protheus_pedidos_a_faturar)
+                (SELECT MAX(CAST(dt_emissao AS DATE)) FROM gold.protheus_pedidos_a_faturar)
             ) AS end_date
     ),
     invoiced_pedidos AS (
@@ -430,7 +557,7 @@ def create_gold_vendas_consolidadas_table(con):
             instance_id,
             company_id, 
             L1_FILIAL, 
-            TRY_CAST(COALESCE(L1_NUM, L1_ORCRES) AS INTEGER) AS orc_num, 
+            COALESCE(NULLIF(TRIM(L1_NUM), ''), NULLIF(TRIM(L1_ORCRES), '')) AS orc_num, 
             MIN(CAST(L1_EMISSAO AS TIMESTAMP)) AS dt_orcamento
         FROM silver.venda_direta 
         WHERE is_deleted = FALSE
@@ -444,7 +571,7 @@ def create_gold_vendas_consolidadas_table(con):
             n.D2_PEDIDO,
             n.D2_ITEMPV,
             n.D2_COD,
-            TRY_CAST(n.F2_DOC AS INTEGER) AS num_nota,
+            NULLIF(TRIM(n.F2_DOC), '') AS num_nota,
             n.F2_SERIE AS serie_nota,
             CAST(n.F2_EMISSAO AS TIMESTAMP) AS dt_nota,
             ROW_NUMBER() OVER(
@@ -460,16 +587,38 @@ def create_gold_vendas_consolidadas_table(con):
             instance_id,
             company_id,
             F2_FILIAL,
-            F2_DOC,
+            NULLIF(TRIM(F2_DOC), '') AS F2_DOC,
             F2_SERIE,
             MIN(CAST(F2_EMISSAO AS TIMESTAMP)) AS dt_nota
         FROM silver.notas 
         WHERE is_deleted = FALSE
         GROUP BY 1, 2, 3, 4, 5
     ),
+    vd_ped_exists AS (
+        SELECT DISTINCT 
+            instance_id,
+            L1_FILIAL, 
+            NULLIF(TRIM(L1_PEDRES), '') as pedido
+        FROM silver.venda_direta 
+        WHERE is_deleted = FALSE AND (L1_SITUA IS NULL OR L1_SITUA NOT IN ('FR', 'CA'))
+          AND L1_PEDRES IS NOT NULL AND TRIM(L1_PEDRES) != ''
+    ),
+    vd_orc_exists AS (
+        SELECT DISTINCT 
+            instance_id,
+            L1_FILIAL, 
+            COALESCE(NULLIF(TRIM(L1_NUM), ''), NULLIF(TRIM(L1_ORCRES), '')) as orcamento
+        FROM silver.venda_direta 
+        WHERE is_deleted = FALSE AND (L1_SITUA IS NULL OR L1_SITUA NOT IN ('FR', 'CA'))
+          AND COALESCE(NULLIF(TRIM(L1_NUM), ''), NULLIF(TRIM(L1_ORCRES), '')) IS NOT NULL
+    ),
     venda_direta_rows AS (
         SELECT 
-            TRY_CAST(-1 AS INTEGER) AS prontuario,
+            COALESCE(
+                NULLIF(cw_pac.prontuario, -1),
+                NULLIF(cw_cli.prontuario, -1),
+                -1
+            ) AS prontuario,
             CASE 
                 WHEN v.instance_id = 'BH' THEN '5'
                 ELSE v.company_id 
@@ -487,14 +636,14 @@ def create_gold_vendas_consolidadas_table(con):
                 WHEN v.company_id = '07' AND v.L1_FILIAL IN ('040101', '040102') THEN 'Rio de Janeiro'
                 ELSE 'Unknown Unit (' || COALESCE(v.company_id, '') || ', ' || COALESCE(v.L1_FILIAL, '') || ')'
             END AS unidade,
-            v.L1_FILIAL AS filial,
-            TRY_CAST(COALESCE(v.L1_NUM, v.L1_ORCRES) AS INTEGER) AS orcamento,
+            NULLIF(TRIM(v.L1_FILIAL), '') AS filial,
+            COALESCE(NULLIF(TRIM(v.L1_NUM), ''), NULLIF(TRIM(v.L1_ORCRES), '')) AS orcamento,
             CAST(v.L1_EMISSAO AS TIMESTAMP) AS dt_orcamento,
-            TRY_CAST(COALESCE(v.L1_PEDRES, v.L2_PEDRES) AS INTEGER) AS pedido,
+            COALESCE(NULLIF(TRIM(v.L1_PEDRES), ''), NULLIF(TRIM(v.L2_PEDRES), '')) AS pedido,
             p_dt.dt_pedido AS dt_pedido,
             CASE 
                 WHEN v.L1_PEDRES IS NOT NULL AND TRIM(v.L1_PEDRES) != '' THEN pn.num_nota
-                ELSE COALESCE(TRY_CAST(v.L2_DOC AS INTEGER), TRY_CAST(vn.F2_DOC AS INTEGER), TRY_CAST(v.L1_DOC AS INTEGER))
+                ELSE COALESCE(NULLIF(TRIM(v.L2_DOC), ''), NULLIF(TRIM(vn.F2_DOC), ''), NULLIF(TRIM(v.L1_DOC), ''))
             END AS num_nota,
             CASE 
                 WHEN v.L1_PEDRES IS NOT NULL AND TRIM(v.L1_PEDRES) != '' THEN pn.serie_nota
@@ -514,7 +663,7 @@ def create_gold_vendas_consolidadas_table(con):
                 WHEN (v.L1_PEDRES IS NOT NULL AND TRIM(v.L1_PEDRES) != '') 
                 THEN 'PEDIDO_A_FATURAR'
                 
-                WHEN COALESCE(v.L2_DOC, vn.F2_DOC, v.L1_DOC) IS NOT NULL 
+                WHEN COALESCE(NULLIF(TRIM(v.L2_DOC), ''), NULLIF(TRIM(vn.F2_DOC), ''), NULLIF(TRIM(v.L1_DOC), '')) IS NOT NULL 
                 THEN 'FATURADO_DIRETO'
                 
                 WHEN v.L1_SITUA = 'FR' 
@@ -522,13 +671,20 @@ def create_gold_vendas_consolidadas_table(con):
                 
                 ELSE 'ORCAMENTO_ABERTO'
             END AS status_fluxo,
-            TRY_CAST(v.L1_CLIENTE AS INTEGER) AS cliente_id,
+            COALESCE(NULLIF(TRIM(c_cli.A1_CODMS), ''), NULLIF(TRIM(c_cli.A1_COD), ''), NULLIF(TRIM(v.L1_CLIENTE), '')) AS cliente_id,
             c_cli.A1_NOME AS nome_cliente,
-            TRY_CAST(COALESCE(v.L1_PACIENT, v.L1_CLIRESP, c_pac.A1_COD, v.L1_CLIENTE) AS INTEGER) AS paciente_id,
+            COALESCE(
+                NULLIF(TRIM(c_pac.A1_CODMS), ''),
+                NULLIF(TRIM(c_cli.A1_CODMS), ''),
+                NULLIF(TRIM(v.L1_PACIENT), ''),
+                NULLIF(TRIM(v.L1_CLIRESP), ''),
+                NULLIF(TRIM(c_pac.A1_COD), ''),
+                NULLIF(TRIM(v.L1_CLIENTE), '')
+            ) AS paciente_id,
             COALESCE(v.L1_NOMPACI, c_pac.A1_NOME, c_cli.A1_NOME) AS nome_paciente,
-            TRY_CAST(v.L1_VEND AS INTEGER) AS medico_id,
+            NULLIF(TRIM(v.L1_VEND), '') AS medico_id,
             vend.A3_NOME AS nome_medico,
-            v.L2_PRODUTO AS produto_id,
+            NULLIF(TRIM(v.L2_PRODUTO), '') AS produto_id,
             TRY_CAST(prod.B1_GRUPO AS INTEGER) AS grupo_produto,
             prod.B1_ZDGEREN AS descricao_gerencial,
             prod.B1_ZMAPING AS descricao_mapping_actividad,
@@ -551,7 +707,7 @@ def create_gold_vendas_consolidadas_table(con):
             v.L1_FORMPG AS forma_pagamento,
             v.L1_CONDPG AS condicao_pagamento,
             v.L1_OPERADO AS operador,
-            COALESCE(c_cli.A1_CGC, v.L1_CPFPACI) AS _cpf,
+            COALESCE(c_cli.A1_CGC, v.L1_CPFPACI) AS cpf,
             YEAR(v.L1_EMISSAO) AS ano,
             MONTH(v.L1_EMISSAO) AS mes,
             'VENDA_DIRETA' AS origem,
@@ -580,7 +736,7 @@ def create_gold_vendas_consolidadas_table(con):
           ON v.instance_id = vn.instance_id
          AND v.company_id = vn.company_id
          AND v.L1_FILIAL = vn.F2_FILIAL
-         AND COALESCE(v.L1_DOC, v.L2_DOC) = vn.F2_DOC
+         AND COALESCE(NULLIF(TRIM(v.L1_DOC), ''), NULLIF(TRIM(v.L2_DOC), '')) = vn.F2_DOC
         LEFT JOIN silver.clientes c_cli
             ON v.instance_id = c_cli.instance_id AND v.L1_CLIENTE = c_cli.A1_COD AND v.L1_LOJA = c_cli.A1_LOJA
         LEFT JOIN silver.clientes c_pac
@@ -589,108 +745,103 @@ def create_gold_vendas_consolidadas_table(con):
             ON v.instance_id = prod.instance_id AND v.L2_PRODUTO = prod.B1_COD
         LEFT JOIN silver.vendedores vend
             ON v.instance_id = vend.instance_id AND v.L1_VEND = vend.A3_COD
+        LEFT JOIN gold.dim_paciente_crosswalk cw_pac
+            ON v.instance_id = cw_pac.instance_id 
+           AND COALESCE(
+                NULLIF(TRIM(c_pac.A1_CODMS), ''),
+                NULLIF(TRIM(c_cli.A1_CODMS), ''),
+                NULLIF(TRIM(v.L1_PACIENT), ''),
+                NULLIF(TRIM(v.L1_CLIRESP), ''),
+                NULLIF(TRIM(c_pac.A1_COD), ''),
+                NULLIF(TRIM(v.L1_CLIENTE), '')
+            ) = cw_pac.entity_id
+        LEFT JOIN gold.dim_paciente_crosswalk cw_cli
+            ON v.instance_id = cw_cli.instance_id 
+           AND COALESCE(NULLIF(TRIM(c_cli.A1_CODMS), ''), NULLIF(TRIM(c_cli.A1_COD), ''), NULLIF(TRIM(v.L1_CLIENTE), '')) = cw_cli.entity_id
         WHERE v.is_deleted = FALSE
-          AND (v.L1_SITUA IS NULL OR v.L1_SITUA != 'FR')
+          AND (v.L1_SITUA IS NULL OR v.L1_SITUA NOT IN ('FR', 'CA'))
           AND v.L1_EMISSAO BETWEEN (SELECT start_date FROM common_window) AND (SELECT end_date FROM common_window)
     ),
     pedidos_direct_rows AS (
         SELECT 
             p.prontuario AS prontuario,
-            CASE 
-                WHEN p.instance_id = 'BH' THEN '5'
-                ELSE p."Grp" 
-            END AS grp,
-            CASE
-                WHEN p.instance_id = 'BH' AND p."Filial" IN ('0102', '0201') THEN 'Pouso Alegre'
-                WHEN p.instance_id = 'BH' THEN 'Belo Horizonte'
-                WHEN p."Grp" = '01' AND p."Filial" IN ('010101', '010150') THEN 'Ibirapuera'
-                WHEN p."Grp" = '01' AND p."Filial" IN ('010155', '010104', '010106') THEN 'Vila Mariana'
-                WHEN p."Grp" = '03' AND p."Filial" = '030101' THEN 'Campinas'
-                WHEN p."Grp" = '06' AND p."Filial" = '060101' THEN 'Pro Fiv'
-                WHEN p."Grp" = '05' AND p."Filial" = '0101' THEN 'Belo Horizonte'
-                WHEN p."Grp" = '07' AND p."Filial" IN ('010101', '020101') THEN 'Salvador - Cenafert'
-                WHEN p."Grp" = '07' AND p."Filial" IN ('030101') THEN 'FIV Brasilia'
-                WHEN p."Grp" = '07' AND p."Filial" IN ('040101', '040102') THEN 'Rio de Janeiro'
-                ELSE 'Unknown Unit (' || COALESCE(p."Grp", '') || ', ' || COALESCE(p."Filial", '') || ')'
-            END AS unidade,
-            p."Filial" AS filial,
-            p."Orcamento" AS orcamento,
+            p.grp AS grp,
+            p.unidade AS unidade,
+            p.filial AS filial,
+            p.orcamento AS orcamento,
             o_dt.dt_orcamento AS dt_orcamento,
-            p."Pedido" AS pedido,
-            CAST(p."Emissao" AS TIMESTAMP) AS dt_pedido,
-            p."Numero" AS num_nota,
-            p."NFSe" AS serie_nota,
+            p.pedido AS pedido,
+            p.dt_emissao AS dt_pedido,
+            p.num_nota AS num_nota,
+            p.serie_nota AS serie_nota,
             n_dt.dt_nota AS dt_nota,
-            p."Descricao" AS descricao_produto,
-            p."Total" AS valor_total,
-            p."Emissao" AS dt_emissao,
+            p.descricao_produto AS descricao_produto,
+            p.valor_total AS valor_total,
+            p.dt_emissao AS dt_emissao,
             CASE 
-                WHEN p."Numero" IS NOT NULL THEN 'FATURADO_VIA_PEDIDO'
+                WHEN p.num_nota IS NOT NULL THEN 'FATURADO_VIA_PEDIDO'
                 ELSE 'PEDIDO_A_FATURAR'
             END AS status_fluxo,
-            p."Cliente" AS cliente_id,
-            p."Nome" AS nome_cliente,
-            p."Paciente" AS paciente_id,
-            p."Nome Paciente" AS nome_paciente,
-            p."Medico" AS medico_id,
-            p."Nome Medico" AS nome_medico,
-            p."Produt" AS produto_id,
-            p."Grupo" AS grupo_produto,
+            p.cliente_id AS cliente_id,
+            p.nome_cliente AS nome_cliente,
+            p.paciente_id AS paciente_id,
+            p.nome_paciente AS nome_paciente,
+            p.medico_id AS medico_id,
+            p.nome_medico AS nome_medico,
+            p.produto_id AS produto_id,
+            p.grupo_produto AS grupo_produto,
             prod.B1_ZDGEREN AS descricao_gerencial,
             prod.B1_ZMAPING AS descricao_mapping_actividad,
             TRY_CAST(prod.B1_ZCICLOS AS INTEGER) AS ciclos,
-            p."Quantidade" AS quantidade,
-            p."Vlr.Unit" AS valor_unitario,
-            p."Vlr.Mercadoria" AS valor_mercadoria,
-            COALESCE(p."Vlr.Desconto", 0.0) AS valor_desconto,
-            COALESCE(p."Vlr.Custo", 0.0) AS valor_custo,
-            COALESCE(p."Vlr.Custo Unit", 0.0) AS valor_custo_unit,
-            COALESCE(p."Vlr.ISS", 0.0) AS valor_iss,
-            COALESCE(p."Vlr.Comissao", 0.0) AS valor_comissao,
+            p.quantidade AS quantidade,
+            p.valor_unitario AS valor_unitario,
+            p.valor_mercadoria AS valor_mercadoria,
+            COALESCE(p.valor_desconto, 0.0) AS valor_desconto,
+            COALESCE(p.valor_custo, 0.0) AS valor_custo,
+            COALESCE(p.valor_custo_unit, 0.0) AS valor_custo_unit,
+            COALESCE(p.valor_iss, 0.0) AS valor_iss,
+            COALESCE(p.valor_comissao, 0.0) AS valor_comissao,
             CAST(NULL AS VARCHAR) AS forma_pagamento,
-            CAST(NULL AS VARCHAR) AS condicao_pagamento,
-            CAST(NULL AS VARCHAR) AS operador,
-            p."CPF" AS _cpf,
-            YEAR(p."Emissao") AS ano,
-            MONTH(p."Emissao") AS mes,
+            p.condicao_pagamento AS condicao_pagamento,
+            p.operador AS operador,
+            p.cpf AS cpf,
+            YEAR(p.dt_emissao) AS ano,
+            MONTH(p.dt_emissao) AS mes,
             'PEDIDO_DIRETO' AS origem,
             CURRENT_TIMESTAMP::VARCHAR AS extraction_timestamp,
             p.instance_id AS instance_id
         FROM gold.protheus_pedidos_a_faturar p
         LEFT JOIN orc_dates o_dt
             ON p.instance_id = o_dt.instance_id
-           AND p."Filial" = o_dt.L1_FILIAL
-           AND p."Orcamento" = o_dt.orc_num
+           AND p.filial = o_dt.L1_FILIAL
+           AND p.orcamento = o_dt.orc_num
         LEFT JOIN (
             SELECT 
                 instance_id,
                 company_id, 
                 F2_FILIAL, 
-                TRY_CAST(F2_DOC AS INTEGER) AS doc_num, 
+                NULLIF(TRIM(F2_DOC), '') AS doc_num, 
                 MIN(CAST(F2_EMISSAO AS TIMESTAMP)) AS dt_nota
             FROM silver.notas 
             WHERE is_deleted = FALSE
             GROUP BY 1, 2, 3, 4
         ) n_dt
             ON p.instance_id = n_dt.instance_id
-           AND p."Filial" = n_dt.F2_FILIAL
-           AND p."Numero" = n_dt.doc_num
+           AND p.filial = n_dt.F2_FILIAL
+           AND p.num_nota = n_dt.doc_num
         LEFT JOIN silver.produtos prod
-            ON p.instance_id = prod.instance_id AND p."Produt" = prod.B1_COD
-        LEFT JOIN (
-            SELECT DISTINCT 
-                instance_id,
-                L1_FILIAL, 
-                TRY_CAST(L1_PEDRES AS INTEGER) as pedido, 
-                TRY_CAST(COALESCE(L1_NUM, L1_ORCRES) AS INTEGER) as orcamento
-            FROM silver.venda_direta 
-            WHERE is_deleted = FALSE AND (L1_SITUA IS NULL OR L1_SITUA != 'FR')
-        ) vd_exists
-          ON p.instance_id = vd_exists.instance_id
-         AND p."Filial" = vd_exists.L1_FILIAL 
-         AND (p."Pedido" = vd_exists.pedido OR (p."Orcamento" = vd_exists.orcamento AND vd_exists.orcamento IS NOT NULL))
-        WHERE CAST(p."Emissao" AS DATE) BETWEEN (SELECT start_date FROM common_window) AND (SELECT end_date FROM common_window)
-          AND vd_exists.L1_FILIAL IS NULL
+            ON p.instance_id = prod.instance_id AND p.produto_id = prod.B1_COD
+        LEFT JOIN vd_ped_exists vd_ped
+            ON p.instance_id = vd_ped.instance_id
+           AND p.filial = vd_ped.L1_FILIAL 
+           AND p.pedido = vd_ped.pedido
+        LEFT JOIN vd_orc_exists vd_orc
+            ON p.instance_id = vd_orc.instance_id
+           AND p.filial = vd_orc.L1_FILIAL 
+           AND p.orcamento = vd_orc.orcamento
+        WHERE CAST(p.dt_emissao AS DATE) BETWEEN (SELECT start_date FROM common_window) AND (SELECT end_date FROM common_window)
+          AND vd_ped.pedido IS NULL
+          AND vd_orc.orcamento IS NULL
     ),
     unioned AS (
         SELECT * FROM venda_direta_rows
@@ -705,43 +856,6 @@ def create_gold_vendas_consolidadas_table(con):
     count = con.execute("SELECT COUNT(*) FROM gold.protheus_vendas_consolidadas").fetchone()[0]
     logger.info(f"Created gold.protheus_vendas_consolidadas with {count:,} rows")
 
-
-def update_prontuario_column_vendas_consolidadas(con):
-    logger.info("Updating prontuario column in gold.protheus_vendas_consolidadas using Strategy L matching (Paciente & Cliente)...")
-
-    # 1. First run: Paciente
-    logger.info("Run 1 (vendas_consolidadas): Matching via paciente columns...")
-    find_prontuarios(
-        source_con=con,
-        clinisys_db_path=CLINISYS_DB_PATH,
-        source_schema='gold',
-        source_table='protheus_vendas_consolidadas',
-        id_col='paciente_id',
-        name_col='nome_paciente',
-        birthdate_col=None,
-        cpf_col=None,
-        label='vendas_consolidadas_paciente',
-        suffix='',
-    )
-
-    # 2. Second run: Cliente (matching remaining unmatched)
-    logger.info("Run 2 (vendas_consolidadas): Matching via cliente columns...")
-    find_prontuarios(
-        source_con=con,
-        clinisys_db_path=CLINISYS_DB_PATH,
-        source_schema='gold',
-        source_table='protheus_vendas_consolidadas',
-        id_col='cliente_id',
-        name_col='nome_cliente',
-        birthdate_col=None,
-        cpf_col='_cpf',
-        label='vendas_consolidadas_cliente',
-        suffix='',
-    )
-
-    # Drop temporary matching helper column _cpf
-    con.execute("ALTER TABLE gold.protheus_vendas_consolidadas DROP COLUMN _cpf")
-
     # Log final statistics for vendas_consolidadas
     stats = con.execute("""
         SELECT 
@@ -754,6 +868,11 @@ def update_prontuario_column_vendas_consolidadas(con):
     logger.info(f"Final prontuario matching stats (gold.protheus_vendas_consolidadas): Total={stats[0]:,}, Matched={stats[1]:,}, Unmatched={stats[2]:,}, Rate={rate:.2f}%")
 
 
+def update_prontuario_column_vendas_consolidadas(con):
+    """Deprecated: Matching is now performed directly at table creation via gold.dim_paciente_crosswalk."""
+    pass
+
+
 def main():
     logger.info("=== PROTHEUS SILVER TO GOLD CONSOLIDATION STARTED ===")
     logger.info(f"Target Database: {DUCKDB_PATH}")
@@ -761,12 +880,10 @@ def main():
     try:
         with duckdb.connect(DUCKDB_PATH) as con:
             con.execute("CREATE SCHEMA IF NOT EXISTS gold")
+            create_dim_paciente_crosswalk(con)
             create_gold_table(con)
-            update_prontuario_column(con)
             create_gold_pedidos_a_faturar_table(con)
-            update_prontuario_column_pedidos(con)
             create_gold_vendas_consolidadas_table(con)
-            update_prontuario_column_vendas_consolidadas(con)
             logger.info("=== PROTHEUS SILVER TO GOLD CONSOLIDATION FINISHED SUCCESSFUL ===")
     except Exception as e:
         logger.error(f"Gold Consolidation Failed: {e}", exc_info=True)

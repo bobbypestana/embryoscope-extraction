@@ -28,7 +28,8 @@ class RateLimiter:
         Args:
             delay: Minimum delay between requests in seconds
         """
-        self.delay = delay
+        # Ensure minimum delay of 0.12s (~8.3 req/s max) to strictly stay below the server's 10 req/s rate limit
+        self.delay = max(0.12, delay) if delay > 0 else 0.12
         self.last_request_time = 0
         self.lock = threading.Lock()
     
@@ -61,14 +62,15 @@ class EmbryoscopeAPIClient:
         """
         self.location = location
         self.config = config
-        self.rate_limit_delay = rate_limit_delay
+        self.rate_limit_delay = max(0.12, rate_limit_delay)
         self.base_url = f"https://{config['ip']}:{config['port']}"
         self.token = None
+        self.auth_lock = threading.Lock()
         self.session = requests.Session()
         self.session.verify = False  # Disable SSL verification
         
         # Initialize thread-safe rate limiter
-        self.rate_limiter = RateLimiter(rate_limit_delay)
+        self.rate_limiter = RateLimiter(self.rate_limit_delay)
         
         # Setup logging
         self.logger = logging.getLogger(f"embryoscope_api_{location}")
@@ -76,43 +78,54 @@ class EmbryoscopeAPIClient:
         self.last_status_code = None
         self.last_error = None
     
-    def authenticate(self) -> bool:
+    def authenticate(self, force_refresh: bool = False) -> bool:
         """
         Authenticate with the embryoscope API and get token.
+        Thread-safe: multiple concurrent threads will not double-authenticate.
         
         Returns:
             True if authentication successful, False otherwise
         """
-        try:
-            url = f"{self.base_url}/LOGIN"
-            params = {
-                'username': self.config['login'],
-                'password': '***MASKED***'  # Mask password in logs
-            }
-            log_params = {
-                'username': self.config['login'],
-                'password': '***MASKED***'
-            }
-            self.logger.debug(f"[AUTH] Sending authentication request to {url} with params: {log_params}")
-            response = self.session.get(url, params={'username': self.config['login'], 'password': self.config['password']}, timeout=30)
-            self.logger.debug(f"[AUTH] Received response: status={response.status_code}, content={response.text[:200]}...")
-            response.raise_for_status()
-            data = response.json()
-            if 'Token' in data:
-                self.token = data['Token']
-                self.logger.debug(f"[AUTH] Authentication successful, token received: ***MASKED***")
-                self.logger.info(f"Authentication successful for {self.location}")
+        with self.auth_lock:
+            if self.token and not force_refresh:
                 return True
-            else:
-                self.logger.error(f"No token found in response for {self.location}")
+            try:
+                self.rate_limiter.wait()
+                url = f"{self.base_url}/LOGIN"
+                log_params = {
+                    'username': self.config['login'],
+                    'password': '***MASKED***'
+                }
+                self.logger.debug(f"[AUTH] Sending authentication request to {url} with params: {log_params}")
+                response = self.session.get(url, params={'username': self.config['login'], 'password': self.config['password']}, timeout=30)
+                self.logger.debug(f"[AUTH] Received response: status={response.status_code}, content={response.text[:200]}...")
+                response.raise_for_status()
+                data = response.json()
+                if 'Token' in data:
+                    self.token = data['Token']
+                    self.logger.debug(f"[AUTH] Authentication successful, token received: ***MASKED***")
+                    self.logger.info(f"Authentication successful for {self.location}")
+                    return True
+                else:
+                    self.logger.error(f"No token found in response for {self.location}")
+                    return False
+            except requests.exceptions.RequestException as e:
+                self.logger.error(f"Authentication failed for {self.location}: {e}")
                 return False
-        except requests.exceptions.RequestException as e:
-            self.logger.error(f"Authentication failed for {self.location}: {e}")
-            return False
-        except json.JSONDecodeError as e:
-            self.logger.error(f"Invalid JSON response from {self.location}: {e}")
-            return False
-    
+            except json.JSONDecodeError as e:
+                self.logger.error(f"Invalid JSON response from {self.location}: {e}")
+                return False
+
+    def invalidate_token(self, bad_token: Optional[str] = None):
+        """
+        Invalidate the current token only if it matches bad_token (or bad_token is None).
+        Ensures that if another thread already re-authenticated and set a new token,
+        we do not wipe the new valid token.
+        """
+        with self.auth_lock:
+            if bad_token is None or (self.token and self.token == bad_token):
+                self.token = None
+
     def _rate_limited_request(self, method: str, url: str, **kwargs) -> Optional[requests.Response]:
         """
         Make a rate-limited request to the API with retry logic.
@@ -125,8 +138,8 @@ class EmbryoscopeAPIClient:
         Returns:
             Response object or None if request failed
         """
-        max_retries = 2
-        retry_delay = 0.2
+        max_retries = 4
+        retry_delay = 0.5
         for attempt in range(max_retries):
             # Use thread-safe rate limiter
             self.rate_limiter.wait()
@@ -142,6 +155,11 @@ class EmbryoscopeAPIClient:
                 self.logger.debug(f"[RESPONSE] status={response.status_code}, content={response.text[:200]}...")
                 if response.status_code == 401:
                     return response
+                if response.status_code == 429:
+                    self.logger.warning(f"Rate limit exceeded (429) for {self.location} - {url} (attempt {attempt + 1}/{max_retries})")
+                    time.sleep(max(1.5, retry_delay))
+                    retry_delay *= 2
+                    continue
                 response.raise_for_status()
                 return response
             except Exception as e:
@@ -152,9 +170,10 @@ class EmbryoscopeAPIClient:
                 self.last_error = str(e)
                 self.logger.error(f"[RETRY] Exception on attempt {attempt+1}: {e}")
                 if attempt < max_retries - 1:
+                    sleep_time = max(1.5, retry_delay) if getattr(self, 'last_status_code', 0) == 429 else retry_delay
                     self.logger.warning(f"Request failed for {self.location} - {url} (attempt {attempt + 1}/{max_retries}): {e}")
-                    self.logger.debug(f"[RETRY] Backing off for {retry_delay} seconds before next attempt.")
-                    time.sleep(retry_delay)
+                    self.logger.debug(f"[RETRY] Backing off for {sleep_time} seconds before next attempt.")
+                    time.sleep(sleep_time)
                     retry_delay *= 2  # Exponential backoff
                 else:
                     self.logger.error(f"Request failed for {self.location} - {url} after {max_retries} attempts: {e}")
@@ -163,7 +182,7 @@ class EmbryoscopeAPIClient:
     
     def _make_authenticated_request(self, endpoint: str, params: Optional[Dict] = None) -> Optional[Dict]:
         """
-        Make an authenticated request to the API.
+        Make an authenticated request to the API with thread-safe token renewal and retries.
         
         Args:
             endpoint: API endpoint (without base URL)
@@ -172,13 +191,22 @@ class EmbryoscopeAPIClient:
         Returns:
             JSON response or None if request failed
         """
-        for attempt in range(2):
-            if not self.token:
-                self.logger.debug(f"[AUTH] No token present, authenticating...")
+        max_attempts = 3
+        for attempt in range(max_attempts):
+            token_used = self.token
+            if not token_used:
+                self.logger.debug(f"[AUTH] No token present for {self.location}, authenticating...")
                 if not self.authenticate():
+                    if attempt < max_attempts - 1:
+                        time.sleep(1.0)
+                        continue
                     return None
+                token_used = self.token
+                if not token_used:
+                    return None
+
             url = f"{self.base_url}/{endpoint}"
-            headers = {'API-token': self.token}
+            headers = {'API-token': token_used}
             log_headers = {k: ('***MASKED***' if 'token' in k.lower() else v) for k, v in headers.items()}
             self.logger.debug(f"[API CALL] {url} | params={params} | headers={log_headers}")
             response = self._rate_limited_request('GET', url, headers=headers, params=params)
@@ -186,13 +214,10 @@ class EmbryoscopeAPIClient:
                 self.logger.debug(f"[API CALL] No response received from {url}")
                 return None
             if response.status_code == 401:
-                self.logger.debug(f"[AUTH] Token expired for {self.location}, re-authenticating...")
-                self.token = None  # Clear the expired token
-                if attempt == 0:  # Only retry once
-                    continue
-                else:
-                    self.logger.error(f"Failed to re-authenticate for {self.location}")
-                    return None
+                self.logger.warning(f"[AUTH] Token 401 for {self.location} on {endpoint} (attempt {attempt+1}/{max_attempts}). Re-authenticating...")
+                self.invalidate_token(token_used)
+                time.sleep(0.5)
+                continue
             try:
                 if not response.text.strip():
                     self.logger.debug(f"[API CALL] Empty response from {self.location} - {endpoint}")

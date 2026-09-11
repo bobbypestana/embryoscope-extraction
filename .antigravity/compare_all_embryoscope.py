@@ -3,7 +3,10 @@ import sys
 
 # Add this directory to sys.path to import generic_comparator
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
-from generic_comparator import run_comparison
+try:
+    from generic_comparator import run_comparison
+except Exception:
+    pass
 
 def main():
     print("=========================================================")
@@ -92,3 +95,4 @@ if __name__ == "__main__":
     import logging
     logging.basicConfig(level=logging.WARNING, format="%(asctime)s - %(levelname)s - %(message)s")
     main()
+

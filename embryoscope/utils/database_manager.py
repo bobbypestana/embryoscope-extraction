@@ -245,8 +245,12 @@ class EmbryoscopeDatabaseManager:
     
     def _update_view_metadata(self, conn, view_name: str, location: str, metadata: Dict[str, Any]):
         """Update metadata for a specific view and location."""
-        conn.execute(f"""
-            INSERT OR REPLACE INTO view_metadata 
+        conn.execute("""
+            DELETE FROM view_metadata 
+            WHERE view_name = ? AND (location = ? OR location IS NULL)
+        """, [view_name, location])
+        conn.execute("""
+            INSERT INTO view_metadata 
             (view_name, location, last_extraction_timestamp, last_row_count, last_data_hash, 
              change_detection_method, extraction_strategy, batch_size, parallel_processing, updated_at)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
@@ -257,20 +261,51 @@ class EmbryoscopeDatabaseManager:
             metadata.get('batch_size', 1000), metadata.get('parallel_processing', True)
         ])
     
+    def _get_business_keys(self, table_name: str) -> List[str]:
+        """Get business key columns for deduplication."""
+        dt = table_name.replace('data_', '')
+        keys = {
+            'patients': ['PatientIDx'],
+            'treatments': ['PatientIDx', 'TreatmentName'],
+            'embryo_data': ['EmbryoID'],
+            'idascore': ['EmbryoID']
+        }
+        return keys.get(dt, [])
+
     def _get_existing_hashes(self, conn, table_name: str, location: str) -> set:
-        """Get existing row hashes for a table and location."""
+        """Get existing row hashes for a table and location across all records."""
         result = conn.execute(f"""
             SELECT DISTINCT _row_hash FROM {table_name}
-            WHERE _location = ? AND _extraction_timestamp = (
-                SELECT MAX(_extraction_timestamp) FROM {table_name} WHERE _location = ?
-            )
-        """, [location, location]).fetchall()
-        
+            WHERE _location = ? AND _row_hash IS NOT NULL
+        """, [location]).fetchall()
         return {row[0] for row in result}
+
+    def _get_latest_existing_hashes(self, conn, table_name: str, location: str, key_fields: List[str]) -> Dict[Tuple, str]:
+        """
+        Get the latest _row_hash for each business key in the table for a given location.
+        Returns a dict mapping key_tuple -> latest_row_hash.
+        """
+        if not key_fields:
+            res = conn.execute(f"SELECT DISTINCT _row_hash FROM {table_name} WHERE _location = ? AND _row_hash IS NOT NULL", [location]).fetchall()
+            return {tuple([r[0]]): r[0] for r in res}
+        
+        keys_sql = ', '.join(key_fields)
+        query = f"""
+            SELECT {keys_sql}, _row_hash
+            FROM {table_name}
+            WHERE _location = ?
+            QUALIFY ROW_NUMBER() OVER (
+                PARTITION BY {keys_sql}
+                ORDER BY _extraction_timestamp DESC
+            ) = 1
+        """
+        result = conn.execute(query, [location]).fetchall()
+        n_keys = len(key_fields)
+        return {tuple(str(r[i]) for i in range(n_keys)): r[n_keys] for r in result}
     
     def _insert_data_incremental(self, conn, df: pd.DataFrame, table_name: str, location: str, run_id: str) -> int:
         """
-        Insert data incrementally, only new/changed rows.
+        Insert data incrementally, only new or changed rows based on the latest version per business key.
         
         Args:
             conn: Database connection
@@ -287,34 +322,45 @@ class EmbryoscopeDatabaseManager:
         
         # DEBUG: Print table schema and data columns
         try:
-            # Get table schema
             schema_result = conn.execute(f"DESCRIBE {table_name}").fetchall()
             table_columns = [row[0] for row in schema_result]
-            self.logger.info(f"DEBUG: Table {table_name} has {len(table_columns)} columns: {table_columns}")
-            
-            # Get data columns
             data_columns = list(df.columns)
-            self.logger.info(f"DEBUG: Data has {len(data_columns)} columns: {data_columns}")
-            
-            # Check for mismatch
             if len(table_columns) != len(data_columns):
                 self.logger.error(f"DEBUG: COLUMN COUNT MISMATCH! Table: {len(table_columns)}, Data: {len(data_columns)}")
                 self.logger.error(f"DEBUG: Missing in data: {set(table_columns) - set(data_columns)}")
                 self.logger.error(f"DEBUG: Extra in data: {set(data_columns) - set(table_columns)}")
-            
-            # Show first row for debugging
-            if not df.empty:
-                first_row = df.iloc[0].to_dict()
-                self.logger.info(f"DEBUG: First row data: {first_row}")
-                
         except Exception as debug_e:
             self.logger.error(f"DEBUG: Error getting schema info: {debug_e}")
         
-        # Get existing hashes
-        existing_hashes = list(self._get_existing_hashes(conn, table_name, location))
-        
-        # Filter for new/changed rows
-        new_rows = df[~df['_row_hash'].isin(existing_hashes)]
+        # Check if table already has rows for this location
+        has_rows = False
+        try:
+            has_rows = conn.execute(f"SELECT 1 FROM {table_name} WHERE _location = ? LIMIT 1", [location]).fetchone() is not None
+        except Exception:
+            has_rows = False
+
+        if not has_rows:
+            # First load for this table/location: insert all
+            new_rows = df
+        else:
+            key_fields = self._get_business_keys(table_name)
+            if not key_fields:
+                # Fallback: check against all existing hashes
+                existing_hashes = self._get_existing_hashes(conn, table_name, location)
+                new_rows = df[~df['_row_hash'].isin(existing_hashes)]
+            else:
+                # Compare each row against the latest row hash for that business key
+                latest_existing = self._get_latest_existing_hashes(conn, table_name, location, key_fields)
+                
+                def is_new_or_changed(row):
+                    key = tuple(str(row[k]) for k in key_fields)
+                    existing_hash = latest_existing.get(key)
+                    if existing_hash is None:
+                        return True  # New entity
+                    return existing_hash != row.get('_row_hash')  # Changed entity
+                
+                mask = df.apply(is_new_or_changed, axis=1)
+                new_rows = df[mask]
         
         if new_rows.empty:
             self.logger.info(f"No new/changed rows for {table_name} at {location}")
@@ -452,7 +498,7 @@ class EmbryoscopeDatabaseManager:
             if has_embryo_table:
                 query = """
                     WITH latest_treatments AS (
-                        SELECT PatientIDx, TreatmentName, COALESCE(is_ongoing, FALSE) as is_ongoing
+                        SELECT PatientIDx, TreatmentName, COALESCE(is_ongoing, FALSE) as is_ongoing, _extraction_timestamp
                         FROM data_treatments
                         WHERE _location = ?
                         QUALIFY ROW_NUMBER() OVER (
@@ -476,7 +522,8 @@ class EmbryoscopeDatabaseManager:
                         t.is_ongoing,
                         CASE WHEN e.PatientIDx IS NOT NULL THEN TRUE ELSE FALSE END as has_embryos,
                         e.latest_embryo_date,
-                        e.embryo_ids
+                        e.embryo_ids,
+                        t._extraction_timestamp
                     FROM latest_treatments t
                     LEFT JOIN embryo_pairs e 
                         ON t.PatientIDx = e.PatientIDx AND t.TreatmentName = e.TreatmentName
@@ -488,7 +535,8 @@ class EmbryoscopeDatabaseManager:
                             'is_ongoing': bool(row[2]),
                             'has_embryos': bool(row[3]),
                             'latest_embryo_date': row[4],
-                            'embryo_ids': set(row[5]) if row[5] else set()
+                            'embryo_ids': set(row[5]) if row[5] else set(),
+                            'treatment_timestamp': row[6]
                         }
                         for row in result
                     }
@@ -496,7 +544,7 @@ class EmbryoscopeDatabaseManager:
                     self.logger.debug(f"Could not query data_treatments table with embryos: {e}")
             else:
                 query = """
-                    SELECT PatientIDx, TreatmentName, COALESCE(is_ongoing, FALSE) as is_ongoing
+                    SELECT PatientIDx, TreatmentName, COALESCE(is_ongoing, FALSE) as is_ongoing, _extraction_timestamp
                     FROM data_treatments
                     WHERE _location = ?
                     QUALIFY ROW_NUMBER() OVER (
@@ -511,7 +559,8 @@ class EmbryoscopeDatabaseManager:
                             'is_ongoing': bool(row[2]),
                             'has_embryos': False,
                             'latest_embryo_date': None,
-                            'embryo_ids': set()
+                            'embryo_ids': set(),
+                            'treatment_timestamp': row[3]
                         }
                         for row in result
                     }
@@ -580,7 +629,7 @@ class EmbryoscopeDatabaseManager:
     
     def get_data_summary(self, location: str = None) -> Dict[str, Any]:
         """
-        Get summary of data in the database.
+        Get summary of data in the database, counting distinct clinical entities.
         
         Args:
             location: Optional location filter
@@ -589,33 +638,47 @@ class EmbryoscopeDatabaseManager:
             Dictionary with data summary
         """
         summary = {}
+        distinct_exprs = {
+            'patients': 'COUNT(DISTINCT PatientIDx)',
+            'treatments': "COUNT(DISTINCT concat(PatientIDx, ':', TreatmentName))",
+            'embryo_data': 'COUNT(DISTINCT EmbryoID)',
+            'idascore': 'COUNT(DISTINCT EmbryoID)'
+        }
         
         with duckdb.connect(self.db_path) as conn:
             data_types = ['patients', 'treatments', 'embryo_data', 'idascore']
             
             for data_type in data_types:
                 table_name = self._get_table_name(data_type)
+                distinct_sql = distinct_exprs.get(data_type, 'COUNT(*)')
                 
-                if location:
-                    query = f"""
-                        SELECT COUNT(*) as count, 
-                               MAX(_extraction_timestamp) as last_extraction
-                        FROM {table_name}
-                        WHERE _location = ?
-                    """
-                    result = conn.execute(query, [location]).fetchone()
-                else:
-                    query = f"""
-                        SELECT COUNT(*) as count, 
-                               MAX(_extraction_timestamp) as last_extraction
-                        FROM {table_name}
-                    """
-                    result = conn.execute(query).fetchone()
-                
-                summary[data_type] = {
-                    'count': result[0] if result[0] else 0,
-                    'last_extraction': result[1] if result[1] else None
-                }
+                try:
+                    if location:
+                        query = f"""
+                            SELECT {distinct_sql} as count, 
+                                   MAX(_extraction_timestamp) as last_extraction,
+                                   COUNT(*) as total_records
+                            FROM {table_name}
+                            WHERE _location = ?
+                        """
+                        result = conn.execute(query, [location]).fetchone()
+                    else:
+                        query = f"""
+                            SELECT {distinct_sql} as count, 
+                                   MAX(_extraction_timestamp) as last_extraction,
+                                   COUNT(*) as total_records
+                            FROM {table_name}
+                        """
+                        result = conn.execute(query).fetchone()
+                    
+                    summary[data_type] = {
+                        'count': result[0] if result and result[0] is not None else 0,
+                        'last_extraction': result[1] if result and result[1] is not None else None,
+                        'total_records': result[2] if result and result[2] is not None else 0
+                    }
+                except Exception as e:
+                    self.logger.debug(f"Could not get summary for {table_name}: {e}")
+                    summary[data_type] = {'count': 0, 'last_extraction': None, 'total_records': 0}
         
         return summary
     

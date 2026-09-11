@@ -310,7 +310,7 @@ WHITELIST = {
 TIPO_FILTERS = {
     'fresh': ['FIC/ICSI', 'FIV/ICSI', 'FRESH', 'ICSI', 'FIV', 'CONG', 'OR', 'PUNÇÃO', 'PUNCAO'],
     'fet': ['FET', 'FET/OR', 'FET/ER', 'TEC', 'DESCONG EMBRIAO', 'DESCONG EMBRIÃO'],
-    'recep': ['RECEPTORA', 'RECEP', 'DOAÇÃO', 'DOACAO', 'RECEPT', 'DONOR'],
+    'recep': ['RECEPTORA', 'RECEP', 'DOAÇÃO', 'DOACAO', 'RECEPT', 'DONOR', 'OD', 'DOA'],
     'fot': ['FOT', 'FOT OR', 'DESCONG OVO', 'DESCONG OVULO', 'DESCONG ÓVULO'],
     'doadoras': ['DOADORA', 'DOADORAS'],
     'fp_ovulos': ['EGG FREEZING', 'CRIO DE ÓVULOS', 'CRIO DE OVULOS', 'CRIO OVULOS', 'CRIO DE OÓCITOS', 'CONG. ÓVULOS', 'CONG ÓVULOS', 'FP', 'CRIO TECIDO'],
@@ -432,9 +432,14 @@ TABLE_CONFIGS = {
                 'no_biopsiados': '# DPI',  
                 'qtd_analisados': 'N° ANALISADOS', 
                 'qtd_normais': '# DPI NL', 
-                'dia_cryo': 'DIA CRIO'
+                'dia_cryo': 'DIA CRIO',
+                'no_et': 'NºET',
+                'dia_et': 'DIA ET',
+                'result': 'RESULT',
+                'tipo_do_resultado': 'ADMINSTRAÇÃO 1',
+                'gravidez_clinica': 'SG'
             },
-            'filters': ['FIC/ICSI', 'FIV/ICSI', 'FOT', 'FOT OR', 'OR', 'FRESH']
+            'filters': ['FIC/ICSI', 'FIV/ICSI', 'OR', 'FRESH']
         },
         'fet': {
             'mapping': {
@@ -493,9 +498,14 @@ TABLE_CONFIGS = {
                 'no_biopsiados': '# DPI',  
                 'qtd_analisados': '#ANALISADOS DPI', 
                 'qtd_normais': '# DPI NL', 
-                'dia_cryo': 'DIA CRYO'
+                'dia_cryo': 'DIA CRYO',
+                'no_et': 'NºET',
+                'dia_et': 'DIA ET',
+                'result': 'RESULT',
+                'tipo_do_resultado': 'ADMINSTRAÇÃO 1',
+                'gravidez_clinica': 'SG'
             },
-            'filters': ['FIC/ICSI', 'FIV/ICSI', 'FOT', 'FOT OR', 'OR', 'FRESH']
+            'filters': ['FIC/ICSI', 'FIV/ICSI', 'OR', 'FRESH']
         },
         'fet': {
             'mapping': {
@@ -554,9 +564,14 @@ TABLE_CONFIGS = {
                 'no_biopsiados': '# DPI',  
                 'qtd_analisados': 'Nº analisados', 
                 'qtd_normais': '# DPI NL', 
-                'dia_cryo': 'DIA CRYO'
+                'dia_cryo': 'DIA CRYO',
+                'no_et': 'NºET',
+                'dia_et': 'DIA ET',
+                'result': 'RESULT',
+                'tipo_do_resultado': 'ADMINSTRAÇÃO 1',
+                'gravidez_clinica': 'SG'
             },
-            'filters': ['FIC/ICSI', 'FIV/ICSI', 'FOT', 'FOT OR', 'OR', 'FRESH']
+            'filters': ['FIC/ICSI', 'FIV/ICSI', 'OR', 'FRESH']
         },
         'fet': {
             'mapping': {
@@ -615,9 +630,14 @@ TABLE_CONFIGS = {
                 'no_biopsiados': '# DPI',  
                 'qtd_analisados': 'N° ANALISADOS', 
                 'qtd_normais': '# DPI NL', 
-                'dia_cryo': 'DIA CRIO'
+                'dia_cryo': 'DIA CRIO',
+                'no_et': 'NºET',
+                'dia_et': 'DIA ET',
+                'result': 'RESULT',
+                'tipo_do_resultado': 'ADMINISTRAÇÃO 1',
+                'gravidez_clinica': 'SG'
             },
-            'filters': ['FIC/ICSI', 'FIV/ICSI', 'FOT', 'FOT OR', 'OR', 'FRESH']
+            'filters': ['FIC/ICSI', 'FIV/ICSI', 'OR', 'FRESH']
         },
         'fet': {
             'mapping': {
@@ -676,9 +696,14 @@ TABLE_CONFIGS = {
                 'no_biopsiados': '# DPI',  
                 'qtd_analisados': '#ANALISADOS DPI', 
                 'qtd_normais': '# DPI NL', 
-                'dia_cryo': 'DIA CRYO'
+                'dia_cryo': 'DIA CRYO',
+                'no_et': 'NºET',
+                'dia_et': 'DIA ET',
+                'result': 'RESULT',
+                'tipo_do_resultado': 'ADMINISTRAÇÃO 1',
+                'gravidez_clinica': 'SG'
             },
-            'filters': ['FIC/ICSI', 'FIV/ICSI', 'FOT', 'FOT OR', 'OR', 'FRESH']
+            'filters': ['FIC/ICSI', 'FIV/ICSI', 'OR', 'FRESH']
         },
         'fet': {
             'mapping': {
@@ -737,9 +762,14 @@ TABLE_CONFIGS = {
                 'no_biopsiados': '# DPI',  
                 'qtd_analisados': 'Nº analisados', 
                 'qtd_normais': '# DPI NL', 
-                'dia_cryo': 'DIA CRYO'
+                'dia_cryo': 'DIA CRYO',
+                'no_et': 'NºET',
+                'dia_et': 'DIA ET',
+                'result': 'RESULT',
+                'tipo_do_resultado': 'ADMINISTRAÇÃO 1',
+                'gravidez_clinica': 'SG'
             },
-            'filters': ['FIC/ICSI', 'FIV/ICSI', 'FOT', 'FOT OR', 'OR', 'FRESH']
+            'filters': ['FIC/ICSI', 'FIV/ICSI', 'OR', 'FRESH']
         },
         'fet': {
             'mapping': {
@@ -798,9 +828,14 @@ TABLE_CONFIGS = {
                 'no_biopsiados': '# DPI',  
                 'qtd_analisados': 'N° ANALISADOS', 
                 'qtd_normais': '# DPI NL', 
-                'dia_cryo': 'DIA CRIO'
+                'dia_cryo': 'DIA CRIO',
+                'no_et': 'NºET',
+                'dia_et': 'DIA ET',
+                'result': 'RESULT',
+                'tipo_do_resultado': 'ADMINISTRAÇÃO 1',
+                'gravidez_clinica': 'SG'
             },
-            'filters': ['FIC/ICSI', 'FIV/ICSI', 'FOT', 'FOT OR', 'OR', 'FRESH']
+            'filters': ['FIC/ICSI', 'FIV/ICSI', 'OR', 'FRESH']
         },
         'fet': {
             'mapping': {
@@ -859,9 +894,14 @@ TABLE_CONFIGS = {
                 'no_biopsiados': '# DPI',  
                 'qtd_analisados': '#ANALISADOS DPI', 
                 'qtd_normais': '# DPI NL', 
-                'dia_cryo': 'DIA CRYO'
+                'dia_cryo': 'DIA CRYO',
+                'no_et': 'NºET',
+                'dia_et': 'DIA ET',
+                'result': 'RESULT',
+                'tipo_do_resultado': 'ADMINSTRAÇÃO 1',
+                'gravidez_clinica': 'SG'
             },
-            'filters': ['FIC/ICSI', 'FIV/ICSI', 'FOT', 'FOT OR', 'OR', 'FRESH']
+            'filters': ['FIC/ICSI', 'FIV/ICSI', 'OR', 'FRESH']
         },
         'fet': {
             'mapping': {
@@ -920,9 +960,14 @@ TABLE_CONFIGS = {
                 'no_biopsiados': '# DPI',  
                 'qtd_analisados': 'Nº analisados', 
                 'qtd_normais': '# DPI NL', 
-                'dia_cryo': 'DIA CRYO'
+                'dia_cryo': 'DIA CRYO',
+                'no_et': 'NºET',
+                'dia_et': 'DIA ET',
+                'result': 'RESULT',
+                'tipo_do_resultado': 'ADMINSTRAÇÃO 1',
+                'gravidez_clinica': 'SG'
             },
-            'filters': ['FIC/ICSI', 'FIV/ICSI', 'FOT', 'FOT OR', 'OR', 'FRESH']
+            'filters': ['FIC/ICSI', 'FIV/ICSI', 'OR', 'FRESH']
         },
         'fet': {
             'mapping': {
@@ -980,9 +1025,19 @@ TABLE_CONFIGS = {
                 'no_biopsiados': 'Nº BIOPSIADOS',
                 'qtd_analisados': 'QTD ANALISADOS',
                 'qtd_normais': 'QTD NORMAIS',
-                'dia_cryo': 'DIA CRYO'
+                'dia_cryo': 'DIA CRYO',
+                'gravidez_clinica': 'Gravidez Clinica',
+                'gravidez_bioquimica': 'Gravidez Bioquimica',
+                'no_et': 'Nº ET',
+                'dia_et': 'DIA ET',
+                'result': 'RESULTADO',
+                'tipo_do_resultado': 'TIPO RESULTADO',
+                'no_nascidos': 'Nº NASCIDOS',
+                'data_parto': 'DATA PARTO',
+                'tipo_de_parto': 'TIPO DE PARTO',
+                'houve_transferencia': 'Houve transferencia?'
             },
-            'filters': ['FRESH', 'FRESH + FOT PRÓPRIO']
+            'filters': []
         }
     },
     'planilha_2024_ibira_fet': {
@@ -1042,9 +1097,19 @@ TABLE_CONFIGS = {
                 'no_biopsiados': '# DPI',
                 'qtd_analisados': 'QTD ANALISADOS',
                 'qtd_normais': 'QTD NORMAIS',
-                'dia_cryo': 'DIA CRYO'
+                'dia_cryo': 'DIA CRYO',
+                'gravidez_clinica': 'Gravidez Clinica',
+                'gravidez_bioquimica': 'Gravidez Bioquimica',
+                'no_et': 'Nº ET',
+                'dia_et': 'DIA ET',
+                'result': 'RESULT',
+                'tipo_do_resultado': 'Tipo resultado',
+                'no_nascidos': 'Nº NASCIDOS',
+                'data_parto': 'DATA PARTO',
+                'tipo_de_parto': 'TIPO DE PARTO',
+                'houve_transferencia': 'Houve transferencia?'
             },
-            'filters': ['FIC/ICSI', 'FIV/ICSI', 'FOT', 'FOT OR', 'OR', 'FRESH', 'CONG. ÓVULOS', 'CONG']
+            'filters': ['FIC/ICSI', 'FIV/ICSI', 'OR', 'FRESH']
         },
         'fet': {
             'mapping': {
@@ -1055,8 +1120,8 @@ TABLE_CONFIGS = {
                 'data_da_fet': 'DATA',
                 'data_crio': 'DATA CRIO',
                 'result': 'RESULT',
-                'tipo_do_resultado': 'TIPO DO RESULTADO',
-                'no_nascidos': '',
+                'tipo_do_resultado': 'Tipo resultado',
+                'no_nascidos': 'Nº NASCIDOS',
                 'tipo_de_tratamento': 'TIPO 1',
                 'tipo_de_fet': 'TIPO 2',
                 'tipo_biopsia': 'TIPO 3',
@@ -1067,9 +1132,11 @@ TABLE_CONFIGS = {
                 'dia_cryo': 'DIA CRYO',
                 'no_da_transfer_1a_2a_3a': '',
                 'dia_et': 'DIA ET',
-                'no_et': 'NºET',
-                'gravidez_bioquimica': '',
-                'gravidez_clinica': '',
+                'no_et': 'Nº ET',
+                'gravidez_bioquimica': 'Gravidez Bioquimica',
+                'gravidez_clinica': 'Gravidez Clinica',
+                'data_parto': 'DATA PARTO',
+                'tipo_de_parto': 'TIPO DE PARTO',
                 'obs': 'OBS'
             },
             'filters': ['FET', 'FET/OR', 'FET/ER', 'DESCONG']
@@ -1102,9 +1169,14 @@ TABLE_CONFIGS = {
                 'no_biopsiados': '# DPI',  
                 'qtd_analisados': 'N° ANALISADOS', 
                 'qtd_normais': '# DPI NL', 
-                'dia_cryo': 'DIA CRIO'
+                'dia_cryo': 'DIA CRIO',
+                'no_et': 'NºET',
+                'dia_et': 'DIA ET',
+                'result': 'RESULT',
+                'tipo_do_resultado': 'ADMINISTRAÇÃO 1',
+                'gravidez_clinica': 'SG'
             },
-            'filters': ['FIC/ICSI', 'FIV/ICSI', 'FOT', 'FOT OR', 'OR', 'FRESH']
+            'filters': ['FIC/ICSI', 'FIV/ICSI', 'OR', 'FRESH']
         },
         'fet': {
             'mapping': {
@@ -1161,7 +1233,14 @@ TABLE_CONFIGS = {
                 'no_biopsiados': '#BLAST DPI',
                 'qtd_analisados': '#BLAST ANALISE',
                 'qtd_normais': 'NORMAIS',
-                'dia_cryo': 'Dia'
+                'dia_cryo': 'Dia',
+                'houve_transferencia': 'Transf',
+                'no_et': 'Transf',
+                'dia_et': 'Dia',
+                'result': 'Beta',
+                'tipo_do_resultado': 'Tipo',
+                'gravidez_bioquimica': 'Beta',
+                'gravidez_clinica': 'SG'
             },
             'filters': []
         }
@@ -1223,7 +1302,11 @@ TABLE_CONFIGS = {
                 'no_biopsiados': '# DPI',
                 'qtd_analisados': 'Nº ANALISADOS',
                 'qtd_normais': '# DPI NL',
-                'dia_cryo': 'DIA CRYO'
+                'dia_cryo': 'DIA CRYO',
+                'no_et': 'NºET',
+                'dia_et': 'DIA ET',
+                'result': 'RESULT',
+                'gravidez_clinica': 'SG'
             },
             'filters': []
         }
@@ -1256,10 +1339,49 @@ TABLE_CONFIGS = {
                 'gravidez_clinica': 'SG',
                 'obs': 'Observações'
             },
+        }
+    },
+    'planilha_2022_ssa_iiu': {
+        'sheet_name': 'IIU',
+        'iiu': {
+            'mapping': {
+                'nome_da_paciente': 'Paciente',
+                'data_de_nasc': 'Nasc.',
+                'pin': 'Prontuário',
+                'tipo_1': 'IIU',
+                'data_do_procedimento': 'Data',
+                'idade': 'Idade',
+                'medico': 'Médico',
+                'tipo_de_tratamento': 'Proced.',
+                'result': 'Beta',
+                'no_sg': 'SG'
+            },
+            'filters': []
+        }
+    },
+    'planilha_2023_ssa_iiu': {
+        'sheet_name': 'IIU',
+        'iiu': {
+            'mapping': {
+                'nome_da_paciente': 'Paciente',
+                'data_de_nasc': '',
+                'pin': 'Prontuário',
+                'tipo_1': 'IIU',
+                'data_do_procedimento': 'Data',
+                'idade': 'Idade',
+                'medico': 'Médico',
+                'tipo_de_tratamento': 'Proced.',
+                'result': 'Beta',
+                'no_sg': 'SG'
+            },
             'filters': []
         }
     }
 }
+
+TABLE_CONFIGS['planilha_2022_ibi_total'] = TABLE_CONFIGS['planilha_2022_ibira_total']
+TABLE_CONFIGS['planilha_2023_ibi_total_2023_nova'] = TABLE_CONFIGS['planilha_2023_ibira_total_2023_nova']
+
 
 def get_duckdb_connection():
     """Create DuckDB connection"""
@@ -1344,9 +1466,17 @@ def get_bronze_tables(con, sheet_type=None):
         bronze_tables = con.execute(query).fetchdf()['table_name'].tolist()
         
         # Filter for years we want to process
+        EXCLUDED_TABLES = [
+            'planilha_2022_bsb_sheet1',
+            'planilha_2022_ibi_total',
+            'planilha_2023_ibira_total_2023',
+            'planilha_2023_ibi_total_2023',
+            'planilha_2023_ibi_total_2023_nova'
+        ]
         bronze_tables = [
             t for t in bronze_tables 
             if any(year in t for year in YEARS_TO_PROCESS)
+            and t not in EXCLUDED_TABLES
         ]
         
         if sheet_type:
@@ -1616,32 +1746,47 @@ def clean_data(df, sheet_type):
     if blank_removed > 0:
         logger.info(f"Removed {blank_removed:,} completely blank rows")
     
-    # Step 3: Remove rows where both PIN and procedure date are blank
+    # Step 3: Remove rows where both patient identification and procedure date are blank
     df = df_clean.copy()
     initial_step3_count = len(df)
     
-    # Find PIN column
-    pin_col = next((col for col in df.columns if normalize_column_name(col) == 'pin'), 'pin')
+    # Identify patient ID / name column
+    id_cols = [col for col in df.columns if normalize_column_name(col) in ['pin', 'prontuario', 'nome_da_paciente', 'paciente']]
     
-    # Determine procedure date column based on sheet type
+    # Identify procedure date columns
     if sheet_type.upper() in ['FRESH', 'FOT', 'DOADORAS', 'FP_OVULOS']:
-        date_col = next((col for col in df.columns if normalize_column_name(col) in ['data_da_puncao', 'data_do_procedimento', 'data_inicio_inducao', 'data_crio', 'dia_cryo', 'dia', 'data_da_cirurgia']), 'data_da_puncao')
+        date_candidates = ['data_da_puncao', 'data_do_procedimento', 'data_inicio_inducao', 'data_crio', 'dia_cryo', 'dia', 'data_da_cirurgia']
     elif sheet_type.upper() in ['IIU']:
-        date_col = next((col for col in df.columns if normalize_column_name(col) in ['data_do_procedimento', 'data_inicial_da_inducao', 'data']), 'data_do_procedimento')
+        date_candidates = ['data_do_procedimento', 'data', 'data_inicial_da_inducao']
     elif sheet_type.upper() in ['FP_SEMEN']:
-        date_col = next((col for col in df.columns if normalize_column_name(col) in ['data_do_procedimento', 'data']), 'data_do_procedimento')
+        date_candidates = ['data_do_procedimento', 'data']
     else:  # FET, RECEP
-        date_col = next((col for col in df.columns if normalize_column_name(col) in ['data_da_fet', 'data_da_transferencia', 'data_do_procedimento', 'data_crio', 'dia_cryo', 'dia']), 'data_da_fet')
+        date_candidates = ['data_da_fet', 'data_da_transferencia', 'data_do_procedimento', 'data_crio', 'dia_cryo', 'dia']
     
-    if pin_col in df.columns and date_col in df.columns:
-        # A row is kept if either PIN or date is NOT blank
-        mask_keys = ~(df[pin_col].apply(is_blank) & df[date_col].apply(is_blank))
+    date_cols = [col for col in df.columns if normalize_column_name(col) in date_candidates]
+    
+    if id_cols or date_cols:
+        # Check if row has at least one valid patient identifier
+        has_id = pd.Series(False, index=df.index)
+        for col in id_cols:
+            has_id = has_id | ~df[col].apply(is_blank)
+            
+        # Check if row has at least one valid procedure date
+        has_date = pd.Series(False, index=df.index)
+        for col in date_cols:
+            has_date = has_date | ~df[col].apply(is_blank)
+            
+        # Require at least one valid patient identifier (PIN or Name); fallback to date only if no ID cols
+        if id_cols:
+            mask_keys = has_id
+        else:
+            mask_keys = has_date
         df_clean = df[mask_keys].copy()
         keys_removed = initial_step3_count - len(df_clean)
         if keys_removed > 0:
-            logger.info(f"Removed {keys_removed:,} rows missing both {pin_col} and {date_col}")
+            logger.info(f"Removed {keys_removed:,} rows missing valid patient ID ({id_cols})")
     else:
-        logger.warning(f"Could not find {pin_col} or {date_col} for key-based cleaning (Columns present: {pin_col in df.columns}, {date_col in df.columns})")
+        logger.warning(f"Could not find ID or date columns for key-based cleaning")
         df_clean = df
 
     total_removed = initial_count - len(df_clean)
@@ -1694,6 +1839,19 @@ def transform_data_types(df, column_types):
             if col in ['result', 'tipo_do_resultado', 'gravidez_clinica', 'gravidez_bioquimica', 'ohss', 'hemorragia', 'infeccao']:
                 df_transformed[col] = df_transformed[col].astype(str).str.strip().str.upper()
                 df_transformed[col] = df_transformed[col].replace({'NAN': None, 'NONE': None, '<NA>': None, '': None})
+                
+                if col == 'gravidez_clinica':
+                    # Normalize positive gestational sacs (1, 2, 3, etc.) to POSITIVO and clean zero/negative markers
+                    is_pos_sg = df_transformed[col].isin(['1', '2', '3', '4', '1.0', '2.0', '3.0', '4.0', 'POSITIVO', 'X', 'SIM'])
+                    df_transformed.loc[is_pos_sg, col] = 'POSITIVO'
+                    is_neg_sg = df_transformed[col].isin(['0', '0.0', 'NÃO', 'NAO', '\\', '?', '-', 'NEGATIVO', 'NEG'])
+                    df_transformed.loc[is_neg_sg, col] = None
+                elif col == 'gravidez_bioquimica':
+                    # Normalize positive Beta / biochemical pregnancy results
+                    is_pos_beta = df_transformed[col].str.contains('POS', na=False) | df_transformed[col].isin(['1', '1.0', 'X', 'SIM'])
+                    df_transformed.loc[is_pos_beta, col] = 'POSITIVO'
+                    is_neg_beta = df_transformed[col].str.contains('NEG', na=False) | df_transformed[col].isin(['0', '0.0', 'BLOQUEADO', 'NÃO', 'NAO', '-', '\\'])
+                    df_transformed.loc[is_neg_beta, col] = None
     
     logger.info("Data type transformation completed")
     return df_transformed
@@ -1926,6 +2084,11 @@ def process_bronze_to_silver(con, sheet_type):
                     allowed_types = TIPO_FILTERS.get(sheet_type, [])
                 else:
                     allowed_types = []  # Dedicated procedure sheet (keep all rows)
+
+            # Ensure dedicated procedure sheets map 1-to-1 without dropping rows (no TIPO 1 filtering)
+            is_shared_table = any(k in table_name.lower() for k in ['_total', '_geral', '_anual', '_2022', '_sheet1'])
+            if not is_shared_table:
+                allowed_types = []
 
             # 2. Filter by TIPO 1 (Prefix matching) immediately
             if 'tipo_1' in df_standardized.columns and allowed_types:

@@ -61,7 +61,7 @@ YEAR_CONFIGS = {
         'header': 1
     },
     '2023': {
-        'sheets': ['FRESH', 'FET', 'FOT', 'RECEP', 'TOTAL 2023', 'Total 2023 Nova ', 'Total 2023 Nova', 'GERAL 2023', 'FIV', 'TEC'] + CLINICAL_SHEETS_ADDITIONAL,
+        'sheets': ['FRESH', 'FET', 'FOT', 'RECEP', 'Total 2023 Nova ', 'Total 2023 Nova', 'GERAL 2023', 'FIV', 'TEC'] + CLINICAL_SHEETS_ADDITIONAL,
         'header': 1
     },
     '2024': {
@@ -268,10 +268,8 @@ def process_ssa_2022_file(file_path, con):
             
         # 3. IIU sheet
         if 'IIU' in sheets:
-            header_row = detect_header_row(file_path, 'IIU', max_rows=15)
-            if header_row is None:
-                header_row = 5
-            logger.info(f"Loading IIU sheet for {file_name} with header row {header_row}...")
+            header_row = 5
+            logger.info(f"Loading IIU sheet for {file_name} with explicit header row {header_row}...")
             df_iiu = pd.read_excel(file_path, sheet_name='IIU', header=header_row, dtype=str, engine='openpyxl')
             table_name = "planilha_2022_ssa_iiu"
             total_loaded += insert_dataframe_to_bronze(con, df_iiu, table_name, file_name, "IIU")
@@ -368,13 +366,22 @@ def process_excel_file(file_path, con):
         table_name = generate_table_name(file_path, sheet)
         
         # Header row detection
-        actual_header_row = default_header_row
-        detected = detect_header_row(file_path, sheet)
-        if detected is not None:
-            actual_header_row = detected
-            logger.info(f"Detected header for {file_name} [{sheet}] at row {actual_header_row}")
+        if 'SSA' in file_name.upper() and sheet.upper() == 'IIU':
+            if year in ['2022', '2023']:
+                actual_header_row = 5
+            elif year in ['2025', '2026']:
+                actual_header_row = 0
+            else:
+                actual_header_row = 1
+            logger.info(f"Using explicit header row {actual_header_row} for SSA IIU {file_name} [{sheet}]")
         else:
-            logger.info(f"Using default header row {actual_header_row} for {file_name} [{sheet}]")
+            actual_header_row = default_header_row
+            detected = detect_header_row(file_path, sheet)
+            if detected is not None:
+                actual_header_row = detected
+                logger.info(f"Detected header for {file_name} [{sheet}] at row {actual_header_row}")
+            else:
+                logger.info(f"Using default header row {actual_header_row} for {file_name} [{sheet}]")
         
         logger.info(f"Processing: {file_name} [{sheet}] (Year: {year}, Header Row: {actual_header_row}) -> bronze.{table_name}")
         
@@ -409,6 +416,9 @@ def main():
         
         # Ensure excluded and obsolete tables are cleaned up from bronze schema
         con.execute("DROP TABLE IF EXISTS bronze.planilha_2022_bsb_sheet1")
+        con.execute("DROP TABLE IF EXISTS bronze.planilha_2022_ibi_total")
+        con.execute("DROP TABLE IF EXISTS bronze.planilha_2023_ibi_total_2023")
+        con.execute("DROP TABLE IF EXISTS bronze.planilha_2023_ibi_total_2023_nova")
         con.execute("DROP TABLE IF EXISTS bronze.planilha_2023_ibira_total_2023")
         
         excel_files = get_all_excel_files()

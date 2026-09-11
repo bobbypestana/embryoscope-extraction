@@ -96,9 +96,10 @@ def create_combined_table(conn):
         
         c.has_valid_outcome as has_valid_outcome,
         
-        -- Backward-compatible column aliases for legacy queries
+        -- Canonical and backward-compatible column aliases for research and legacy queries
         c.outcome_final_result as outcome_type,
-        c.outcome_final_gravidez_clinica as fet_gravidez_clinica,
+        c.outcome_final_result as tipo_resultado,
+        c.gravidez_clinica as fet_gravidez_clinica,
         c.outcome_final_no_nascidos as merged_numero_de_nascidos,
         c.planilha_tipo_resultado as fet_tipo_resultado
 

@@ -101,6 +101,18 @@ if %errorlevel% neq 0 (
 
 echo.
 echo ========================================
+echo STEP %PARENT_STEP%.6: Gold Paciente Ciclos e Desfechos
+echo ========================================
+python 03_03_gold_paciente_ciclos.py
+if %errorlevel% neq 0 (
+    echo ERROR: Step %PARENT_STEP%.6 failed
+    @REM pause (removed for automated execution)
+    set "EXIT_CODE=1"
+    goto cleanup
+)
+
+echo.
+echo ========================================
 echo DATAFLOW COMPLETED SUCCESSFULLY!
 echo ========================================
 echo.
