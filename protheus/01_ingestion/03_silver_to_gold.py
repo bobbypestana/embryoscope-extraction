@@ -433,7 +433,8 @@ def create_gold_pedidos_a_faturar_table(con):
         p.C5_USERLGI AS operador,
         TRY_CAST(p.C6_PRUNIT AS DOUBLE) AS preco_venda,
         0.0 AS ultimo_preco,
-        p.instance_id AS instance_id
+        p.instance_id AS instance_id,
+        p.company_id AS company_id
     FROM silver.pedidos p
     LEFT JOIN silver.clientes c_cli_cli
         ON p.instance_id = c_cli_cli.instance_id AND p.C5_CLIENTE = c_cli_cli.A1_COD AND p.C5_LOJACLI = c_cli_cli.A1_LOJA
@@ -473,10 +474,11 @@ def create_gold_pedidos_a_faturar_table(con):
         ON p.instance_id = cw_cli.instance_id 
        AND COALESCE(NULLIF(TRIM(c_cli_cli.A1_CODMS), ''), NULLIF(TRIM(c_cli_cli.A1_COD), ''), NULLIF(TRIM(p.C5_CLIENTE), '')) = cw_cli.entity_id
     WHERE p.is_deleted = FALSE
-      -- Point 2: Budget Identifier Filtering (C5_ORCRES <> '')
-      AND p.C5_ORCRES IS NOT NULL AND TRIM(p.C5_ORCRES) != ''
-      -- Point 3: Residue / Cancellation Filtering (C6_BLQ != 'R')
-      AND (p.C6_BLQ IS NULL OR p.C6_BLQ != 'R');
+      AND (p.C6_BLQ IS NULL OR p.C6_BLQ != 'R')
+      AND (
+          (p.C5_ORCRES IS NOT NULL AND TRIM(p.C5_ORCRES) != '')
+          OR (p.C6_NOTA IS NOT NULL AND TRIM(p.C6_NOTA) != '')
+      );
     """
 
     con.execute(query)
@@ -514,24 +516,11 @@ def update_prontuario_column_pedidos(con):
 
 
 def create_gold_vendas_consolidadas_table(con):
-    logger.info("Combining silver.venda_direta and gold.protheus_pedidos_a_faturar into gold.protheus_vendas_consolidadas (with deduplication)...")
-
-    con.execute("DROP TABLE IF EXISTS gold.protheus_vendas_consolidadas")
+    logger.info("Combining silver.venda_direta, gold.protheus_pedidos_a_faturar, and direct silver.notas into gold.protheus_vendas_consolidadas...")
 
     query = """
-    CREATE TABLE gold.protheus_vendas_consolidadas AS
-    WITH common_window AS (
-        SELECT 
-            GREATEST(
-                (SELECT MIN(L1_EMISSAO) FROM silver.venda_direta WHERE is_deleted = FALSE),
-                (SELECT MIN(CAST(dt_emissao AS DATE)) FROM gold.protheus_pedidos_a_faturar)
-            ) AS start_date,
-            LEAST(
-                (SELECT MAX(L1_EMISSAO) FROM silver.venda_direta WHERE is_deleted = FALSE),
-                (SELECT MAX(CAST(dt_emissao AS DATE)) FROM gold.protheus_pedidos_a_faturar)
-            ) AS end_date
-    ),
-    invoiced_pedidos AS (
+    CREATE OR REPLACE TABLE gold.protheus_vendas_consolidadas AS
+    WITH invoiced_pedidos AS (
         SELECT DISTINCT 
             instance_id, company_id, C5_FILIAL, C5_NUM 
         FROM silver.pedidos 
@@ -597,6 +586,7 @@ def create_gold_vendas_consolidadas_table(con):
     vd_ped_exists AS (
         SELECT DISTINCT 
             instance_id,
+            company_id,
             L1_FILIAL, 
             NULLIF(TRIM(L1_PEDRES), '') as pedido
         FROM silver.venda_direta 
@@ -606,11 +596,26 @@ def create_gold_vendas_consolidadas_table(con):
     vd_orc_exists AS (
         SELECT DISTINCT 
             instance_id,
+            company_id,
             L1_FILIAL, 
             COALESCE(NULLIF(TRIM(L1_NUM), ''), NULLIF(TRIM(L1_ORCRES), '')) as orcamento
         FROM silver.venda_direta 
         WHERE is_deleted = FALSE AND (L1_SITUA IS NULL OR L1_SITUA NOT IN ('FR', 'CA'))
           AND COALESCE(NULLIF(TRIM(L1_NUM), ''), NULLIF(TRIM(L1_ORCRES), '')) IS NOT NULL
+    ),
+    ped_invoices AS (
+        SELECT DISTINCT 
+            instance_id, company_id, F2_FILIAL, F2_DOC, F2_SERIE, D2_ITEM
+        FROM silver.notas
+        WHERE is_deleted = FALSE AND D2_PEDIDO IS NOT NULL AND TRIM(D2_PEDIDO) != ''
+    ),
+    vd_invoices AS (
+        SELECT DISTINCT 
+            instance_id, company_id, L1_FILIAL as filial,
+            COALESCE(NULLIF(TRIM(L2_DOC), ''), NULLIF(TRIM(L1_DOC), '')) as doc_num
+        FROM silver.venda_direta
+        WHERE is_deleted = FALSE 
+          AND COALESCE(NULLIF(TRIM(L2_DOC), ''), NULLIF(TRIM(L1_DOC), '')) IS NOT NULL
     ),
     venda_direta_rows AS (
         SELECT 
@@ -760,7 +765,6 @@ def create_gold_vendas_consolidadas_table(con):
            AND COALESCE(NULLIF(TRIM(c_cli.A1_CODMS), ''), NULLIF(TRIM(c_cli.A1_COD), ''), NULLIF(TRIM(v.L1_CLIENTE), '')) = cw_cli.entity_id
         WHERE v.is_deleted = FALSE
           AND (v.L1_SITUA IS NULL OR v.L1_SITUA NOT IN ('FR', 'CA'))
-          AND v.L1_EMISSAO BETWEEN (SELECT start_date FROM common_window) AND (SELECT end_date FROM common_window)
     ),
     pedidos_direct_rows AS (
         SELECT 
@@ -813,6 +817,7 @@ def create_gold_vendas_consolidadas_table(con):
         FROM gold.protheus_pedidos_a_faturar p
         LEFT JOIN orc_dates o_dt
             ON p.instance_id = o_dt.instance_id
+           AND p.company_id = o_dt.company_id
            AND p.filial = o_dt.L1_FILIAL
            AND p.orcamento = o_dt.orc_num
         LEFT JOIN (
@@ -827,26 +832,140 @@ def create_gold_vendas_consolidadas_table(con):
             GROUP BY 1, 2, 3, 4
         ) n_dt
             ON p.instance_id = n_dt.instance_id
+           AND p.company_id = n_dt.company_id
            AND p.filial = n_dt.F2_FILIAL
            AND p.num_nota = n_dt.doc_num
         LEFT JOIN silver.produtos prod
             ON p.instance_id = prod.instance_id AND p.produto_id = prod.B1_COD
         LEFT JOIN vd_ped_exists vd_ped
             ON p.instance_id = vd_ped.instance_id
+           AND p.company_id = vd_ped.company_id
            AND p.filial = vd_ped.L1_FILIAL 
            AND p.pedido = vd_ped.pedido
         LEFT JOIN vd_orc_exists vd_orc
             ON p.instance_id = vd_orc.instance_id
+           AND p.company_id = vd_orc.company_id
            AND p.filial = vd_orc.L1_FILIAL 
            AND p.orcamento = vd_orc.orcamento
-        WHERE CAST(p.dt_emissao AS DATE) BETWEEN (SELECT start_date FROM common_window) AND (SELECT end_date FROM common_window)
-          AND vd_ped.pedido IS NULL
+        WHERE vd_ped.pedido IS NULL
           AND vd_orc.orcamento IS NULL
+    ),
+    direct_notas_rows AS (
+        SELECT
+            COALESCE(
+                NULLIF(cw_pac.prontuario, -1),
+                NULLIF(cw_cli.prontuario, -1),
+                -1
+            ) AS prontuario,
+            CASE WHEN n.instance_id = 'BH' THEN '5' ELSE n.company_id END AS grp,
+            CASE
+                WHEN n.instance_id = 'BH' AND n.F2_FILIAL IN ('0102', '0201') THEN 'Pouso Alegre'
+                WHEN n.instance_id = 'BH' THEN 'Belo Horizonte'
+                WHEN n.company_id = '01' AND n.F2_FILIAL IN ('010101', '010150') THEN 'Ibirapuera'
+                WHEN n.company_id = '01' AND n.F2_FILIAL IN ('010155', '010104', '010106') THEN 'Vila Mariana'
+                WHEN n.company_id = '03' AND n.F2_FILIAL = '030101' THEN 'Campinas'
+                WHEN n.company_id = '06' AND n.F2_FILIAL = '060101' THEN 'Pro Fiv'
+                WHEN n.company_id = '05' AND n.F2_FILIAL = '0101' THEN 'Belo Horizonte'
+                WHEN n.company_id = '07' AND n.F2_FILIAL IN ('010101', '020101') THEN 'Salvador - Cenafert'
+                WHEN n.company_id = '07' AND n.F2_FILIAL IN ('030101') THEN 'FIV Brasilia'
+                WHEN n.company_id = '07' AND n.F2_FILIAL IN ('040101', '040102') THEN 'Rio de Janeiro'
+                ELSE 'Unknown Unit (' || COALESCE(n.company_id, '') || ', ' || COALESCE(n.F2_FILIAL, '') || ')'
+            END AS unidade,
+            NULLIF(TRIM(n.F2_FILIAL), '') AS filial,
+            CAST(NULL AS VARCHAR) AS orcamento,
+            CAST(NULL AS TIMESTAMP) AS dt_orcamento,
+            CAST(NULL AS VARCHAR) AS pedido,
+            CAST(NULL AS TIMESTAMP) AS dt_pedido,
+            NULLIF(TRIM(n.F2_DOC), '') AS num_nota,
+            n.F2_SERIE AS serie_nota,
+            CAST(n.F2_EMISSAO AS TIMESTAMP) AS dt_nota,
+            COALESCE(prod.B1_DESC, '') AS descricao_produto,
+            TRY_CAST(n.D2_TOTAL AS DOUBLE) AS valor_total,
+            CAST(n.F2_EMISSAO AS TIMESTAMP) AS dt_emissao,
+            'FATURADO_DIRETO' AS status_fluxo,
+            COALESCE(NULLIF(TRIM(c_cli.A1_CODMS), ''), NULLIF(TRIM(c_cli.A1_COD), ''), NULLIF(TRIM(n.F2_CLIENTE), '')) AS cliente_id,
+            COALESCE(c_cli.A1_NOME, n.F2_NOME) AS nome_cliente,
+            COALESCE(
+                NULLIF(TRIM(c_pac.A1_CODMS), ''),
+                NULLIF(TRIM(c_cli.A1_CODMS), ''),
+                NULLIF(TRIM(c_pac.A1_COD), ''),
+                NULLIF(TRIM(n.F2_PACIENT), ''),
+                NULLIF(TRIM(n.F2_CLIENTE), '')
+            ) AS paciente_id,
+            COALESCE(n.F2_NOMPACI, c_pac.A1_NOME, c_cli.A1_NOME) AS nome_paciente,
+            NULLIF(TRIM(n.F2_VEND1), '') AS medico_id,
+            vend.A3_NOME AS nome_medico,
+            NULLIF(TRIM(n.D2_COD), '') AS produto_id,
+            TRY_CAST(prod.B1_GRUPO AS INTEGER) AS grupo_produto,
+            prod.B1_ZDGEREN AS descricao_gerencial,
+            prod.B1_ZMAPING AS descricao_mapping_actividad,
+            TRY_CAST(prod.B1_ZCICLOS AS INTEGER) AS ciclos,
+            TRY_CAST(n.D2_QUANT AS DOUBLE) AS quantidade,
+            TRY_CAST(n.D2_PRCVEN AS DOUBLE) AS valor_unitario,
+            COALESCE(TRY_CAST(n.D2_TOTAL AS DOUBLE), 0.0) AS valor_mercadoria,
+            COALESCE(TRY_CAST(n.D2_DESC AS DOUBLE), 0.0) AS valor_desconto,
+            COALESCE(TRY_CAST(n.D2_CUSTO1 AS DOUBLE), 0.0) AS valor_custo,
+            COALESCE(TRY_CAST(n.D2_CUSTO2 AS DOUBLE), 0.0) AS valor_custo_unit,
+            COALESCE(TRY_CAST(n.D2_VALISS AS DOUBLE), 0.0) AS valor_iss,
+            0.0 AS valor_comissao,
+            CAST(NULL AS VARCHAR) AS forma_pagamento,
+            CAST(NULL AS VARCHAR) AS condicao_pagamento,
+            n.F2_USERLGI AS operador,
+            COALESCE(n.F2_CPFPACI, c_cli.A1_CGC) AS cpf,
+            YEAR(n.F2_EMISSAO) AS ano,
+            MONTH(n.F2_EMISSAO) AS mes,
+            'NOTA_DIRETA' AS origem,
+            n.extraction_timestamp AS extraction_timestamp,
+            n.instance_id AS instance_id
+        FROM silver.notas n
+        LEFT JOIN ped_invoices pi
+          ON n.instance_id = pi.instance_id 
+         AND n.company_id = pi.company_id 
+         AND n.F2_FILIAL = pi.F2_FILIAL 
+         AND n.F2_DOC = pi.F2_DOC 
+         AND n.F2_SERIE = pi.F2_SERIE
+         AND n.D2_ITEM = pi.D2_ITEM
+        LEFT JOIN vd_invoices vi
+          ON n.instance_id = vi.instance_id 
+         AND n.company_id = vi.company_id 
+         AND n.F2_FILIAL = vi.filial 
+         AND n.F2_DOC = vi.doc_num
+        LEFT JOIN silver.clientes c_cli
+          ON n.instance_id = c_cli.instance_id 
+         AND n.F2_CLIENTE = c_cli.A1_COD 
+         AND n.F2_LOJA = c_cli.A1_LOJA
+        LEFT JOIN silver.clientes c_pac
+          ON n.instance_id = c_pac.instance_id 
+         AND n.F2_PACIENT = c_pac.A1_COD 
+         AND COALESCE(c_pac.A1_LOJA, '01') = '01'
+        LEFT JOIN silver.produtos prod
+          ON n.instance_id = prod.instance_id 
+         AND n.D2_COD = prod.B1_COD
+        LEFT JOIN silver.vendedores vend
+          ON n.instance_id = vend.instance_id 
+         AND n.F2_VEND1 = vend.A3_COD
+        LEFT JOIN gold.dim_paciente_crosswalk cw_pac
+          ON n.instance_id = cw_pac.instance_id 
+         AND COALESCE(
+              NULLIF(TRIM(c_pac.A1_CODMS), ''),
+              NULLIF(TRIM(c_cli.A1_CODMS), ''),
+              NULLIF(TRIM(n.F2_PACIENT), ''),
+              NULLIF(TRIM(c_pac.A1_COD), ''),
+              NULLIF(TRIM(n.F2_CLIENTE), '')
+          ) = cw_pac.entity_id
+        LEFT JOIN gold.dim_paciente_crosswalk cw_cli
+          ON n.instance_id = cw_cli.instance_id 
+         AND COALESCE(NULLIF(TRIM(c_cli.A1_CODMS), ''), NULLIF(TRIM(c_cli.A1_COD), ''), NULLIF(TRIM(n.F2_CLIENTE), '')) = cw_cli.entity_id
+        WHERE n.is_deleted = FALSE
+          AND pi.F2_DOC IS NULL
+          AND vi.doc_num IS NULL
     ),
     unioned AS (
         SELECT * FROM venda_direta_rows
         UNION ALL
         SELECT * FROM pedidos_direct_rows
+        UNION ALL
+        SELECT * FROM direct_notas_rows
     )
     SELECT * FROM unioned
     ORDER BY dt_emissao DESC, filial ASC, orcamento DESC, pedido DESC;
@@ -877,17 +996,31 @@ def main():
     logger.info("=== PROTHEUS SILVER TO GOLD CONSOLIDATION STARTED ===")
     logger.info(f"Target Database: {DUCKDB_PATH}")
 
+    con = None
+    for attempt in range(1, 6):
+        try:
+            con = duckdb.connect(DUCKDB_PATH)
+            break
+        except Exception as e:
+            if attempt == 5:
+                logger.error(f"Failed to connect to DuckDB after 5 attempts: {e}")
+                raise
+            logger.warning(f"Database connect attempt {attempt} failed ({e}). Retrying in 2s...")
+            time.sleep(2)
+
     try:
-        with duckdb.connect(DUCKDB_PATH) as con:
-            con.execute("CREATE SCHEMA IF NOT EXISTS gold")
-            create_dim_paciente_crosswalk(con)
-            create_gold_table(con)
-            create_gold_pedidos_a_faturar_table(con)
-            create_gold_vendas_consolidadas_table(con)
-            logger.info("=== PROTHEUS SILVER TO GOLD CONSOLIDATION FINISHED SUCCESSFUL ===")
+        con.execute("CREATE SCHEMA IF NOT EXISTS gold")
+        create_dim_paciente_crosswalk(con)
+        create_gold_table(con)
+        create_gold_pedidos_a_faturar_table(con)
+        create_gold_vendas_consolidadas_table(con)
+        logger.info("=== PROTHEUS SILVER TO GOLD CONSOLIDATION FINISHED SUCCESSFUL ===")
     except Exception as e:
         logger.error(f"Gold Consolidation Failed: {e}", exc_info=True)
         raise
+    finally:
+        if con:
+            con.close()
 
 
 if __name__ == "__main__":

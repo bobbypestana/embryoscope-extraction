@@ -1,6 +1,6 @@
 # Unmapped & Schema Variance Report (Huntington vs BH)
 
-**Generated At:** 2026-09-10 22:55:26
+**Generated At:** 2026-09-11 22:49:20
 
 This report audits all columns ingested from the two Protheus instances (`bronze` vs `bronze_bh`).
 

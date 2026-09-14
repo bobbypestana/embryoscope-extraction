@@ -225,6 +225,10 @@ ACCESSIBLE_TENANTS = [
     "07,030101", # FIV Brasilia
 ]
 
+class ProtheusAuthPasswordChangeError(Exception):
+    """Raised when Protheus returns HTTP 202 requiring password change (non-retryable)."""
+    pass
+
 def make_request(session, path, params=None, tenant_id=None, timeout=None):
     url = f"{BASE_URL}{path}"
     headers = {
@@ -250,10 +254,13 @@ def make_request(session, path, params=None, tenant_id=None, timeout=None):
                 return None
             elif r.status_code == 202:
                 err_msg = r.text.strip()[:300]
-                logger.error(f"API Authentication Error 202 for {path} (Tenant: {headers.get('TenantId', 'None')}): Protheus requires password change: '{err_msg}'")
-                raise RuntimeError(f"Protheus HTTP 202 - Troca de senha obrigatoria: {err_msg}")
+                logger.error(f"API Authentication Error 202 for {path} (Tenant: {headers.get('TenantId', 'None')}): Protheus requires password change: '{err_msg}'. Aborting retries for this tenant.")
+                raise ProtheusAuthPasswordChangeError(f"Protheus HTTP 202 - Troca de senha obrigatoria: {err_msg}")
             else:
                 logger.warning(f"Attempt {attempt}/{max_attempts} failed with status code {r.status_code} for {path} (Tenant: {headers.get('TenantId', 'None')}). Response: {r.text[:200]}. Retrying...")
+        except ProtheusAuthPasswordChangeError:
+            # Immediately abort attempts on password change required — retrying will not resolve this
+            raise
         except Exception as e:
             logger.warning(f"Attempt {attempt}/{max_attempts} failed with exception for {path} (Tenant: {headers.get('TenantId', 'None')}): {e}")
             
@@ -716,6 +723,9 @@ def ingest_notas(force_backfill=False):
                                 existing_hashes.add(r["hash"])
                             write_to_bronze(table_name, new_rows)
                     break  # success — move to next tenant
+                except ProtheusAuthPasswordChangeError as auth_err:
+                    logger.warning(f"Skipping Tenant {tenant_id} for 'notas': {auth_err}")
+                    break
                 except Exception as e:
                     if attempt == TENANT_MAX_RETRIES:
                         logger.error(f"Notas Tenant {tenant_id} failed after {TENANT_MAX_RETRIES} attempts: {e}", exc_info=True)
@@ -781,6 +791,9 @@ def ingest_pedidos(force_backfill=False):
                                 existing_hashes.add(r["hash"])
                             write_to_bronze(table_name, new_rows)
                     break  # success — move to next tenant
+                except ProtheusAuthPasswordChangeError as auth_err:
+                    logger.warning(f"Skipping Tenant {tenant_id} for 'pedidos': {auth_err}")
+                    break
                 except Exception as e:
                     if attempt == TENANT_MAX_RETRIES:
                         logger.error(f"Pedidos Tenant {tenant_id} failed after {TENANT_MAX_RETRIES} attempts: {e}", exc_info=True)
@@ -846,6 +859,9 @@ def ingest_venda_direta(force_backfill=False):
                                 existing_hashes.add(r["hash"])
                             write_to_bronze(table_name, new_rows)
                     break  # success — move to next tenant
+                except ProtheusAuthPasswordChangeError as auth_err:
+                    logger.warning(f"Skipping Tenant {tenant_id} for 'venda_direta': {auth_err}")
+                    break
                 except Exception as e:
                     if attempt == TENANT_MAX_RETRIES:
                         logger.error(f"Venda Direta Tenant {tenant_id} failed after {TENANT_MAX_RETRIES} attempts: {e}", exc_info=True)
@@ -924,6 +940,8 @@ def ingest_full_table(name, path, max_sweeps=10):
                 logger.warning(f"Auditing '{name}' full load: {len(deleted_pks)} entries might have been deleted from the source.")
             else:
                 logger.info(f"Auditing '{name}' full load: 0 entries deleted.")
+    except ProtheusAuthPasswordChangeError as auth_err:
+        logger.warning(f"Skipping full table '{name}': {auth_err}")
     finally:
         session.close()
         logger.info(f"HTTP session closed for full table '{name}'")

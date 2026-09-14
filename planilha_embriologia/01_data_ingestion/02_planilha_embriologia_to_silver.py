@@ -464,7 +464,7 @@ TABLE_CONFIGS = {
                 'dia_et': 'DIA ET',
                 'no_et': 'NºET',
                 'gravidez_bioquimica': '',
-                'gravidez_clinica': '',
+                'gravidez_clinica': 'SG',
                 'obs': 'OBS'
             },
             'filters': ['FET', 'FET/OR', 'FET/ER']
@@ -530,7 +530,7 @@ TABLE_CONFIGS = {
                 'dia_et': 'DIA ET',
                 'no_et': 'NºET',
                 'gravidez_bioquimica': '',
-                'gravidez_clinica': '',
+                'gravidez_clinica': 'SG',
                 'obs': 'OBS'
             },
             'filters': ['FET', 'FET/OR', 'FET/ER']
@@ -596,7 +596,7 @@ TABLE_CONFIGS = {
                 'dia_et': 'DIA ET',
                 'no_et': 'NºET',
                 'gravidez_bioquimica': '',
-                'gravidez_clinica': '',
+                'gravidez_clinica': 'SG',
                 'obs': 'OBS'
             },
             'filters': ['FET', 'FET/OR', 'FET/ER']
@@ -662,7 +662,7 @@ TABLE_CONFIGS = {
                 'dia_et': 'DIA ET',
                 'no_et': 'NºET',
                 'gravidez_bioquimica': '',
-                'gravidez_clinica': '',
+                'gravidez_clinica': 'SG',
                 'obs': 'OBS'
             },
             'filters': ['FET', 'FET/OR', 'FET/ER']
@@ -728,7 +728,7 @@ TABLE_CONFIGS = {
                 'dia_et': 'DIA ET',
                 'no_et': 'NºET',
                 'gravidez_bioquimica': '',
-                'gravidez_clinica': '',
+                'gravidez_clinica': 'SG',
                 'obs': 'OBS'
             },
             'filters': ['FET', 'FET/OR', 'FET/ER']
@@ -794,7 +794,7 @@ TABLE_CONFIGS = {
                 'dia_et': 'DIA ET',
                 'no_et': 'NºET',
                 'gravidez_bioquimica': '',
-                'gravidez_clinica': '',
+                'gravidez_clinica': 'SG',
                 'obs': 'OBS'
             },
             'filters': ['FET', 'FET/OR', 'FET/ER']
@@ -860,7 +860,7 @@ TABLE_CONFIGS = {
                 'dia_et': 'DIA ET',
                 'no_et': 'NºET',
                 'gravidez_bioquimica': '',
-                'gravidez_clinica': '',
+                'gravidez_clinica': 'SG',
                 'obs': 'OBS'
             },
             'filters': ['FET', 'FET/OR', 'FET/ER']
@@ -926,7 +926,7 @@ TABLE_CONFIGS = {
                 'dia_et': 'DIA ET',
                 'no_et': 'NºET',
                 'gravidez_bioquimica': '',
-                'gravidez_clinica': '',
+                'gravidez_clinica': 'SG',
                 'obs': 'OBS'
             },
             'filters': ['FET', 'FET/OR', 'FET/ER']
@@ -992,7 +992,7 @@ TABLE_CONFIGS = {
                 'dia_et': 'DIA ET',
                 'no_et': 'NºET',
                 'gravidez_bioquimica': '',
-                'gravidez_clinica': '',
+                'gravidez_clinica': 'SG',
                 'obs': 'OBS'
             },
             'filters': ['FET', 'FET/OR', 'FET/ER']
@@ -1201,7 +1201,7 @@ TABLE_CONFIGS = {
                 'dia_et': 'DIA ET',
                 'no_et': 'NºET',
                 'gravidez_bioquimica': '',
-                'gravidez_clinica': '',
+                'gravidez_clinica': 'SG',
                 'obs': 'OBS'
             },
             'filters': ['FET', 'FET/OR', 'FET/ER']
@@ -1841,17 +1841,30 @@ def transform_data_types(df, column_types):
                 df_transformed[col] = df_transformed[col].replace({'NAN': None, 'NONE': None, '<NA>': None, '': None})
                 
                 if col == 'gravidez_clinica':
-                    # Normalize positive gestational sacs (1, 2, 3, etc.) to POSITIVO and clean zero/negative markers
+                    # Normalize positive gestational sacs (1, 2, 3, etc.) to POSITIVO
                     is_pos_sg = df_transformed[col].isin(['1', '2', '3', '4', '1.0', '2.0', '3.0', '4.0', 'POSITIVO', 'X', 'SIM'])
                     df_transformed.loc[is_pos_sg, col] = 'POSITIVO'
-                    is_neg_sg = df_transformed[col].isin(['0', '0.0', 'NÃO', 'NAO', '\\', '?', '-', 'NEGATIVO', 'NEG'])
-                    df_transformed.loc[is_neg_sg, col] = None
+                    # Confirmed negatives (no gestational sac) → '0'
+                    is_neg_sg = df_transformed[col].isin(['0', '0.0', 'NÃO', 'NAO', 'NEGATIVO', 'NEG'])
+                    df_transformed.loc[is_neg_sg, col] = '0'
+                    # Invalid / cancelled / unperformed / ambiguous biochemical-only → None
+                    is_invalid_sg = df_transformed[col].isin([
+                        '\\', '/', '?', '-', 'CANCELADO', 'CANCELADA',
+                        'BIOQ',        # biochemical pregnancy only, no gestational sac
+                        'BETA BAIXO',  # low/borderline beta, no confirmed sac
+                        '1X',          # ambiguous typo, Athena maps to NULL
+                    ])
+                    df_transformed.loc[is_invalid_sg, col] = None
                 elif col == 'gravidez_bioquimica':
                     # Normalize positive Beta / biochemical pregnancy results
                     is_pos_beta = df_transformed[col].str.contains('POS', na=False) | df_transformed[col].isin(['1', '1.0', 'X', 'SIM'])
                     df_transformed.loc[is_pos_beta, col] = 'POSITIVO'
-                    is_neg_beta = df_transformed[col].str.contains('NEG', na=False) | df_transformed[col].isin(['0', '0.0', 'BLOQUEADO', 'NÃO', 'NAO', '-', '\\'])
-                    df_transformed.loc[is_neg_beta, col] = None
+                    # Confirmed negatives → '0'
+                    is_neg_beta = df_transformed[col].str.contains('NEG', na=False) | df_transformed[col].isin(['0', '0.0', 'NÃO', 'NAO', '-', '\\'])
+                    df_transformed.loc[is_neg_beta, col] = '0'
+                    # Cancelled / not performed → None
+                    is_cancel_beta = df_transformed[col].str.contains('CANCEL', na=False) | df_transformed[col].isin(['BLOQUEADO', '?', '/'])
+                    df_transformed.loc[is_cancel_beta, col] = None
     
     logger.info("Data type transformation completed")
     return df_transformed
