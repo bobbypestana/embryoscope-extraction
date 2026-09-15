@@ -1,29 +1,13 @@
 #!/usr/bin/env python3
 """
-RD Station and Clinisys Funnel Integration Script
-Creates the gold.leads_funil table by matching RD Station deals
-with Clinisys patients and checking for subsequent consultations.
-
-Matching pipeline (in priority order):
-  1. Exact email - wife       (priority 1)
-  2. Exact email - husband    (priority 1)
-  3. Exact phone - wife       (priority 2)
-  4. Exact phone - husband    (priority 2)
-  5. Exact phone - general    (priority 3)
-  6. Phone 8-digit suffix - wife     (priority 4)
-  7. Phone 8-digit suffix - husband  (priority 4)
-  8. Phone 8-digit suffix - general  (priority 5)
-  9. Email typo (domain levenshtein ≤2) - wife   (priority 6, only for still-unmatched leads)
- 10. Email typo (domain levenshtein ≤2) - husband (priority 6, only for still-unmatched leads)
-
-Optimizations vs v1:
-  - Pre-materialised temp tables for RD emails/phones and Clinisys patients
-    so DuckDB can build hash indexes on clean columns.
-  - Phone OR join split into two separate equi-joins (exact + suffix UNION)
-    to guarantee hash-join path for each branch.
-  - Typo matching runs only on leads that had no exact match (much smaller set).
-  - SIMILAR TO replaced by two LIKE conditions.
-  - Monolithic CTE broken into explicit Python steps with per-step timing.
+RD Station and Clinisys Funnel Integration Script — v3 (Production Lead Granularity)
+Features:
+  - Identity Resolution: Cascading unification (Email > Phone Mapped to Email > Phone > Contact > Deal)
+  - Anti-Double-Counting: Primary patient lead attribution per couple/prontuário
+  - Dual Financial Perspective: 2-year campaign window + Full Lifetime LTV
+  - Inactivity Lifecycle: 2-year cutoff flag (closed)
+  - High-performance priority matching with Clinisys patients
+  - Retrocompatibility view for downstream dashboarding
 """
 
 import os
@@ -73,7 +57,6 @@ def _step(con, label: str, sql: str) -> int:
     con.execute(sql)
     elapsed = time.time() - t0
     try:
-        # Try to get rowcount from the last temp table touched
         n = con.execute("SELECT changes()").fetchone()[0]
     except Exception:
         n = None
@@ -138,12 +121,12 @@ def create_leads_funil(con):
     """)
 
     # -----------------------------------------------------------------------
-    # 1. Materialise RD deals (with 1:1 contact prioritization & lead_from / lead_to window)
+    # 1. Identity Resolution across RD deals
+    #    Cascading priority: Email > Phone mapped to known Email > Phone > Contact > Deal
     # -----------------------------------------------------------------------
-    logger.info("Step 1 — Materialise RD deals base (prioritizing contacts with email/phone)")
-    con.execute("DROP TABLE IF EXISTS tmp_rd_deals")
-    _step(con, "tmp_rd_deals", """
-        CREATE TEMP TABLE tmp_rd_deals AS
+    logger.info("Step 1 — Materialise RD raw deals with cascading Identity Resolution")
+    _step(con, "tmp_rd_deals_raw", """
+        CREATE OR REPLACE TEMP TABLE tmp_rd_deals_raw AS
         WITH best_contact_per_deal AS (
             SELECT 
                 dc."Deal ID",
@@ -151,6 +134,7 @@ def create_leads_funil(con):
                 c."Nome Contato",
                 c."E-mail",
                 c."Telefone",
+                c."CPF",
                 ROW_NUMBER() OVER (
                     PARTITION BY dc."Deal ID"
                     ORDER BY 
@@ -165,72 +149,125 @@ def create_leads_funil(con):
                 ) AS rn
             FROM gold.rdstation_deal_contacts dc
             JOIN gold.rdstation_contacts c ON dc."Contact ID" = c."Contact ID"
+        ),
+        deals_base AS (
+            SELECT
+                d."Deal ID" AS deal_id,
+                d."Negócio" AS deal_name,
+                d."Status"  AS deal_status,
+                d."Fonte"   AS fonte,
+                d."Campanha ID" AS campanha_id,
+                d."Campanha Nome" AS campanha_nome,
+                d."Unidade" AS unidade,
+                d."Funil"   AS funil,
+                d."Data Criação" AS deal_date,
+                bc."Contact ID" AS contact_id,
+                bc."Nome Contato" AS contact_name,
+                CASE 
+                    WHEN bc."E-mail" IS NOT NULL AND trim(bc."E-mail") != '' AND bc."E-mail" LIKE '%@%'
+                         THEN lower(trim(bc."E-mail"))
+                    ELSE NULL
+                END AS contact_email,
+                CASE 
+                    WHEN bc."Telefone" IS NOT NULL AND is_valid_phone(clean_phone_sql(bc."Telefone"))
+                         THEN clean_phone_sql(bc."Telefone")
+                    ELSE NULL
+                END AS clean_phone,
+                bc."Telefone" AS contact_phone,
+                bc."CPF" AS contact_cpf
+            FROM gold.rdstation_deals d
+            LEFT JOIN best_contact_per_deal bc ON d."Deal ID" = bc."Deal ID" AND bc.rn = 1
+        ),
+        phone_to_canonical_email AS (
+            SELECT clean_phone, arg_min(contact_email, deal_date) AS canonical_email
+            FROM deals_base
+            WHERE contact_email IS NOT NULL AND clean_phone IS NOT NULL
+            GROUP BY clean_phone
         )
         SELECT
-            d."Deal ID"                                                          AS lead_id,
-            d."Negócio"                                                          AS deal_name,
-            d."Status"                                                           AS deal_status,
-            d."Fonte"                                                            AS fonte,
-            d."Campanha ID"                                                      AS campanha_id,
-            d."Unidade"                                                          AS unidade,
-            d."Funil"                                                            AS funil,
-            d."Data Criação"                                                     AS lead_date,
-            d."Data Criação"                                                     AS lead_from,
-            bc."Contact ID"                                                      AS contact_id,
-            bc."E-mail"                                                          AS lead_email,
-            CASE WHEN is_valid_phone(clean_phone_sql(bc."Telefone"))
-                 THEN clean_phone_sql(bc."Telefone")
-                 ELSE NULL
-            END                                                                  AS clean_phone,
-            -- Next deal date for same contact — defines attribution window upper bound (lead_to)
-            LEAD(d."Data Criação") OVER (
-                PARTITION BY bc."Contact ID"
-                ORDER BY d."Data Criação" ASC
-            )                                                                    AS lead_to,
-            LEAD(d."Data Criação") OVER (
-                PARTITION BY bc."Contact ID"
-                ORDER BY d."Data Criação" ASC
-            )                                                                    AS next_lead_date
-        FROM gold.rdstation_deals d
-        LEFT JOIN best_contact_per_deal bc ON d."Deal ID" = bc."Deal ID" AND bc.rn = 1
+            d.*,
+            CASE 
+                WHEN d.contact_email IS NOT NULL THEN d.contact_email
+                WHEN p.canonical_email IS NOT NULL THEN p.canonical_email
+                WHEN d.clean_phone IS NOT NULL THEN 'phone_' || d.clean_phone
+                WHEN d.contact_id IS NOT NULL THEN 'contact_' || d.contact_id
+                ELSE 'deal_' || d.deal_id
+            END AS lead_id
+        FROM deals_base d
+        LEFT JOIN phone_to_canonical_email p ON d.clean_phone = p.clean_phone
     """)
-    logger.info(f"    RD deals: {_count(con, 'tmp_rd_deals'):,}")
+    logger.info(f"    Raw deals: {_count(con, 'tmp_rd_deals_raw'):,}")
 
     # -----------------------------------------------------------------------
-    # 2. Materialise RD valid emails (split multi-email fields)
+    # 1b. Aggregate deals to Lead level (1 row per unique lead)
     # -----------------------------------------------------------------------
-    logger.info("Step 2 — Materialise RD valid emails")
-    con.execute("DROP TABLE IF EXISTS tmp_rd_emails")
+    logger.info("Step 1b — Aggregate deals to unique Lead level")
+    _step(con, "tmp_leads_base", """
+        CREATE OR REPLACE TEMP TABLE tmp_leads_base AS
+        SELECT
+            lead_id,
+            COUNT(DISTINCT deal_id)                                            AS quantidade_de_contatos,
+            MIN(deal_date)                                                     AS primeiro_contato,
+            MAX(deal_date)                                                     AS ultimo_contato,
+            arg_min(deal_name, deal_date)                                      AS deal_name,
+            COALESCE(arg_min(fonte, deal_date), 'Não informada')               AS primeira_fonte,
+            COALESCE(arg_max(fonte, deal_date), 'Não informada')               AS ultima_fonte,
+            COALESCE(arg_min(unidade, deal_date), 'Não informada')             AS primeira_unidade,
+            COALESCE(arg_max(unidade, deal_date), 'Não informada')             AS ultima_unidade,
+            COALESCE(arg_min(funil, deal_date), '')                            AS primeiro_funil,
+            COALESCE(arg_max(funil, deal_date), '')                            AS ultimo_funil,
+            COUNT(DISTINCT campanha_id)                                        AS quantidade_de_campanhas,
+            COALESCE(
+                arg_min(campanha_nome, CASE WHEN campanha_nome IS NOT NULL AND campanha_nome != '' AND campanha_nome != 'Não informada' THEN deal_date END),
+                'Não informada'
+            )                                                                  AS primeira_campanha_nome,
+            COALESCE(
+                arg_max(campanha_nome, CASE WHEN campanha_nome IS NOT NULL AND campanha_nome != '' AND campanha_nome != 'Não informada' THEN deal_date END),
+                'Não informada'
+            )                                                                  AS ultima_campanha_nome,
+            MAX(contact_email)                                                 AS lead_email,
+            MAX(clean_phone)                                                   AS clean_phone
+        FROM tmp_rd_deals_raw
+        GROUP BY lead_id
+    """)
+    logger.info(f"    Unique leads: {_count(con, 'tmp_leads_base'):,}")
+
+    # -----------------------------------------------------------------------
+    # 2. Materialise RD valid emails per Lead (split multi-email fields)
+    # -----------------------------------------------------------------------
+    logger.info("Step 2 — Materialise RD valid emails per lead")
     _step(con, "tmp_rd_emails", """
-        CREATE TEMP TABLE tmp_rd_emails AS
+        CREATE OR REPLACE TEMP TABLE tmp_rd_emails AS
         SELECT DISTINCT
             d.lead_id,
             lower(trim(e.email))                           AS clean_email,
             split_part(lower(trim(e.email)), '@', 1)       AS email_local,
             split_part(lower(trim(e.email)), '@', 2)       AS email_domain
-        FROM tmp_rd_deals d,
+        FROM tmp_rd_deals_raw d,
              LATERAL (
                  SELECT UNNEST(
-                     regexp_split_to_array(d.lead_email, '[,;\\s]+')
+                     regexp_split_to_array(d.contact_email, '[,;\\s]+')
                  ) AS email
              ) e
-        WHERE d.lead_email IS NOT NULL
-          AND d.lead_email != ''
+        WHERE d.contact_email IS NOT NULL
+          AND d.contact_email != ''
           AND is_valid_email(lower(trim(e.email)))
     """)
     logger.info(f"    RD valid emails: {_count(con, 'tmp_rd_emails'):,}")
 
-    # Phone 8-digit suffix pre-computed
-    logger.info("Step 2b — Materialise RD phone suffixes")
-    con.execute("DROP TABLE IF EXISTS tmp_rd_phones")
+    # -----------------------------------------------------------------------
+    # 2b. Materialise RD valid phones per Lead (pre-computed suffix)
+    # -----------------------------------------------------------------------
+    logger.info("Step 2b — Materialise RD phone suffixes per lead")
     _step(con, "tmp_rd_phones", """
-        CREATE TEMP TABLE tmp_rd_phones AS
-        SELECT
-            lead_id,
-            clean_phone,
-            right(clean_phone, 8) AS phone_suffix8
-        FROM tmp_rd_deals
-        WHERE clean_phone IS NOT NULL
+        CREATE OR REPLACE TEMP TABLE tmp_rd_phones AS
+        SELECT DISTINCT
+            d.lead_id,
+            d.clean_phone,
+            right(d.clean_phone, 8) AS phone_suffix8
+        FROM tmp_rd_deals_raw d
+        WHERE d.clean_phone IS NOT NULL
+          AND is_valid_phone(d.clean_phone)
     """)
     logger.info(f"    RD valid phones: {_count(con, 'tmp_rd_phones'):,}")
 
@@ -238,12 +275,10 @@ def create_leads_funil(con):
     # 3. Materialise Clinisys patients with clean fields pre-computed
     # -----------------------------------------------------------------------
     logger.info("Step 3 — Materialise Clinisys patients")
-    con.execute("DROP TABLE IF EXISTS tmp_clin")
     _step(con, "tmp_clin", """
-        CREATE TEMP TABLE tmp_clin AS
+        CREATE OR REPLACE TEMP TABLE tmp_clin AS
         SELECT
             codigo,
-            -- Emails (clean + decomposed for typo matching)
             CASE WHEN is_valid_email(lower(trim(esposa_email)))
                  THEN lower(trim(esposa_email)) ELSE NULL
             END                                                     AS esposa_email,
@@ -254,7 +289,6 @@ def create_leads_funil(con):
             split_part(lower(trim(esposa_email)), '@', 2)           AS esposa_email_domain,
             split_part(lower(trim(marido_email)), '@', 1)           AS marido_email_local,
             split_part(lower(trim(marido_email)), '@', 2)           AS marido_email_domain,
-            -- Phones (clean + suffix)
             CASE WHEN is_valid_phone(clean_phone_sql(esposa_celular))
                  THEN clean_phone_sql(esposa_celular) ELSE NULL
             END                                                     AS esposa_phone,
@@ -287,9 +321,8 @@ def create_leads_funil(con):
     # 4. Run all exact matches (priority 1-5) and materialise
     # -----------------------------------------------------------------------
     logger.info("Step 4 — Exact matches (email + phone exact + phone suffix)")
-    con.execute("DROP TABLE IF EXISTS tmp_matches_exact")
     _step(con, "tmp_matches_exact", """
-        CREATE TEMP TABLE tmp_matches_exact AS
+        CREATE OR REPLACE TEMP TABLE tmp_matches_exact AS
 
         -- Match 1: Exact email - wife (priority 1)
         SELECT r.lead_id, c.codigo AS prontuario, c.esposa_email AS matched_email,
@@ -335,13 +368,12 @@ def create_leads_funil(con):
         UNION ALL
 
         -- Match 6: Phone suffix 8 - wife (priority 4)
-        -- Equi-join on suffix; filter out exact (already captured above)
         SELECT r.lead_id, c.codigo, NULL,
                'phone_esposa_suffix8', 4
         FROM tmp_rd_phones r
         JOIN tmp_clin c ON r.phone_suffix8 = c.esposa_phone_suffix8
         WHERE c.esposa_phone IS NOT NULL
-          AND r.clean_phone != c.esposa_phone   -- exclude exact (already priority 2)
+          AND r.clean_phone != c.esposa_phone
 
         UNION ALL
 
@@ -369,10 +401,8 @@ def create_leads_funil(con):
     # 5. Typo email matching — only for leads with NO exact match yet
     # -----------------------------------------------------------------------
     logger.info("Step 5 — Typo email matching (unmatched leads only)")
-    con.execute("DROP TABLE IF EXISTS tmp_unmatched_emails")
-    # Identify leads that had no exact/suffix match
     _step(con, "tmp_unmatched_emails", """
-        CREATE TEMP TABLE tmp_unmatched_emails AS
+        CREATE OR REPLACE TEMP TABLE tmp_unmatched_emails AS
         SELECT e.*
         FROM tmp_rd_emails e
         WHERE NOT EXISTS (
@@ -382,17 +412,16 @@ def create_leads_funil(con):
     unmatched_email_n = _count(con, 'tmp_unmatched_emails')
     logger.info(f"    Leads still unmatched with valid email: {unmatched_email_n:,}")
 
-    con.execute("DROP TABLE IF EXISTS tmp_matches_typo")
     _step(con, "tmp_matches_typo", f"""
-        CREATE TEMP TABLE tmp_matches_typo AS
+        CREATE OR REPLACE TEMP TABLE tmp_matches_typo AS
         {'-- No unmatched leads with emails; skip typo join' if unmatched_email_n == 0 else ''}
         -- Match 9: Email typo - wife (priority 6)
         SELECT r.lead_id, c.codigo AS prontuario, c.esposa_email AS matched_email,
                'email_esposa_typo' AS matched_flag, 6 AS match_priority
         FROM tmp_unmatched_emails r
         JOIN tmp_clin c
-          ON r.email_local = c.esposa_email_local          -- equi-join on local part
-         AND r.clean_email != c.esposa_email               -- skip exact (shouldn't exist, but guard)
+          ON r.email_local = c.esposa_email_local
+         AND r.clean_email != c.esposa_email
          AND c.esposa_email IS NOT NULL
          AND levenshtein(r.email_domain, c.esposa_email_domain) <= 2
 
@@ -415,9 +444,8 @@ def create_leads_funil(con):
     # 6. Rank all matches and pick winner per lead
     # -----------------------------------------------------------------------
     logger.info("Step 6 — Rank matches and pick best per lead")
-    con.execute("DROP TABLE IF EXISTS tmp_best_match")
     _step(con, "tmp_best_match", """
-        CREATE TEMP TABLE tmp_best_match AS
+        CREATE OR REPLACE TEMP TABLE tmp_best_match AS
         WITH all_matches AS (
             SELECT * FROM tmp_matches_exact
             UNION ALL
@@ -438,103 +466,56 @@ def create_leads_funil(con):
     logger.info(f"    Leads with at least one match: {_count(con, 'tmp_best_match'):,}")
 
     # -----------------------------------------------------------------------
-    # 7. Join matches back to all deals & compute patient-level attribution window
+    # 7. Join matches back to unique Leads & resolve primary lead per prontuário
     # -----------------------------------------------------------------------
-    logger.info("Step 7 — Join matches back to all deals & compute attribution window")
-    con.execute("DROP TABLE IF EXISTS tmp_leads_matched")
+    logger.info("Step 7 — Join matches back to unique leads & resolve primary lead per prontuário")
     _step(con, "tmp_leads_matched", """
-        CREATE TEMP TABLE tmp_leads_matched AS
-        WITH matched_base AS (
-            SELECT
-                d.lead_id,
-                d.deal_name,
-                d.deal_status,
-                d.fonte,
-                d.campanha_id,
-                d.unidade,
-                d.funil,
-                d.lead_date,
-                d.lead_from,
-                d.contact_id,
-                d.lead_email,
+        CREATE OR REPLACE TEMP TABLE tmp_leads_matched AS
+        WITH matched AS (
+            SELECT 
+                b.*,
                 m.prontuario,
                 m.matched_email,
                 COALESCE(m.matched_flag, 'unmatched') AS matched_flag
-            FROM tmp_rd_deals d
-            LEFT JOIN tmp_best_match m ON d.lead_id = m.lead_id
+            FROM tmp_leads_base b
+            LEFT JOIN tmp_best_match m ON b.lead_id = m.lead_id
         )
-        SELECT
-            b.lead_id,
-            b.deal_name,
-            b.deal_status,
-            b.fonte,
-            b.campanha_id,
-            b.unidade,
-            b.funil,
-            b.lead_date,
-            b.lead_from,
-            -- Next deal date: partitioned by prontuario if matched (to avoid couple/partner overlap),
-            -- otherwise partitioned by contact_id
+        SELECT 
+            m.*,
             CASE 
-                WHEN b.prontuario IS NOT NULL THEN
-                    LEAD(b.lead_from) OVER (
-                        PARTITION BY b.prontuario 
-                        ORDER BY b.lead_from ASC, b.lead_id ASC
-                    )
-                ELSE
-                    LEAD(b.lead_from) OVER (
-                        PARTITION BY b.contact_id 
-                        ORDER BY b.lead_from ASC, b.lead_id ASC
-                    )
-            END AS lead_to,
-            CASE 
-                WHEN b.prontuario IS NOT NULL THEN
-                    LEAD(b.lead_from) OVER (
-                        PARTITION BY b.prontuario 
-                        ORDER BY b.lead_from ASC, b.lead_id ASC
-                    )
-                ELSE
-                    LEAD(b.lead_from) OVER (
-                        PARTITION BY b.contact_id 
-                        ORDER BY b.lead_from ASC, b.lead_id ASC
-                    )
-            END AS next_lead_date,
-            b.lead_email,
-            b.prontuario,
-            b.matched_email,
-            b.matched_flag
-        FROM matched_base b
+                WHEN m.prontuario IS NULL THEN TRUE
+                WHEN ROW_NUMBER() OVER (
+                    PARTITION BY m.prontuario 
+                    ORDER BY m.primeiro_contato ASC, m.lead_id ASC
+                ) = 1 THEN TRUE
+                ELSE FALSE
+            END AS is_lead_primario_paciente
+        FROM matched m
     """)
 
     # -----------------------------------------------------------------------
-    # 8. Consultation join (post-lead, within attribution window)
-    #    SIMILAR TO replaced by two LIKE conditions for performance
+    # 8. Consultation join
     # -----------------------------------------------------------------------
     logger.info("Step 8 — Consultation join")
-    con.execute("DROP TABLE IF EXISTS tmp_consultas")
     _step(con, "tmp_consultas", """
-        CREATE TEMP TABLE tmp_consultas AS
+        CREATE OR REPLACE TEMP TABLE tmp_consultas AS
         WITH ranked AS (
             SELECT
                 l.lead_id,
                 c.procedimento_nome  AS consulta_type,
                 c.data               AS consulta_date,
-                -- Future consultations are marked as 'Agendada'
                 CASE
                     WHEN c.data > CURRENT_DATE THEN 'Agendada'
                     ELSE c.chegou
                 END                  AS consulta_status,
                 ROW_NUMBER() OVER (
                     PARTITION BY l.lead_id
-                    -- ASC = first consultation after the lead (not most recent)
                     ORDER BY c.data ASC
                 )                    AS rn
             FROM tmp_leads_matched l
             JOIN gold.extrato_atendimento_central c
               ON l.prontuario = c.paciente_codigo
-             AND c.data >= l.lead_from
-             AND (l.lead_to IS NULL OR c.data < l.lead_to)
-             -- SIMILAR TO replaced: two LIKE checks are index-friendlier
+             AND c.data >= l.primeiro_contato
              AND (
                  lower(strip_accents(c.procedimento_nome)) LIKE '%consulta%reprodu%'
                  OR lower(strip_accents(c.procedimento_nome)) LIKE '%consulta%preserva%'
@@ -547,80 +528,74 @@ def create_leads_funil(con):
     logger.info(f"    Leads with qualifying consulta: {_count(con, 'tmp_consultas'):,}")
 
     # -----------------------------------------------------------------------
-    # 8b. Financial sales aggregation (post-lead, within attribution window)
+    # 8b. Financial sales aggregation (2-year window + Lifetime LTV)
     # -----------------------------------------------------------------------
-    logger.info("Step 8b — Financial sales join (Protheus)")
-    con.execute("DROP TABLE IF EXISTS tmp_vendas")
+    logger.info("Step 8b — Financial sales join (Protheus, 2-year window + Lifetime LTV)")
     _step(con, "tmp_vendas", """
-        CREATE TEMP TABLE tmp_vendas AS
+        CREATE OR REPLACE TEMP TABLE tmp_vendas AS
         SELECT
             l.lead_id,
-            COALESCE(SUM(p.valor_total), 0.0) AS total_gasto_pos_lead,
-            COUNT(*)                          AS qtd_itens_vendidos_pos_lead,
-            COUNT(DISTINCT p.num_nota)        AS qtd_pedidos_pos_lead,
-            MIN(p.dt_emissao)                 AS primeira_venda_data
+            -- Janela de 2 anos pós-lead/consulta
+            COALESCE(SUM(CASE 
+                WHEN p.dt_emissao <= (COALESCE(c.consulta_date, l.primeiro_contato) + INTERVAL 2 YEAR) 
+                THEN p.valor_total 
+                ELSE 0.0 
+            END), 0.0) AS total_gasto_janela_2anos,
+            COUNT(CASE 
+                WHEN p.dt_emissao <= (COALESCE(c.consulta_date, l.primeiro_contato) + INTERVAL 2 YEAR) 
+                THEN 1 
+            END) AS qtd_itens_vendidos_janela_2anos,
+            COUNT(DISTINCT CASE 
+                WHEN p.dt_emissao <= (COALESCE(c.consulta_date, l.primeiro_contato) + INTERVAL 2 YEAR) 
+                THEN p.num_nota 
+            END) AS qtd_pedidos_janela_2anos,
+
+            -- Vitalício pós-lead (LTV Total)
+            COALESCE(SUM(p.valor_total), 0.0) AS total_gasto_vitalicio,
+            COUNT(*)                          AS qtd_itens_vendidos_vitalicio,
+            COUNT(DISTINCT p.num_nota)        AS qtd_pedidos_vitalicio,
+
+            -- Primeira venda e indicador de reativação tardia
+            MIN(p.dt_emissao)                 AS primeira_venda_data,
+            CASE 
+                WHEN MAX(p.dt_emissao) > (COALESCE(c.consulta_date, l.primeiro_contato) + INTERVAL 2 YEAR) 
+                THEN TRUE 
+                ELSE FALSE 
+            END AS vendeu_apos_janela_2anos
         FROM tmp_leads_matched l
+        LEFT JOIN tmp_consultas c ON l.lead_id = c.lead_id
         JOIN gold.protheus_vendas_consolidadas p
           ON l.prontuario = p.prontuario
-         AND p.dt_emissao >= l.lead_from
-         AND (l.lead_to IS NULL OR p.dt_emissao < l.lead_to)
-        GROUP BY l.lead_id
+         AND p.dt_emissao >= l.primeiro_contato
+        GROUP BY l.lead_id, c.consulta_date, l.primeiro_contato
     """)
     logger.info(f"    Leads with post-lead sales: {_count(con, 'tmp_vendas'):,}")
 
     # -----------------------------------------------------------------------
     # 9. Build final gold table (gold.rd_station_leads_funil)
     # -----------------------------------------------------------------------
-    logger.info("Step 9 — Write gold.rd_station_leads_funil")
-    con.execute("DROP TABLE IF EXISTS gold.rd_station_leads_funil")
-    con.execute("DROP TABLE IF EXISTS gold.leads_funil")
-    con.execute("DROP VIEW IF EXISTS gold.leads_funil")
-    
-    # Check if gold.rdstation_campaigns exists to join campaign dates and name
-    has_camp = con.execute("""
-        SELECT COUNT(*) FROM information_schema.tables 
-        WHERE table_schema = 'gold' AND table_name = 'rdstation_campaigns'
-    """).fetchone()[0]
-
-    if has_camp:
-        camp_join = """
-        LEFT JOIN gold.rdstation_campaigns camp 
-            ON l.campanha_id = camp."Campanha ID"
-        """
-        camp_cols = """
-            COALESCE(camp."Campanha Nome", 'Não informada') AS campanha_nome,
-            COALESCE(camp."Status Campanha", 'Sem Campanha') AS campanha_status,
-            camp."Data Início" AS campanha_data_inicio,
-            camp."Data Fim" AS campanha_data_fim,
-        """
-    else:
-        camp_join = ""
-        camp_cols = """
-            'Não informada' AS campanha_nome,
-            'Sem Campanha' AS campanha_status,
-            CAST(NULL AS TIMESTAMP) AS campanha_data_inicio,
-            CAST(NULL AS TIMESTAMP) AS campanha_data_fim,
-        """
-
-    query = f"""
-        CREATE TABLE gold.rd_station_leads_funil AS
+    logger.info("Step 9 — Write gold.rd_station_leads_funil (Lead-level granularity)")
+    query = """
+        CREATE OR REPLACE TABLE gold.rd_station_leads_funil AS
         SELECT
             l.lead_id,
-            l.deal_name,
-            l.deal_status,
-            COALESCE(l.fonte, 'Não informada') AS fonte,
-            l.campanha_id,
-            {camp_cols}
-            COALESCE(l.unidade, 'Não informada') AS unidade,
-            l.funil,
-            l.lead_date,
-            l.lead_from,
-            l.lead_to,
-            l.lead_email,
             l.prontuario,
+            l.deal_name,
+            l.quantidade_de_contatos,
+            l.primeiro_contato,
+            l.ultimo_contato,
+            l.primeira_fonte,
+            l.ultima_fonte,
+            l.quantidade_de_campanhas,
+            l.primeira_campanha_nome,
+            l.ultima_campanha_nome,
+            l.primeira_unidade,
+            l.ultima_unidade,
+            l.primeiro_funil,
+            l.ultimo_funil,
             l.matched_email,
             l.matched_flag,
-            -- Clean category for dashboarding
+            -- Clean category for downstream BI
             CASE
                 WHEN l.matched_flag LIKE 'email_esposa%'  THEN 'email_esposa'
                 WHEN l.matched_flag LIKE 'email_marido%'  THEN 'email_marido'
@@ -629,55 +604,104 @@ def create_leads_funil(con):
                 WHEN l.matched_flag LIKE 'phone_general%' THEN 'celular_geral'
                 ELSE 'unmatched'
             END AS match_category,
+            l.is_lead_primario_paciente,
             c.consulta_type,
             c.consulta_date,
             c.consulta_status,
-            date_diff('day', l.lead_from, c.consulta_date) AS dias_ate_primeira_consulta,
-            COALESCE(v.total_gasto_pos_lead, 0.0) AS total_gasto_pos_lead,
-            COALESCE(v.qtd_itens_vendidos_pos_lead, 0) AS qtd_itens_vendidos_pos_lead,
-            COALESCE(v.qtd_pedidos_pos_lead, 0) AS qtd_pedidos_pos_lead,
+            date_diff('day', l.primeiro_contato, c.consulta_date) AS dias_ate_primeira_consulta,
+            
+            -- Receita Atribuída (Zero para secundários do casal para eliminar inflação em SUM())
+            CASE 
+                WHEN l.is_lead_primario_paciente THEN COALESCE(v.total_gasto_janela_2anos, 0.0) 
+                ELSE 0.0 
+            END AS total_gasto_pos_lead,
+            
+            -- Métrica Janela 2 anos
+            CASE 
+                WHEN l.is_lead_primario_paciente THEN COALESCE(v.total_gasto_janela_2anos, 0.0) 
+                ELSE 0.0 
+            END AS total_gasto_janela_2anos,
+            CASE 
+                WHEN l.is_lead_primario_paciente THEN COALESCE(v.qtd_itens_vendidos_janela_2anos, 0) 
+                ELSE 0 
+            END AS qtd_itens_vendidos_janela_2anos,
+            CASE 
+                WHEN l.is_lead_primario_paciente THEN COALESCE(v.qtd_pedidos_janela_2anos, 0) 
+                ELSE 0 
+            END AS qtd_pedidos_janela_2anos,
+
+            -- Métrica Vitalícia (LTV Total)
+            CASE 
+                WHEN l.is_lead_primario_paciente THEN COALESCE(v.total_gasto_vitalicio, 0.0) 
+                ELSE 0.0 
+            END AS total_gasto_vitalicio,
+            CASE 
+                WHEN l.is_lead_primario_paciente THEN COALESCE(v.qtd_itens_vendidos_vitalicio, 0) 
+                ELSE 0 
+            END AS qtd_itens_vendidos_vitalicio,
+            CASE 
+                WHEN l.is_lead_primario_paciente THEN COALESCE(v.qtd_pedidos_vitalicio, 0) 
+                ELSE 0 
+            END AS qtd_pedidos_vitalicio,
+
+            -- Receita Total do Prontuário (sempre preenchida, para conferência de casal)
+            COALESCE(v.total_gasto_vitalicio, 0.0) AS total_gasto_compartilhado_familia,
+
             v.primeira_venda_data,
-            date_diff('day', l.lead_from, v.primeira_venda_data) AS dias_ate_primeira_venda
+            date_diff('day', l.primeiro_contato, v.primeira_venda_data) AS dias_ate_primeira_venda,
+            COALESCE(v.vendeu_apos_janela_2anos, FALSE) AS vendeu_apos_janela_2anos,
+
+            -- Status do Ciclo de Inatividade
+            COALESCE(c.consulta_date, l.primeiro_contato) + INTERVAL 2 YEAR AS data_inatividade_limite,
+            CASE 
+                WHEN CURRENT_DATE >= (COALESCE(c.consulta_date, l.primeiro_contato) + INTERVAL 2 YEAR) THEN TRUE
+                ELSE FALSE
+            END AS closed
         FROM tmp_leads_matched l
-        {camp_join}
         LEFT JOIN tmp_consultas c ON l.lead_id = c.lead_id
         LEFT JOIN tmp_vendas v    ON l.lead_id = v.lead_id
     """
     _step(con, "gold.rd_station_leads_funil", query)
 
-    # Backward compatibility view
-    con.execute("CREATE OR REPLACE VIEW gold.leads_funil AS SELECT * FROM gold.rd_station_leads_funil")
+    # Backward compatibility view with legacy aliases
+    con.execute("""
+        CREATE OR REPLACE VIEW gold.leads_funil AS 
+        SELECT 
+            *,
+            primeiro_contato AS lead_from,
+            ultimo_contato AS lead_to,
+            '' AS deal_status,
+            lead_id AS lead_email
+        FROM gold.rd_station_leads_funil
+    """)
 
     # -----------------------------------------------------------------------
     # 10. Audit log
     # -----------------------------------------------------------------------
-    total       = _count(con, 'gold.rd_station_leads_funil')
-    matched     = con.execute("SELECT COUNT(*) FROM gold.rd_station_leads_funil WHERE prontuario IS NOT NULL").fetchone()[0]
-    typos       = con.execute("SELECT COUNT(*) FROM gold.rd_station_leads_funil WHERE matched_flag LIKE '%typo%'").fetchone()[0]
-    consultas   = con.execute("SELECT COUNT(*) FROM gold.rd_station_leads_funil WHERE consulta_date IS NOT NULL").fetchone()[0]
-    with_vendas = con.execute("SELECT COUNT(*) FROM gold.rd_station_leads_funil WHERE total_gasto_pos_lead > 0").fetchone()[0]
-    total_val   = con.execute("SELECT COALESCE(SUM(total_gasto_pos_lead), 0.0) FROM gold.rd_station_leads_funil").fetchone()[0]
-    unmatched   = total - matched
+    total          = _count(con, 'gold.rd_station_leads_funil')
+    matched        = con.execute("SELECT COUNT(*) FROM gold.rd_station_leads_funil WHERE prontuario IS NOT NULL").fetchone()[0]
+    typos          = con.execute("SELECT COUNT(*) FROM gold.rd_station_leads_funil WHERE matched_flag LIKE '%typo%'").fetchone()[0]
+    consultas      = con.execute("SELECT COUNT(*) FROM gold.rd_station_leads_funil WHERE consulta_date IS NOT NULL").fetchone()[0]
+    with_vendas    = con.execute("SELECT COUNT(*) FROM gold.rd_station_leads_funil WHERE total_gasto_pos_lead > 0").fetchone()[0]
+    rev_2anos      = con.execute("SELECT COALESCE(SUM(total_gasto_janela_2anos), 0.0) FROM gold.rd_station_leads_funil").fetchone()[0]
+    rev_vitalicia  = con.execute("SELECT COALESCE(SUM(total_gasto_vitalicio), 0.0) FROM gold.rd_station_leads_funil").fetchone()[0]
+    closed_leads   = con.execute("SELECT COUNT(*) FROM gold.rd_station_leads_funil WHERE closed = TRUE").fetchone()[0]
+    multi_contatos = con.execute("SELECT COUNT(*) FROM gold.rd_station_leads_funil WHERE quantidade_de_contatos > 1").fetchone()[0]
+    secondary_c    = con.execute("SELECT COUNT(*) FROM gold.rd_station_leads_funil WHERE is_lead_primario_paciente = FALSE").fetchone()[0]
+    unmatched      = total - matched
 
     logger.info("=== AUDIT ===")
-    logger.info(f"  Total deals      : {total:,}")
-    logger.info(f"  Matched          : {matched:,} ({matched/total*100:.1f}%)" if total else "  Matched: 0")
-    logger.info(f"  Typos resolved   : {typos:,}")
-    logger.info(f"  Unmatched        : {unmatched:,} ({unmatched/total*100:.1f}%)" if total else "  Unmatched: 0")
-    logger.info(f"  With consulta    : {consultas:,} ({consultas/matched*100:.1f}% of matched)" if matched else "  With consulta: 0")
-    logger.info(f"  With sales (>0)  : {with_vendas:,} ({with_vendas/matched*100:.1f}% of matched)" if matched else "  With sales: 0")
-    logger.info(f"  Total revenue    : R$ {total_val:,.2f}")
-
-    # -----------------------------------------------------------------------
-    # Cleanup temp tables
-    # -----------------------------------------------------------------------
-    for t in [
-        "tmp_rd_deals", "tmp_rd_emails", "tmp_rd_phones",
-        "tmp_clin", "tmp_matches_exact", "tmp_unmatched_emails",
-        "tmp_matches_typo", "tmp_best_match", "tmp_leads_matched", "tmp_consultas",
-        "tmp_vendas"
-    ]:
-        con.execute(f"DROP TABLE IF EXISTS {t}")
+    logger.info(f"  Total unique leads  : {total:,}")
+    logger.info(f"  Leads with >1 deal  : {multi_contatos:,} ({multi_contatos/total*100:.1f}%)" if total else "  Multi deals: 0")
+    logger.info(f"  Secondary leads/casal: {secondary_c:,} (deduplicated from financial sum)")
+    logger.info(f"  Closed (inactive)   : {closed_leads:,} ({closed_leads/total*100:.1f}%)" if total else "  Closed: 0")
+    logger.info(f"  Matched to patient  : {matched:,} ({matched/total*100:.1f}%)" if total else "  Matched: 0")
+    logger.info(f"  Typos resolved      : {typos:,}")
+    logger.info(f"  Unmatched           : {unmatched:,} ({unmatched/total*100:.1f}%)" if total else "  Unmatched: 0")
+    logger.info(f"  With consulta       : {consultas:,} ({consultas/matched*100:.1f}% of matched)" if matched else "  With consulta: 0")
+    logger.info(f"  With sales (>0)     : {with_vendas:,} ({with_vendas/matched*100:.1f}% of matched)" if matched else "  With sales: 0")
+    logger.info(f"  Revenue (2-yr cap)  : R$ {rev_2anos:,.2f}")
+    logger.info(f"  Revenue (Full LTV)  : R$ {rev_vitalicia:,.2f}")
 
     con.execute("DETACH clinisys")
 

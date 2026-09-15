@@ -78,7 +78,7 @@ def get_canonical_name(raw_name: str) -> str:
         (r'^(m_dico.*|medico.*|doctor)$', 'doctor'),
         (r'^(relationship_status|marital_status)$', 'relationship_status'),
         (r'^(source_of_funding|funding)$', 'source_of_funding'),
-        (r'^(weight.*|recipient_weight.*|peso_kg|peso)$', 'weight_kg'),
+        (r'^(weight|weight_kg|recipient_weight.*|peso|peso_kg|weight_4|weight_3)$', 'weight_kg'),
         (r'^(height.*|recipient_height.*|altura)$', 'height_cm'),
         (r'^(age_of_male_partner|man_s_age|idade_espermatozoide)$', 'male_partner_age'),
         (r'^(man_s_date_of_birth)$', 'male_partner_dob'),
@@ -144,21 +144,21 @@ def get_canonical_name(raw_name: str) -> str:
         (r'^(number_of_gestational_sac.*second.*)$', 'gestational_sacs_second_us'),
         (r'^(number_of_newborn.*|no_nascidos)$', 'number_of_newborns'),
         (r'^(date_of_delivery|data_parto)$', 'date_of_delivery'),
-        (r'^(gestat.*age_at_delivery|idd_gestacional)$', 'gestational_age_at_delivery'),
+        (r'^(ge[s]?ta[ct].*age_at_delivery|idd_gestacional)$', 'gestational_age_at_delivery'),
         (r'^(type_of_delivery|tipo_de_parto)$', 'type_of_delivery'),
-        (r'^(baby_1.*weight|baby1_weight|peso_1)$', 'baby_1_weight'),
+        (r'^(baby_1.*weight|baby1_weight|peso_1|weight_4_1|weight_3_1|weight_kg_beb_1)$', 'baby_1_weight'),
         (r'^(baby_1.*viability|baby1_viability)$', 'baby_1_viability'),
         (r'^(baby_1.*abnormality|baby1.*abnormality)$', 'baby_1_congenital_abnormality'),
         (r'^(baby_1.*citogenetic.*|baby1.*citogenetic.*|baby_1.*cytogenetic.*)$', 'baby_1_cytogenetic_study'),
-        (r'^(baby_2.*weight|baby2_weight|peso_2)$', 'baby_2_weight'),
+        (r'^(baby_2.*weight|baby2_weight|peso_2|weight_4_2|weight_3_2|weight_kg_beb_2)$', 'baby_2_weight'),
         (r'^(baby_2.*viability|baby2_viability)$', 'baby_2_viability'),
         (r'^(baby_2.*abnormality|baby2.*abnormality)$', 'baby_2_congenital_abnormality'),
         (r'^(baby_2.*citogenetic.*|baby2.*citogenetic.*|baby_2.*cytogenetic.*)$', 'baby_2_cytogenetic_study'),
-        (r'^(baby_3.*weight|baby3_weight|peso_3)$', 'baby_3_weight'),
+        (r'^(baby_3.*weight|baby3_weight|peso_3|weight_4_3|weight_3_3|weight_kg_beb_3)$', 'baby_3_weight'),
         (r'^(baby_3.*viability|baby3_viability)$', 'baby_3_viability'),
         (r'^(baby_3.*abnormality|baby3.*abnormality)$', 'baby_3_congenital_abnormality'),
         (r'^(baby_3.*citogenetic.*|baby3.*citogenetic.*|baby_3.*cytogenetic.*)$', 'baby_3_cytogenetic_study'),
-        (r'^(baby_4.*weight|baby4_weight|peso_4)$', 'baby_4_weight'),
+        (r'^(baby_4.*weight|baby4_weight|peso_4|weight_4_4)$', 'baby_4_weight'),
         (r'^(baby_4.*viability|baby4_viability)$', 'baby_4_viability'),
         (r'^(baby_4.*abnormality|baby4.*abnormality)$', 'baby_4_congenital_abnormality'),
         (r'^(baby_4.*citogenetic.*|baby4.*citogenetic.*|baby_4.*cytogenetic.*)$', 'baby_4_cytogenetic_study'),
@@ -220,6 +220,25 @@ def build_chart_pin_cast_sql(col_expr: str) -> str:
     END
     """
 
+def build_baby_weight_cast_sql(col_expr: str) -> str:
+    """Cleans baby weight, converting kg to grams (< 10) and fixing x10 typos (> 10000)."""
+    s_expr = f"CAST({col_expr} AS VARCHAR)"
+    cleaned = f"NULLIF(TRIM(REPLACE(REPLACE({s_expr}, ',', '.'), ' ', '')), '')"
+    val = f"TRY_CAST({cleaned} AS DOUBLE)"
+    return f"""
+    CASE 
+        WHEN {col_expr} IS NULL OR TRIM({s_expr}) IN ('', '\\\\', '-', 'nan', 'None', '<NA>', 'null', 'NULL') THEN NULL
+        WHEN {val} IS NOT NULL THEN
+            CASE 
+                WHEN {val} > 0.0 AND {val} < 10.0 THEN {val} * 1000.0
+                WHEN {val} > 10000.0 THEN {val} / 10.0
+                WHEN {val} >= 10.0 THEN {val}
+                ELSE NULL
+            END
+        ELSE NULL
+    END
+    """
+
 
 def get_column_data_type(canonical_col: str) -> str:
     """Determines target data type category for a canonical column."""
@@ -236,12 +255,13 @@ def get_column_data_type(canonical_col: str) -> str:
         'oocytes_thawed', 'oocytes_survived', 'embryos_thawed', 'embryos_survived',
         'straws_vials_cryopreserved', 'number_of_embryos_transferred', 'day_of_transfer',
         'gestational_sacs_first_us', 'gestational_sacs_second_us', 'number_of_newborns',
-        'male_partner_age', 'donor_age', 'gestational_age_at_delivery', 'line_number', 'year'
+        'male_partner_age', 'donor_age', 'line_number', 'year'
     ] or canonical_col.endswith('_count'):
         return 'BIGINT'
         
     if canonical_col in [
         'weight_kg', 'height_cm', 'fsh_total_dose', 'lh_total_dose',
+        'gestational_age_at_delivery',
         'baby_1_weight', 'baby_2_weight', 'baby_3_weight', 'baby_4_weight'
     ]:
         return 'DOUBLE'
@@ -333,6 +353,8 @@ def transform_stream(conn: duckdb.DuckDBPyConnection, stream: str):
                 src_col = raw_sources[0]
                 if col_name == 'chart_or_pin':
                     cast_sql = build_chart_pin_cast_sql(f'"{src_col}"')
+                elif col_name.startswith('baby_') and col_name.endswith('_weight'):
+                    cast_sql = build_baby_weight_cast_sql(f'"{src_col}"')
                 elif col_type == 'DATE':
                     cast_sql = build_date_cast_sql(f'"{src_col}"')
                 elif col_type == 'BIGINT':
@@ -344,10 +366,14 @@ def transform_stream(conn: duckdb.DuckDBPyConnection, stream: str):
                 select_exprs.append(f"{cast_sql} AS \"{col_name}\"")
             else:
                 # Coalesce multiple raw sources matching the same canonical column
+                # Prioritize standard 'baby_' columns over fallback 'weight_' columns if both exist
+                sorted_sources = sorted(raw_sources, key=lambda x: (0 if 'baby' in x.lower() else 1, x))
                 coalesce_terms = []
-                for src_col in raw_sources:
+                for src_col in sorted_sources:
                     if col_name == 'chart_or_pin':
                         cast_sql = build_chart_pin_cast_sql(f'"{src_col}"')
+                    elif col_name.startswith('baby_') and col_name.endswith('_weight'):
+                        cast_sql = build_baby_weight_cast_sql(f'"{src_col}"')
                     elif col_type == 'DATE':
                         cast_sql = build_date_cast_sql(f'"{src_col}"')
                     elif col_type == 'BIGINT':
