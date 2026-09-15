@@ -112,10 +112,10 @@ def read_sheet_safely(file_path: Path, sheet_name: str):
     header_idx = None
     
     for r_idx, row in enumerate(ws.iter_rows(values_only=True)):
-        vals = [c for c in row if c is not None and str(c).strip() != '']
+        vals = [c for c in row if c is not None and str(c).strip() not in ('', '\\', '-', 'nan', 'None')]
         if not vals:
             consecutive_empty += 1
-            if header_idx is not None and consecutive_empty > 30:
+            if header_idx is not None and consecutive_empty > 60:
                 break
             continue
             
@@ -162,7 +162,7 @@ def read_sheet_safely(file_path: Path, sheet_name: str):
             r = list(r[:len(headers)])
             
         # Check if row has any non-empty value
-        if any(c is not None and str(c).strip() != '' for c in r):
+        if any(c is not None and str(c).strip() not in ('', '\\', '-', 'nan', 'None') for c in r):
             cleaned_rows.append(r)
             
     if not cleaned_rows:

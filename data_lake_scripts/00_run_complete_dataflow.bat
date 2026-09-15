@@ -232,22 +232,22 @@ if %errorlevel% neq 0 (
 )
 cd /d "%PROJECT_ROOT%"
 
-echo.
-echo ========================================
-echo STEP 10: Running Protheus Ingestion Pipeline
-echo ========================================
-if not exist "protheus\01_ingestion\00_run_dataflow_protheus.bat" (
-    echo ERROR: Cannot find protheus\01_ingestion\00_run_dataflow_protheus.bat
-    echo Current directory: %CD%
-    @REM pause (removed for automated execution)
-    exit /b 1
-)
-call "protheus\01_ingestion\00_run_dataflow_protheus.bat" 10
-if %errorlevel% neq 0 (
-    echo ERROR: Step 10 failed
-    set "FAILED_STEPS=%FAILED_STEPS% 10"
-)
-cd /d "%PROJECT_ROOT%"
+@REM echo.
+@REM echo ========================================
+@REM echo STEP 10: Running Protheus Ingestion Pipeline
+@REM echo ========================================
+@REM if not exist "protheus\01_ingestion\00_run_dataflow_protheus.bat" (
+@REM     echo ERROR: Cannot find protheus\01_ingestion\00_run_dataflow_protheus.bat
+@REM     echo Current directory: %CD%
+@REM     @REM pause (removed for automated execution)
+@REM     exit /b 1
+@REM )
+@REM call "protheus\01_ingestion\00_run_dataflow_protheus.bat" 10
+@REM if %errorlevel% neq 0 (
+@REM     echo ERROR: Step 10 failed
+@REM     set "FAILED_STEPS=%FAILED_STEPS% 10"
+@REM )
+@REM cd /d "%PROJECT_ROOT%"
 
 echo.
 echo.

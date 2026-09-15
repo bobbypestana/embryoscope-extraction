@@ -113,7 +113,9 @@ def get_canonical_name(raw_name: str) -> str:
         (r'^(luteal_phase|lutheal_fase)$', 'luteal_phase'),
         
         # Laboratory & Embryology
-        (r'^(number_of_oocytes_retrieved|opu)$', 'oocytes_retrieved'),
+        (r'^(number_of_oocytes_retr.*|opu|oocytes_retrieved)$', 'number_of_oocytes_retrieved'),
+        (r'^(number_of_oocytes_inseminated.*|iseminated_oocytes|.*ovulos_inseminados.*)$', 'number_of_oocytes_inseminated'),
+        (r'^(number_of_oocytes_fertilized|number_of_fertilized_oocytes)$', 'number_of_oocytes_fertilized'),
         (r'^(number_of_mature_oocytes_mii|total_de_mii|mii)$', 'mature_oocytes_mii'),
         (r'^(number_of_immature_oocytes_mi)$', 'immature_oocytes_mi'),
         (r'^(number_of_germinal_vesicle_gv)$', 'germinal_vesicle_gv'),
@@ -207,6 +209,18 @@ def build_string_cast_sql(col_expr: str) -> str:
     END
     """
 
+def build_chart_pin_cast_sql(col_expr: str) -> str:
+    """Cleans chart/PIN, converting artifacts to NULL and stripping floating-point .0 suffixes."""
+    s_expr = f"CAST({col_expr} AS VARCHAR)"
+    return f"""
+    CASE 
+        WHEN {col_expr} IS NULL OR TRIM({s_expr}) IN ('', '\\\\', '-', 'nan', 'None', '<NA>', 'null', 'NULL') THEN NULL
+        WHEN TRIM({s_expr}) LIKE '%.0' THEN SUBSTRING(TRIM({s_expr}), 1, LENGTH(TRIM({s_expr})) - 2)
+        ELSE TRIM({s_expr})
+    END
+    """
+
+
 def get_column_data_type(canonical_col: str) -> str:
     """Determines target data type category for a canonical column."""
     if canonical_col in [
@@ -216,6 +230,7 @@ def get_column_data_type(canonical_col: str) -> str:
         return 'DATE'
         
     if canonical_col in [
+        'number_of_oocytes_retrieved', 'number_of_oocytes_inseminated', 'number_of_oocytes_fertilized',
         'oocytes_retrieved', 'mature_oocytes_mii', 'immature_oocytes_mi', 'germinal_vesicle_gv',
         'fertilized_2pn', 'cleaved_embryos', 'blastocysts_total', 'pgt_biopsied', 'pgt_normal',
         'oocytes_thawed', 'oocytes_survived', 'embryos_thawed', 'embryos_survived',
@@ -316,7 +331,9 @@ def transform_stream(conn: duckdb.DuckDBPyConnection, stream: str):
                 select_exprs.append(f"CAST(NULL AS {col_type}) AS \"{col_name}\"")
             elif len(raw_sources) == 1:
                 src_col = raw_sources[0]
-                if col_type == 'DATE':
+                if col_name == 'chart_or_pin':
+                    cast_sql = build_chart_pin_cast_sql(f'"{src_col}"')
+                elif col_type == 'DATE':
                     cast_sql = build_date_cast_sql(f'"{src_col}"')
                 elif col_type == 'BIGINT':
                     cast_sql = build_numeric_cast_sql(f'"{src_col}"', is_integer=True)
@@ -329,7 +346,9 @@ def transform_stream(conn: duckdb.DuckDBPyConnection, stream: str):
                 # Coalesce multiple raw sources matching the same canonical column
                 coalesce_terms = []
                 for src_col in raw_sources:
-                    if col_type == 'DATE':
+                    if col_name == 'chart_or_pin':
+                        cast_sql = build_chart_pin_cast_sql(f'"{src_col}"')
+                    elif col_type == 'DATE':
                         cast_sql = build_date_cast_sql(f'"{src_col}"')
                     elif col_type == 'BIGINT':
                         cast_sql = build_numeric_cast_sql(f'"{src_col}"', is_integer=True)
@@ -378,7 +397,11 @@ def transform_stream(conn: duckdb.DuckDBPyConnection, stream: str):
                      OR UPPER(TRIM(COALESCE({outcome_expr}, ''))) LIKE '%CLINICAL PREGNANCY%'
                      OR UPPER(TRIM(COALESCE({outcome_type_expr}, ''))) LIKE '%ECTOPIC%'
                      OR UPPER(TRIM(COALESCE({outcome_expr}, ''))) LIKE '%ECTOPIC%'
-                     OR UPPER(TRIM(COALESCE({outcome_expr}, ''))) IN ('POSITIVO')
+                     OR (
+                         UPPER(TRIM(COALESCE({outcome_expr}, ''))) IN ('POSITIVO')
+                         AND UPPER(TRIM(COALESCE({outcome_type_expr}, ''))) NOT LIKE '%BIOCHEMICAL%'
+                         AND UPPER(TRIM(COALESCE({outcome_type_expr}, ''))) NOT LIKE '%NO PREGNANCY%'
+                     )
                 THEN '1'
                 
                 WHEN (
@@ -436,6 +459,7 @@ def transform_stream(conn: duckdb.DuckDBPyConnection, stream: str):
         FROM unified_raw
     )
     SELECT * FROM with_derivations
+    WHERE chart_or_pin IS NOT NULL OR patient_name IS NOT NULL
     """
     
     target_table = f"silver.redlara_{stream}"
@@ -448,26 +472,35 @@ def transform_stream(conn: duckdb.DuckDBPyConnection, stream: str):
     
     # 5. Run Strategy L Prontuario Matching
     if CLINISYS_PATH.exists():
-        logger.info(f"Running Strategy L Prontuario matching on {target_table}...")
-        try:
-            df_matches = find_prontuarios(
-                source_con=conn,
-                clinisys_db_path=str(CLINISYS_PATH),
-                source_schema='silver',
-                source_table=f'redlara_{stream}',
-                id_col='chart_or_pin',
-                name_col='patient_name' if 'patient_name' in ordered_canonical else None,
-                birthdate_col='date_of_birth' if 'date_of_birth' in ordered_canonical else None,
-                cpf_col=None,
-                label=f'redlara_{stream}',
-                suffix=''
-            )
-            total = len(df_matches)
-            matched = int((df_matches['prontuario'] != -1).sum()) if 'prontuario' in df_matches.columns else 0
-            rate = matched / total * 100 if total else 0.0
-            logger.info(f"  Prontuario matching for {target_table}: {matched:,} / {total:,} ({rate:.2f}%)")
-        except Exception as e:
-            logger.error(f"  Error in prontuario matching for {target_table}: {e}", exc_info=True)
+        import time
+        max_matching_retries = 5
+        matching_delay = 3.0
+        for m_attempt in range(1, max_matching_retries + 1):
+            try:
+                df_matches = find_prontuarios(
+                    source_con=conn,
+                    clinisys_db_path=str(CLINISYS_PATH),
+                    source_schema='silver',
+                    source_table=f'redlara_{stream}',
+                    id_col='chart_or_pin',
+                    name_col='patient_name' if 'patient_name' in ordered_canonical else None,
+                    birthdate_col='date_of_birth' if 'date_of_birth' in ordered_canonical else None,
+                    cpf_col=None,
+                    label=f'redlara_{stream}',
+                    suffix=''
+                )
+                total = len(df_matches)
+                matched = int((df_matches['prontuario'] != -1).sum()) if 'prontuario' in df_matches.columns else 0
+                rate = matched / total * 100 if total else 0.0
+                logger.info(f"  Prontuario matching for {target_table}: {matched:,} / {total:,} ({rate:.2f}%)")
+                break
+            except Exception as e:
+                if m_attempt < max_matching_retries and "used by another process" in str(e).lower():
+                    logger.warning(f"  Clinisys DB locked on attempt {m_attempt}. Retrying in {matching_delay}s...")
+                    time.sleep(matching_delay)
+                else:
+                    logger.error(f"  Error in prontuario matching for {target_table}: {e}", exc_info=True)
+                    raise
     else:
         logger.warning(f"Clinisys DB not found at {CLINISYS_PATH}. Skipping prontuario matching.")
         

@@ -379,7 +379,7 @@ def create_gold_pedidos_a_faturar_table(con):
             -- Company 03 (Campinas)
             WHEN p.company_id = '03' AND p.C5_FILIAL = '030101' THEN 'Campinas'
             -- Company 06 (Pro Fiv / Santa Joana)
-            WHEN p.company_id = '06' AND p.C5_FILIAL = '060101' THEN 'Pro Fiv'
+            WHEN p.company_id = '06' AND p.C5_FILIAL = '060101' THEN 'ProFIV'
             -- Company 05 (Belo Horizonte - legacy / Huntington)
             WHEN p.company_id = '05' AND p.C5_FILIAL = '0101' THEN 'Belo Horizonte'
             -- Company 07 (Salvador - Cenafert / FIV Brasilia)
@@ -588,20 +588,13 @@ def create_gold_vendas_consolidadas_table(con):
             instance_id,
             company_id,
             L1_FILIAL, 
-            NULLIF(TRIM(L1_PEDRES), '') as pedido
+            COALESCE(NULLIF(TRIM(L1_PEDRES), ''), NULLIF(TRIM(L2_PEDRES), '')) as pedido
         FROM silver.venda_direta 
         WHERE is_deleted = FALSE AND (L1_SITUA IS NULL OR L1_SITUA NOT IN ('FR', 'CA'))
-          AND L1_PEDRES IS NOT NULL AND TRIM(L1_PEDRES) != ''
-    ),
-    vd_orc_exists AS (
-        SELECT DISTINCT 
-            instance_id,
-            company_id,
-            L1_FILIAL, 
-            COALESCE(NULLIF(TRIM(L1_NUM), ''), NULLIF(TRIM(L1_ORCRES), '')) as orcamento
-        FROM silver.venda_direta 
-        WHERE is_deleted = FALSE AND (L1_SITUA IS NULL OR L1_SITUA NOT IN ('FR', 'CA'))
-          AND COALESCE(NULLIF(TRIM(L1_NUM), ''), NULLIF(TRIM(L1_ORCRES), '')) IS NOT NULL
+          AND (
+              (L1_PEDRES IS NOT NULL AND TRIM(L1_PEDRES) != '')
+              OR (L2_PEDRES IS NOT NULL AND TRIM(L2_PEDRES) != '')
+          )
     ),
     ped_invoices AS (
         SELECT DISTINCT 
@@ -634,7 +627,7 @@ def create_gold_vendas_consolidadas_table(con):
                 WHEN v.company_id = '01' AND v.L1_FILIAL IN ('010101', '010150') THEN 'Ibirapuera'
                 WHEN v.company_id = '01' AND v.L1_FILIAL IN ('010155', '010104', '010106') THEN 'Vila Mariana'
                 WHEN v.company_id = '03' AND v.L1_FILIAL = '030101' THEN 'Campinas'
-                WHEN v.company_id = '06' AND v.L1_FILIAL = '060101' THEN 'Pro Fiv'
+                WHEN v.company_id = '06' AND v.L1_FILIAL = '060101' THEN 'ProFIV'
                 WHEN v.company_id = '05' AND v.L1_FILIAL = '0101' THEN 'Belo Horizonte'
                 WHEN v.company_id = '07' AND v.L1_FILIAL IN ('010101', '020101') THEN 'Salvador - Cenafert'
                 WHEN v.company_id = '07' AND v.L1_FILIAL IN ('030101') THEN 'FIV Brasilia'
@@ -647,34 +640,36 @@ def create_gold_vendas_consolidadas_table(con):
             COALESCE(NULLIF(TRIM(v.L1_PEDRES), ''), NULLIF(TRIM(v.L2_PEDRES), '')) AS pedido,
             p_dt.dt_pedido AS dt_pedido,
             CASE 
-                WHEN v.L1_PEDRES IS NOT NULL AND TRIM(v.L1_PEDRES) != '' THEN pn.num_nota
+                WHEN COALESCE(NULLIF(TRIM(v.L1_PEDRES), ''), NULLIF(TRIM(v.L2_PEDRES), '')) IS NOT NULL THEN pn.num_nota
                 ELSE COALESCE(NULLIF(TRIM(v.L2_DOC), ''), NULLIF(TRIM(vn.F2_DOC), ''), NULLIF(TRIM(v.L1_DOC), ''))
             END AS num_nota,
             CASE 
-                WHEN v.L1_PEDRES IS NOT NULL AND TRIM(v.L1_PEDRES) != '' THEN pn.serie_nota
+                WHEN COALESCE(NULLIF(TRIM(v.L1_PEDRES), ''), NULLIF(TRIM(v.L2_PEDRES), '')) IS NOT NULL THEN pn.serie_nota
                 ELSE COALESCE(v.L2_SERIE, vn.F2_SERIE, v.L1_SERIE)
             END AS serie_nota,
             CASE 
-                WHEN v.L1_PEDRES IS NOT NULL AND TRIM(v.L1_PEDRES) != '' THEN pn.dt_nota
+                WHEN COALESCE(NULLIF(TRIM(v.L1_PEDRES), ''), NULLIF(TRIM(v.L2_PEDRES), '')) IS NOT NULL THEN pn.dt_nota
                 ELSE vn.dt_nota
             END AS dt_nota,
             COALESCE(prod.B1_DESC, v.L2_DESCRI) AS descricao_produto,
             TRY_CAST(v.L2_VLRITEM AS DOUBLE) AS valor_total,
-            CAST(v.L1_EMISSAO AS TIMESTAMP) AS dt_emissao,
+            COALESCE(
+                p_dt.dt_pedido,
+                CASE 
+                    WHEN COALESCE(NULLIF(TRIM(v.L1_PEDRES), ''), NULLIF(TRIM(v.L2_PEDRES), '')) IS NOT NULL THEN pn.dt_nota 
+                    ELSE vn.dt_nota 
+                END,
+                CAST(v.L1_EMISSAO AS TIMESTAMP)
+            ) AS dt_emissao,
             CASE 
-                WHEN (v.L1_PEDRES IS NOT NULL AND TRIM(v.L1_PEDRES) != '') AND pn.num_nota IS NOT NULL 
+                WHEN COALESCE(NULLIF(TRIM(v.L1_PEDRES), ''), NULLIF(TRIM(v.L2_PEDRES), '')) IS NOT NULL 
+                     AND pn.num_nota IS NOT NULL 
                 THEN 'FATURADO_VIA_PEDIDO'
                 
-                WHEN (v.L1_PEDRES IS NOT NULL AND TRIM(v.L1_PEDRES) != '') 
+                WHEN COALESCE(NULLIF(TRIM(v.L1_PEDRES), ''), NULLIF(TRIM(v.L2_PEDRES), '')) IS NOT NULL 
                 THEN 'PEDIDO_A_FATURAR'
                 
-                WHEN COALESCE(NULLIF(TRIM(v.L2_DOC), ''), NULLIF(TRIM(vn.F2_DOC), ''), NULLIF(TRIM(v.L1_DOC), '')) IS NOT NULL 
-                THEN 'FATURADO_DIRETO'
-                
-                WHEN v.L1_SITUA = 'FR' 
-                THEN 'ORCAMENTO_FECHADO'
-                
-                ELSE 'ORCAMENTO_ABERTO'
+                ELSE 'FATURADO_DIRETO'
             END AS status_fluxo,
             COALESCE(NULLIF(TRIM(c_cli.A1_CODMS), ''), NULLIF(TRIM(c_cli.A1_COD), ''), NULLIF(TRIM(v.L1_CLIENTE), '')) AS cliente_id,
             c_cli.A1_NOME AS nome_cliente,
@@ -713,8 +708,8 @@ def create_gold_vendas_consolidadas_table(con):
             v.L1_CONDPG AS condicao_pagamento,
             v.L1_OPERADO AS operador,
             COALESCE(c_cli.A1_CGC, v.L1_CPFPACI) AS cpf,
-            YEAR(v.L1_EMISSAO) AS ano,
-            MONTH(v.L1_EMISSAO) AS mes,
+            YEAR(COALESCE(p_dt.dt_pedido, CASE WHEN COALESCE(NULLIF(TRIM(v.L1_PEDRES), ''), NULLIF(TRIM(v.L2_PEDRES), '')) IS NOT NULL THEN pn.dt_nota ELSE vn.dt_nota END, CAST(v.L1_EMISSAO AS TIMESTAMP))) AS ano,
+            MONTH(COALESCE(p_dt.dt_pedido, CASE WHEN COALESCE(NULLIF(TRIM(v.L1_PEDRES), ''), NULLIF(TRIM(v.L2_PEDRES), '')) IS NOT NULL THEN pn.dt_nota ELSE vn.dt_nota END, CAST(v.L1_EMISSAO AS TIMESTAMP))) AS mes,
             'VENDA_DIRETA' AS origem,
             v.extraction_timestamp AS extraction_timestamp,
             v.instance_id AS instance_id
@@ -723,17 +718,17 @@ def create_gold_vendas_consolidadas_table(con):
           ON v.instance_id = inv.instance_id
          AND v.company_id = inv.company_id 
          AND v.L1_FILIAL = inv.C5_FILIAL 
-         AND v.L1_PEDRES = inv.C5_NUM
+         AND COALESCE(NULLIF(TRIM(v.L1_PEDRES), ''), NULLIF(TRIM(v.L2_PEDRES), '')) = inv.C5_NUM
         LEFT JOIN ped_dates p_dt
           ON v.instance_id = p_dt.instance_id
          AND v.company_id = p_dt.company_id
          AND v.L1_FILIAL = p_dt.C5_FILIAL
-         AND v.L1_PEDRES = p_dt.C5_NUM
+         AND COALESCE(NULLIF(TRIM(v.L1_PEDRES), ''), NULLIF(TRIM(v.L2_PEDRES), '')) = p_dt.C5_NUM
         LEFT JOIN ped_item_nota pn
           ON v.instance_id = pn.instance_id
          AND v.company_id = pn.company_id
          AND v.L1_FILIAL = pn.F2_FILIAL
-         AND v.L1_PEDRES = pn.D2_PEDIDO
+         AND COALESCE(NULLIF(TRIM(v.L1_PEDRES), ''), NULLIF(TRIM(v.L2_PEDRES), '')) = pn.D2_PEDIDO
          AND v.L2_ITEM = pn.D2_ITEMPV
          AND v.L2_PRODUTO = pn.D2_COD
          AND pn.rn = 1
@@ -765,6 +760,13 @@ def create_gold_vendas_consolidadas_table(con):
            AND COALESCE(NULLIF(TRIM(c_cli.A1_CODMS), ''), NULLIF(TRIM(c_cli.A1_COD), ''), NULLIF(TRIM(v.L1_CLIENTE), '')) = cw_cli.entity_id
         WHERE v.is_deleted = FALSE
           AND (v.L1_SITUA IS NULL OR v.L1_SITUA NOT IN ('FR', 'CA'))
+          AND (
+              (v.L1_PEDRES IS NOT NULL AND TRIM(v.L1_PEDRES) != '')
+              OR (v.L2_PEDRES IS NOT NULL AND TRIM(v.L2_PEDRES) != '')
+              OR (v.L1_DOC IS NOT NULL AND TRIM(v.L1_DOC) != '')
+              OR (v.L2_DOC IS NOT NULL AND TRIM(v.L2_DOC) != '')
+              OR (vn.F2_DOC IS NOT NULL AND TRIM(vn.F2_DOC) != '')
+          )
     ),
     pedidos_direct_rows AS (
         SELECT 
@@ -842,13 +844,7 @@ def create_gold_vendas_consolidadas_table(con):
            AND p.company_id = vd_ped.company_id
            AND p.filial = vd_ped.L1_FILIAL 
            AND p.pedido = vd_ped.pedido
-        LEFT JOIN vd_orc_exists vd_orc
-            ON p.instance_id = vd_orc.instance_id
-           AND p.company_id = vd_orc.company_id
-           AND p.filial = vd_orc.L1_FILIAL 
-           AND p.orcamento = vd_orc.orcamento
         WHERE vd_ped.pedido IS NULL
-          AND vd_orc.orcamento IS NULL
     ),
     direct_notas_rows AS (
         SELECT
@@ -864,7 +860,7 @@ def create_gold_vendas_consolidadas_table(con):
                 WHEN n.company_id = '01' AND n.F2_FILIAL IN ('010101', '010150') THEN 'Ibirapuera'
                 WHEN n.company_id = '01' AND n.F2_FILIAL IN ('010155', '010104', '010106') THEN 'Vila Mariana'
                 WHEN n.company_id = '03' AND n.F2_FILIAL = '030101' THEN 'Campinas'
-                WHEN n.company_id = '06' AND n.F2_FILIAL = '060101' THEN 'Pro Fiv'
+                WHEN n.company_id = '06' AND n.F2_FILIAL = '060101' THEN 'ProFIV'
                 WHEN n.company_id = '05' AND n.F2_FILIAL = '0101' THEN 'Belo Horizonte'
                 WHEN n.company_id = '07' AND n.F2_FILIAL IN ('010101', '020101') THEN 'Salvador - Cenafert'
                 WHEN n.company_id = '07' AND n.F2_FILIAL IN ('030101') THEN 'FIV Brasilia'
